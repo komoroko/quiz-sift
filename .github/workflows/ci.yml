@@ -20,8 +20,8 @@ jobs:
 
       - run: uv python install 3.13
       - run: uv sync
-      - run: uv run ruff check src
-      - run: uv run ruff format --check src
-      - run: uv run mypy src
-      - run: uv run pytest -q src
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - run: uv run pytest -q
       - run: uv run mkdocs build --strict

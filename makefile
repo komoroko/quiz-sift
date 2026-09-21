@@ -9,14 +9,14 @@ sync:
 	uv sync
 
 lint:
-	uv run ruff check src
-	uv run ruff format --check src
+	uv run ruff check .
+	uv run ruff format --check .
 
 types:
-	uv run mypy src
+	uv run mypy .
 
 test:
-	uv run pytest -q src
+	uv run pytest -q
 
 docs:
 	uv run mkdocs build --strict

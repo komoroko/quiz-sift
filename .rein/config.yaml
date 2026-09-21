@@ -164,29 +164,31 @@ agents:
 # image with `dockerfile:` (see `executor_profiles` above) and put the real commands here.
 quality_gate:
   # D-019 / NFR-5。ツールはサンドボックスイメージに焼き込まれている(.rein/oci/quiz-sift/Containerfile)。
+  # 対象パスを固定で並べないのは、src/ が guard.paths のため mandate 承認後にしか生えないから。
+  # 除外は pyproject.toml 側に書いてある。
   # pre-commit はここに無い: フックを GitHub から clone するため network_profile: none では動かない。
   # 同じ検査を ruff と mypy の直接実行として置いてある。
   - name: lint
     kind: command
-    command: [ruff, check, src]
+    command: [ruff, check, "."]
     executor_profile: quality
     retries: 2
     required: true
   - name: format
     kind: command
-    command: [ruff, format, --check, src]
+    command: [ruff, format, --check, "."]
     executor_profile: quality
     retries: 2
     required: true
   - name: types
     kind: command
-    command: [mypy, src]
+    command: [mypy, "."]
     executor_profile: quality
     retries: 2
     required: true
   - name: test
     kind: command
-    command: [pytest, -q, src]
+    command: [pytest, -q]
     executor_profile: quality
     retries: 2
     required: true

@@ -12,7 +12,7 @@ dependencies = []
 exclude-newer = "1 week"
 
 [tool.ruff]
-exclude = [".git", ".mypy_cache", ".venv", "third_party", ".worktrees"]
+exclude = [".git", ".mypy_cache", ".venv", "third_party", ".worktrees", "site", ".rein"]
 line-length = 120
 target-version = "py313"
 
@@ -27,11 +27,17 @@ line-ending = "auto"
 
 [tool.mypy]
 strict = true
+# src/ はまだ存在しない(guard.paths のため mandate 承認後に作る)。パスを列挙すると
+# 不在で落ちるので、除外側で絞る。
+exclude = ["^site/", "^\\.rein/", "^\\.venv/", "^\\.worktrees/"]
 ignore_missing_imports = true
 warn_unused_ignores = false
 
 [tool.pytest.ini_options]
-testpaths = ["src"]
+# テストは tests/ に置く。src/ は .rein/config.yaml の guard.paths に含まれ、mandate が
+# 承認されるまで書き込めない。PyProjectTemplate は src/ にテストを同居させるが、
+# Loose Rein のガード規則が優先する。
+testpaths = ["tests"]
 # src レイアウトのまま、インストールせずに import できるようにする。
 # 品質ゲートは worktree をそのまま /work にマウントして走るため、ここに頼る。
 pythonpath = ["src"]
