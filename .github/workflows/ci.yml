@@ -1,0 +1,27 @@
+# NFR-5: この run ステップのコマンド列と同一のものが、品質ゲート上でローカルに green になる。
+# 実 CI 上での green はサイクル1のスコープ外(要件の Out of scope を参照)。
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.13
+      - run: uv sync
+      - run: uv run ruff check src
+      - run: uv run ruff format --check src
+      - run: uv run mypy src
+      - run: uv run pytest -q src
+      - run: uv run mkdocs build --strict

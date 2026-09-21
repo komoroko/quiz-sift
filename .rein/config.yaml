@@ -98,9 +98,9 @@ executors:
 executor_profiles:
   quality:
     kind: oci
-    image: localhost/rein-python@sha256:a72150c4db6fefe08d2162ebcfc387131b754b87e888697b6c5546c1cb17b98e
+    image: localhost/rein-quality@sha256:0d4ead2f33c66d647d389f0c58f328f11eb26c6dfc19b17e494f95d921f1a008
     network_profile: none
-    containerfile: python
+    dockerfile: .rein/oci/quiz-sift/Containerfile
     # kind: oci
     # image: localhost/rein-python@sha256:<rein oci build prints this>
     # network_profile: none
@@ -163,26 +163,46 @@ agents:
 # moment you want a linter, a type checker, or a dependency closure, point the profile at your own
 # image with `dockerfile:` (see `executor_profiles` above) and put the real commands here.
 quality_gate:
-  - name: test
+  # D-019 / NFR-5。ツールはサンドボックスイメージに焼き込まれている(.rein/oci/quiz-sift/Containerfile)。
+  # pre-commit はここに無い: フックを GitHub から clone するため network_profile: none では動かない。
+  # 同じ検査を ruff と mypy の直接実行として置いてある。
+  - name: lint
     kind: command
-    command: [python, -m, pytest, -q, tests/]
+    command: [ruff, check, src]
     executor_profile: quality
     retries: 2
     required: true
-  - name: check
+  - name: format
     kind: command
-    command: [python, -m, compileall, -q, .]
+    command: [ruff, format, --check, src]
     executor_profile: quality
     retries: 2
+    required: true
+  - name: types
+    kind: command
+    command: [mypy, src]
+    executor_profile: quality
+    retries: 2
+    required: true
+  - name: test
+    kind: command
+    command: [pytest, -q, src]
+    executor_profile: quality
+    retries: 2
+    required: true
+  - name: docs
+    kind: command
+    command: [mkdocs, build, --strict]
+    executor_profile: quality
+    retries: 1
     required: true
   - name: review
     kind: agent
     agent_role: code_reviewer
     retries: 1
     required: true
-  # A minimal real-launch check. Replace `command` as soon as any entry point launches —
-  # tests stay green while the launch path is broken — then set `required: true`.
-  # (Quoted: unquoted `true` in YAML is the boolean, not the /bin/true command.)
+  # CLI の入口が決まり次第 /design で実コマンドに差し替え、required: true にする。
+  # config.yaml は mandate で凍結されるので、その差し替えは承認前に行う。
   - name: smoke
     kind: command
     command: ["true"]

@@ -189,7 +189,8 @@ Priority(Must / Should / Could)は **実装の着手順序** を表し、未達�
 ### NFR-6: 品質ゲートのネットワーク非依存
 - **Criterion (measurable)**: 品質ゲートのコマンドステップが、ネットワーク接続なし(`.rein/config.yaml` の `quality` プロファイルは `network_profile: none`)で成功する。外部 API はテスト内で代替される。
 - **How verified**: サンドボックス内での品質ゲート実行が green であること。
-- **前提**: NFR-5 が挙げるツール一式(uv・ruff・mypy・pytest・pre-commit・mkdocs)と、本プロジェクトの依存が解決済みの状態で、`quality` プロファイルのイメージに焼き込まれている必要がある。現行のダイジェスト固定イメージが満たすかは未検証で、`/tasks` の `rein baseline measure` で実測する(AR-15)。
+- **前提(2026-09-22 に実測済み、AR-15 は解消)**: 配布時の `rein-python` イメージは pytest と uv しか持たず、ruff・mypy・pre-commit・mkdocs をいずれも欠いていた。プロジェクト所有の `.rein/oci/quiz-sift/Containerfile` を作って ruff 0.15.16 / mypy 2.1.0 / mkdocs 1.6.1 を焼き込み、`quality` プロファイルのダイジェストを再ピンした。ネットワーク遮断下で5ステップすべてが green であることを確認済み。
+- **`pre-commit` は品質ゲートに入れない**: フックを GitHub から clone するため `network_profile: none` では動作しない。同じ検査を ruff と mypy の直接実行としてゲートに置き、`pre-commit` はホストのコミット時と CI に任せる。
 
 ### NFR-7: 処理コストと所要時間の可視化
 - **Criterion (measurable)**: 100〜200問の1回のフル処理について、経過時間・外部 API 呼び出し回数・推定コストの3項目が実行ごとに記録される。**推定コストはモデル別の単価と入出力トークン数を根拠として記録し、算出根拠がログから追跡できる**。上限値は初回実測後に設定する。

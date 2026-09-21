@@ -1,0 +1,48 @@
+[project]
+name = "quiz-sift"
+version = "0.1.0"
+description = "4択問題集を、耳だけでも効率的に学習できる形へ AI で変換する"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[tool.uv]
+# アップロードから1週間以内の新しいバージョンはインストール対象から除外する。
+# 公開直後のリリース(供給網リスク・初期不具合)を避けるためのクールダウン。
+exclude-newer = "1 week"
+
+[tool.ruff]
+exclude = [".git", ".mypy_cache", ".venv", "third_party", ".worktrees"]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+unfixable = []
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+# src レイアウトのまま、インストールせずに import できるようにする。
+# 品質ゲートは worktree をそのまま /work にマウントして走るため、ここに頼る。
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+    "mypy>=2.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]

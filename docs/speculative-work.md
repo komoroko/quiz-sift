@@ -15,7 +15,9 @@ that decision is a human's: `rein next` / `/status` names the rows still blank, 
 
 | Phase | What was done | Premised on | Adopt? (human) |
 |---|---|---|---|
-| | | | |
+| mandate | 品質ゲートのサンドボックスイメージを、プロジェクト所有の `.rein/oci/quiz-sift/Containerfile` として作り直した(ruff 0.15.16 / mypy 2.1.0 / mkdocs 1.6.1 を追加)。`config.yaml` の `quality` プロファイルを `containerfile: python` から `dockerfile:` へ切り替え、ダイジェストを再ピン | nothing — Python を使う限り、どの要件が残っても要る。イメージが無ければ `rein baseline measure` が実行できず、mandate は承認できない | |
+| mandate | Python スケルトン: `pyproject.toml`(uv / ruff / mypy strict / pytest)、`src/quiz_sift/`、`src/tests/test_scaffold.py`、`.pre-commit-config.yaml`、`.github/workflows/ci.yml`、`mkdocs.yml`、`makefile`、`README.md`、`.gitignore` の拡張 | nothing — D-018(PyProjectTemplate 準拠)は人間が決めた mandate 事項であり、要件の増減では変わらない。`src/tests/test_scaffold.py` のみ、製品コードが入った時点で役目を終えるので削除する | |
+| mandate | `.gitignore` に `data/` `out/` を追加(NFR-2: 取り込んだ実教材の本文を追跡対象に入れない) | nothing | |
 
 - **Phase** — the gate that was pending: `mandate`, `acceptance`, or the `T-NNN` of an
   irreversible point this cycle is stopped in front of.

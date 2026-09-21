@@ -302,7 +302,7 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: D-018 の回答に従い、.rein/config.yaml の quality_gate を ruff・mypy strict・pytest(テストは PyProjectTemplate に合わせて src/ 配下)に更新する。現行の pytest tests/ と compileall は置き換える。ツール一式がサンドボックスイメージに存在するかは rein baseline measure で実測する(AR-15)。
+  answer: D-018 の回答に従い、.rein/config.yaml の quality_gate を lint(ruff check)・format(ruff format --check)・types(mypy)・test(pytest)・docs(mkdocs build --strict)・review・smoke に差し替えた。現行の pytest tests/ と compileall は削除。AR-15 の実測で配布イメージがツールを欠いていたため、.rein/oci/quiz-sift/Containerfile を作ってダイジェストを再ピンした(2026-09-22、5ステップすべて green)。
   requirement_ids:
   - NFR-5
   - NFR-6
@@ -420,6 +420,34 @@ decisions:
   requirement_ids:
   - R-3
   - NFR-4
+- id: D-031
+  subject: pre-commit を品質ゲートに含めるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 含めない。ruff と mypy を直接ゲートのステップとして置き、pre-commit はホストのコミット時と CI に任せる。
+  rationale: 'pre-commit はフックを GitHub から clone するため network_profile: none では動作しない。同じ検査がゲート上で走る以上、NFR-5 の (b) は満たされ、claim も受入基準も動かない。'
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-032
+  subject: サンドボックスイメージをどこの Containerfile から作るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'プロジェクト所有の .rein/oci/quiz-sift/Containerfile を作り、quality プロファイルの dockerfile: で指す。'
+  rationale: '.rein/oci/python/ は rein.lock が追跡する材料化テンプレートで、編集すると tree が drift し、--profile python はパッケージ同梱の原本を黙ってビルドして編集を含まないイメージを作る。スキーマが dockerfile: を用意しているのがこの経路。イメージの中身が変わっても claim は動かない。'
+  requirement_ids:
+  - NFR-6
+- id: D-033
+  subject: 品質ゲートの smoke ステップの中身
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'CLI の入口が決まる /design まで placeholder(true, required: false)のまま置き、入口が決まった時点で実コマンドへ差し替えて required: true にする。config.yaml は mandate で凍結されるため、差し替えは承認前に行う。'
+  rationale: 入口が存在しない段階で smoke を required にしても、検査するものが無い。差し替えは承認前に行うので凍結後の変更にはならず、claim も受入基準も動かない。
+  requirement_ids:
+  - NFR-5
 tasks: []
 lenses:
 - id: L-REQ-AMBIGUITY
