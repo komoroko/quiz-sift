@@ -1,0 +1,107 @@
+# .rein/rein.lock — machine-written by `rein init|sync|install|uninstall|upgrade`.
+# Records the document format, the tool version/source, and a hash per installed file so
+# upgrades never overwrite local edits. Do not edit by hand.
+format: rein-grounded-v6
+tool_version: 0.9.3
+source: git+https://github.com/komoroko/loose-rein-kit@v0.9.3
+prompts:
+  version: 0.9.3
+  files:
+    AGENTS.rein.md: sha256:53dfb821a7410cc4f6c4b45dbf40867ee48d890d67e8f50d240ec7679efa79ad
+    oci/agent/Containerfile: sha256:724870d2f55ce6903144039a6f9f9ad2587e7837e76705ef4049fa62a26599ee
+    oci/python/Containerfile: sha256:9e311e179f5794659968fe7bb0d14ef9831c28c818afd3d10f3abe3b87b7afd7
+    prompts/agents/adversarial-reviewer.md: sha256:f9efecb651e7d72d7ee991457c1f3644f618487df15d9ddd9f6dd5a4c2d3f349
+    prompts/agents/architect.md: sha256:2f5d25fbbb939eab00a26db15241c1418283f7c627fb3c639ede199f4a4bdf8f
+    prompts/agents/implementer.md: sha256:f69c4eaa843c8ff2587f3bc11b4a267a2cc9780328396cb3fcba2c549e946b64
+    prompts/agents/requirements-analyst.md: sha256:0c928038ded17cc8224febce1ba72c555b8fb182d0c35254e03df3fa63241f8d
+    prompts/commands/build.md: sha256:94f2b5bf0bca60317843a6cb69de8cbefe495493f5c466dd33010c18750f4fd3
+    prompts/commands/design.md: sha256:4e7c8bdeb5ba9756278d4c7e965b1efa0f63667bf1c5fbb932f400cb05476f84
+    prompts/commands/onboard.md: sha256:8f7fb990edecf93c16c9812ef123ff9653d69ebe3cdb568b58256e774fadd339
+    prompts/commands/req.md: sha256:b812919787119a3b11d1644a71fedacd75c3523abf4a3ac9c4baeba5fb83f650
+    prompts/commands/revise.md: sha256:c4c9f03a03f012822cf64ce1c78a4e18e43574383d422b6f133a14d9e6ca9cb7
+    prompts/commands/status.md: sha256:6f31d2c1b46f62b0e511300838251dc6a35fb33c3d1b03dfbed1543e76f4de2d
+    prompts/commands/tasks.md: sha256:a55e9f7ca47b47aa1dbf6c73286025830a1edac513b3d02b30f743dfab9a240d
+    prompts/commands/verify.md: sha256:c64d82b267e0e988ee98dfd6cc5a3063f7195ff7a08a55e2b4c43ac2d26d258d
+    prompts/rules/gate-workflow.md: sha256:23dd5793f0a3039cbd4b9f68d2b8215574b995e15eb1c97341802884af6f4465
+    schema/config.schema.json: sha256:dffd17877041781834d90e3b4e1baed600bc4fa33ba1e0dbef7cac25efa82876
+    schema/event.schema.json: sha256:78badffd296cdea1cb68c22b90b4bdbdbe00f5ece7e721d6b1c84f6c3136c77a
+    schema/plan.schema.json: sha256:fbb4eb02c4f2adf2af1cd5d0a9c16424e99aff44d4b87da6e1bb9639dd192c62
+    schema/review.schema.json: sha256:4c85846abac24fa88c5108a33d839c1bda6ee741c8b2a8e83e0d79bd50840540
+    schema/state.schema.json: sha256:e0a94002f47167941ebb27fe6b6288e5ab2aaf95f15a7bba817d764ce79aea74
+integrations:
+  claude:
+    version: 0.9.3
+    installed_at: '2026-09-22'
+    files:
+      .claude/agents/adversarial-reviewer.md: sha256:a4fd4c68f39502bad42327168e79fbb43402d7ddff17788237ffb0d32eab4d8f
+      .claude/agents/architect.md: sha256:1e2741a798214f280a12c08acd3d8459611a0fbc1da60223ed5a6021a0d364c1
+      .claude/agents/implementer.md: sha256:149053480e7daee81f1de0ea6ea8eece70f77bfb8b2a8d6706c9b714b8ee425a
+      .claude/agents/requirements-analyst.md: sha256:485e3ab2a53565ab57aeb79d0377cca2bf5841006c68ae153267c62445dcaca3
+      .claude/commands/build.md: sha256:26343a3335a991530fb418122d43613911315f7ca1e9d55d5f04d640cc4148e3
+      .claude/commands/design.md: sha256:56bd3c30279fe14431cd278bce406b605d776f670c9d07aaf78fb60f34b77155
+      .claude/commands/onboard.md: sha256:a0729659686db58949fcaabf4ba363731d094f5ae804892535120b43a47576c7
+      .claude/commands/req.md: sha256:0fe3efc61e2fc744b84d0c6745559a56d608efea854fe30040192c4aa1ab163c
+      .claude/commands/revise.md: sha256:3aa6c07e8bc44187696a77dc0190bd351578e3747ce735698081ecc4c1de3ed5
+      .claude/commands/status.md: sha256:c0ffd6b956e0466a0197f6bb65fc1efaddbdd0a51af8c6d58b826c5cd33bb3de
+      .claude/commands/tasks.md: sha256:25b212881aa0aba2c2481a626693128e035e074c135ce29983ecb519aee7cb77
+      .claude/commands/verify.md: sha256:7ae87a8b00b4459ad4e6593a1076c9de83edbf048621026e6ab4b0ac9d7d4c14
+    settings:
+      created: true
+      permissions_allow:
+      - Read
+      - Grep
+      - Glob
+      - Bash(cat .rein/config.yaml:*)
+      - Bash(git status:*)
+      - Bash(git diff:*)
+      - Bash(git log:*)
+      - Bash(git show:*)
+      - Bash(git branch:*)
+      - Bash(git rev-parse:*)
+      - Bash(git add:*)
+      - Bash(git commit:*)
+      - Bash(git merge --ff-only:*)
+      - Bash(git merge --no-ff:*)
+      - Bash(git worktree:*)
+      - Bash(ls:*)
+      - Bash(rein start:*)
+      - Bash(rein next:*)
+      - Bash(rein dag:*)
+      - Bash(rein build:*)
+      - Bash(rein doctor:*)
+      - Bash(rein events:*)
+      - Bash(rein revise:*)
+      - Bash(rein issue-sync:*)
+      - Bash(rein sync --check:*)
+      - Bash(make test:*)
+      - Bash(make check:*)
+      - Bash(python -m pytest:*)
+      - Bash(make audit:*)
+      - Bash(uv run pytest:*)
+      hooks:
+        SessionStart:
+        - hooks:
+          - type: command
+            command: 'test -f .rein/state.yaml && echo ''--- Loose Rein: what changed
+              since you last looked ---'' && rein start || true'
+        PreToolUse:
+        - matcher: Write|Edit|MultiEdit|NotebookEdit
+          hooks:
+          - type: command
+            command: rein guard
+seeded:
+  .rein/state.yaml: sha256:515c2024f77eb91cced2a64ea198246179068f1ffa6186d416a4af6adc7dad9d
+  .rein/plan.yaml: sha256:8a2eb2539aae0a094c122306e309a3b5c17f55af8dc4123acac1ccb02a9103f9
+  .rein/review.yaml: sha256:e909db2b8d15c4638043d1202cf2e02a536b1b2964e13b95f1b52e537432456d
+  .rein/config.yaml: sha256:ac0384081a4020ee21d829c78a4aa1e6be5dccc2c2b756cb7b3dcc37783c41ae
+  docs/00-product-brief.md: sha256:ae707c824054ece241171d9c8d3f5f84c8dbe3468792d9f01ffc1972caff3744
+  docs/05-current-state.md: sha256:9d2cb5da07ade1cf2ef6c98d93ec23142e4cedbae4e7b5e8128cfdb0e9b04886
+  docs/10-requirements.md: sha256:63f35d10997e22a3fb2c9edd8d17dc9174c679b1e54ea83b59e3ee47c9ba1830
+  docs/20-design.md: sha256:a21bd978a4e32b2d31de9a448033f0e6911d363dd4656425b920e338c7106e35
+  docs/decisions/ADR-template.md: sha256:5493142fa01c4379d1f99f3b8cc6d4f2026a71242b8ad5be94ee303f3e4cfa64
+  docs/retrospective.md: sha256:2ea1e4290060c3b2222d0121c50c03a896ac1fa91ea7b1887fdc31ed82caa4b1
+  docs/speculative-work.md: sha256:798152845d895d45a9fd5051bb309abde4dc5fe65186fa65ed83ec3ea611c6a3
+  docs/tasks/T-template.md: sha256:9537858dbce6d00855bdedc0f3796809c7f8e6d8f0df6f87a697fef9d62ba4b4
+  docs/test/test-plan.md: sha256:e9dc2b9a61b7a918b0bef64e753ab15538ea0ac1a1c53ad8fe1618a276ea9692
+created_at: '2026-09-22'
+updated_at: '2026-09-22'

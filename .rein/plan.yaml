@@ -1,0 +1,463 @@
+cycle:
+  id: quiz-sift
+  base_commit: '0000000000000000000000000000000000000000'
+  branch: build/quiz-sift
+claims:
+- id: C-001
+  requirement_ids:
+  - R-1
+  statement: 構造化ファイルから100〜200問を取り込むと、取り込めた全問の問題文・選択肢4件・正解が欠落なく保持され、既習フラグは個別指定→セット指定の順で解決されどちらも無い場合のみ unknown として記録され、不正な問題は個別に列挙され、正常系フィクスチャに対する除外件数は 0 で、公式解説の有無の件数が報告される。
+  risk: high
+  domains:
+  - ingest
+- id: C-002
+  requirement_ids:
+  - R-2
+  statement: Udemy のページからヘッドレスブラウザで抽出すると、成功件数と失敗箇所が報告され、受験者の選択と正解が異なる問題を3件以上含むゴールデンセット10件に対する正解ラベル一致率が 100% で、正解判定の根拠の要素種別が全問で同一であることが機械判定される。
+  risk: high
+  domains:
+  - ingest
+- id: C-003
+  requirement_ids:
+  - R-3
+  statement: 問題群は排他クラスタへまとめられ、既知5グループ(各3問以上)の固定フィクスチャに対し最大クラスタが全体の50%以下・「その他」比率が20%以下に収まり、実データの M/N と最大クラスタ比率、およびキャッシュを迂回した再クラスタリング2回(外部 API 呼び出しが2倍になることを確認)の割当一致率が記録され、各クラスタの要約の主要語句が当該クラスタの問題文に実在する。
+  risk: high
+  domains:
+  - analysis
+- id: C-004
+  requirement_ids:
+  - R-4
+  statement: 各クラスタの想起キー・答え・識別ポイントが生成され、想起キーと識別ポイントが参照する誤答選択肢は元データに実在し、同一の想起キーが複数クラスタで使われず、全構成要素が他クラスタにも出現するようなキーが 0 件で、識別ポイントは誤答選択肢の丸写しではない。
+  risk: high
+  domains:
+  - analysis
+- id: C-005
+  requirement_ids:
+  - R-5
+  statement: 専門用語のグロッサリが生成され、公式解説との矛盾件数が 0 であり、照合対象が 0 件の場合は合格ではなく照合対象なしとして記録され、音声は想起素材とは別ファイルになる。
+  risk: medium
+  domains:
+  - analysis
+- id: C-006
+  requirement_ids:
+  - R-6
+  statement: 台本は『想起の問いかけ→間→答え→識別ポイント』の順で構成され、選択肢ラベルの4件並列提示(記号・番号・かなを問わない)を含まず、『間』は機械可読なマーカーとして表現され、推定再生時間3分を超えたクラスタは打ち切られず分割または再生成のうえ列挙される。
+  risk: medium
+  domains:
+  - content
+- id: C-007
+  requirement_ids:
+  - R-7
+  statement: 全クラスタ分の音声が mp3 または m4a で書き出され、先頭と末尾を除く位置に前後を有音区間に挟まれた3秒以上の無音区間が機械判定で確認でき、ゼロ埋め連番のファイル名と m3u により端末のソート順で意図した順に並び、記録された言語と TTS のボイス設定が一致し、失敗クラスタは列挙される。
+  risk: high
+  domains:
+  - audio
+- id: C-008
+  requirement_ids:
+  - R-8
+  statement: Web UI 上の4択出題で選択・正誤・所要時間が永続記録され、選択肢の内容または ID で同定した入力を問題ごとに異なるシャッフル並びの下で与えたとき全問正解入力が正答率100%・全問誤答入力が0%となり、既習フラグ別の正答率と、hold-out 不在とテスト効果の両方を明示したレポートが出力される。
+  risk: high
+  domains:
+  - measurement
+- id: C-010
+  requirement_ids:
+  - R-10
+  statement: クラスタが誤答率の降順に並んだ再生リストが m3u またはトラック番号付きファイル名として出力され、全問正解時は空リストではなく『該当なし』が明示され、最終学習日時と誤答回数が永続記録される。
+  risk: medium
+  domains:
+  - scheduling
+- id: C-011
+  requirement_ids:
+  - R-11
+  statement: 2セット以上の教材を同時に保持しても問題が別セットのクラスタへ混入せず、学習記録とレポートがセット単位で分離され、セット単位で既習/初見を指定できて問題個別の指定がそれを上書きし、日本語本文に英語用語が混在しても TTS へ渡せる。
+  risk: medium
+  domains:
+  - data
+- id: C-012
+  requirement_ids:
+  - R-12
+  statement: ローカル起動した Web UI からテストの実施と結果の閲覧ができ、回答はブラウザ内ストレージではなくサーバ側の学習記録ストアへ永続化され、そのストアは CLI と UI の双方から読み書きでき所在と形式が一箇所で定義されている。
+  risk: high
+  domains:
+  - ui
+- id: C-013
+  requirement_ids:
+  - NFR-1
+  statement: 想起素材・台本・グロッサリ・クラスタ要約が主張する内容が正解ラベルまたは公式解説と矛盾する場合、成果物を出力せずエラー終了する。判定は LLM 含意判定で行い、言い換えに対する誤検出が 0 件で、ミューテーションに対する検出率が記録される。
+  risk: critical
+  domains:
+  - safety
+- id: C-014
+  requirement_ids:
+  - NFR-2
+  statement: 取り込んだ実教材の本文が Git の追跡対象ファイル・コミット・ログ出力のいずれにも含まれない。テスト用の合成フィクスチャはこの対象外である。
+  risk: critical
+  domains:
+  - security
+- id: C-015
+  requirement_ids:
+  - NFR-3
+  statement: 外部サービスの認証情報(API キー、Udemy のパスワードとセッションクッキーを含む)がリポジトリに平文で存在せず、ログ・エラーメッセージにも出力されない。
+  risk: critical
+  domains:
+  - security
+- id: C-016
+  requirement_ids:
+  - NFR-4
+  statement: 各段階の中間成果物が永続化され、途中段階から再実行したときそれより前の段階の外部 API 呼び出し回数が 0 になる。R-3 の再現性測定はこの対象外とし、ホスト上での実測ログを artifact として記録する。
+  risk: high
+  domains:
+  - pipeline
+- id: C-017
+  requirement_ids:
+  - NFR-5
+  statement: uv で依存が同期でき、ruff・mypy strict・pytest・pre-commit が全て通り、GitHub Actions のワークフロー定義が存在してその run ステップのコマンド列と同一のものが品質ゲート上でローカルに green になり、mkdocs build が警告なく完了し、取り込んだ設定が外部パスを参照しない。
+  risk: high
+  domains:
+  - infra
+- id: C-018
+  requirement_ids:
+  - NFR-6
+  statement: 品質ゲートのコマンドステップがネットワーク接続なしのサンドボックスで成功する。
+  risk: high
+  domains:
+  - infra
+- id: C-019
+  requirement_ids:
+  - NFR-7
+  statement: 100〜200問のフル処理1回について、経過時間・外部 API 呼び出し回数・推定コストが記録され、推定コストはモデル別の単価と入出力トークン数を根拠としてログから追跡できる。
+  risk: medium
+  domains:
+  - observability
+decisions:
+- id: D-001
+  subject: サイクル1で実装する範囲
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 案C(ほぼ全部)を選択。ただし承認前の縮小で R-9(音声回答と AI 採点)を落とし、取り込み自動化・グロッサリ・復習スケジューリング・複数デッキ・Web UI を含む11要件(R-9 は欠番)とする。アナリストの推奨(案A)は採らない。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-5
+  - R-10
+  - R-11
+  - R-12
+- id: D-002
+  subject: 効果測定のための問題の hold-out 分割
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 分割しない。全問を教材に使い、効果の判定は主観に委ねる。結果として、未見問題への転移(中心仮説)は本サイクルでは支持も反証もできない。
+  requirement_ids:
+  - R-8
+- id: D-003
+  subject: サイクル1の acceptance をどこで切るか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 測定器の完成まで。実際の学習と実測は次サイクル。external evidence の待ちは発生させない。この帰結として、実 CI の green は NFR-5 の対象外になる(AR-6)。
+  requirement_ids:
+  - R-8
+  - NFR-5
+- id: D-004
+  subject: 圧縮率・未分類比率・クラスタ割当一致率の合格ライン
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実データの圧縮率には合格ラインを設けず、記録することだけを要件とする。ただし既知5グループの固定フィクスチャに対しては、最大クラスタ 50% 以下・「その他」20% 以下の下限を課す(AR-2 の2巡目)。
+  rationale: 実測前に閾値を置くと意味のない数値を後から緩めることになる。記録を要件とし、閾値は次サイクルで数値を見てから決める。退化ガードは閾値ではなく下限であり、これとは別に置いた。
+  requirement_ids:
+  - R-3
+- id: D-005
+  subject: 『想起キー』の定義
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 問題文に現れ、そのクラスタの正解を一意に指し示す語・状況・条件の組。『一意に指し示す』は、他クラスタ出現率の記録と同一キーの重複禁止で観測可能にする(AR-14)。
+  rationale: 定義が変わると R-4 の生成ロジックと受入基準3本の作り直しで済み、claim の文面(想起素材が生成され、元データに実在する)は変わらない。
+  requirement_ids:
+  - R-4
+- id: D-006
+  subject: 台本が誤答選択肢の中身にどこまで触れてよいか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 中身には比較の形で触れてよいが、選択肢のラベル列挙はしない。ラベル列挙とは記号・番号・かなを問わず4件を並列提示する形を指し、その不在を non-goal『単なる読み上げ』の機械判定基準とする(AR-12)。
+  requirement_ids:
+  - R-6
+- id: D-007
+  subject: Udemy からの取り込み方式と、規約上の可否の前提
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 拡張またはスクリプトで自動抽出する。規約上の可否は本人が確認済みで、個人利用の範囲で行うという前提を記録して進める。本ループはこの解釈を独立に検証していない。
+  requirement_ids:
+  - R-2
+- id: D-008
+  subject: LLM・TTS・音声認識の調達方法
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: クラウド API を利用し、差し替え可能なインタフェースの背後に置く。
+  rationale: クラウド API を差し替え可能なインタフェース越しに使う限り、提供元の変更は実装1箇所の差し替えで済み、claim も受入基準も動かない。ローカル実行へ切り替える場合のみ NFR-7 の基準値が動くが、それは次サイクルの判断。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-6
+  - R-7
+  - R-9
+- id: D-009
+  subject: クラスタが排他分割か多重所属可か
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 排他分割とし、分類できない問題は『その他』クラスタへ入れて比率を記録する。多重所属は要求がないため作らない。
+  rationale: 排他分割から多重所属へ広げるのはデータ構造と集計の変更で、R-3 の受入基準の文言のみが動く。1問が2つのパターンを問う場合の扱いは『その他』クラスタと要約で吸収できる。
+  requirement_ids:
+  - R-3
+- id: D-010
+  subject: 1クラスタあたりの台本長の上限と、超過時の扱い
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 推定再生時間3分を上限の初期値とし、実測後に見直す。超過したクラスタは打ち切らず分割または再生成し、列挙する。文字数での定義は言語によって再生時間が3倍変わるため採らない(AR-18)。
+  rationale: 上限値の見直しは数値の書き換えのみ。超過時に打ち切らない方針は受入基準の追加であって、既存の基準を緩めない。
+  requirement_ids:
+  - R-6
+- id: D-011
+  subject: 音声学習の形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 一問一答形式(想起の問いかけ→間→答え→識別ポイント)を基本形式とする。
+  rationale: 台本生成タスク1つの作り直しで済み、claim の文面は変わらない。複数形式を比較する設計にするとスコープが広がるが、それは次サイクルの判断。
+  requirement_ids:
+  - R-6
+- id: D-012
+  subject: 提供形態
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Python CLI(生成パイプライン)+ Next.js/React のローカル Web UI(テスト出題と閲覧)。Chrome 拡張と携帯ネイティブアプリはスコープ外。
+  requirement_ids:
+  - R-12
+- id: D-013
+  subject: サイクル1で扱う教材の規模
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 100〜200問(模擬試験2〜3回分)。
+  requirement_ids:
+  - R-1
+  - NFR-7
+- id: D-014
+  subject: 教材と音声の言語
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 教材によって日本語・英語の両方を扱う。セットごとに言語を記録し、音声生成時に参照する。日本語本文に英語のサービス名が混在することを前提とする。
+  requirement_ids:
+  - R-7
+  - R-11
+- id: D-015
+  subject: サイクル1で使う教材の既習度
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 一部既習・一部初見。問題ごとに既習フラグを持ち、レポートで集計を分ける。フラグはセット単位で指定でき、問題個別の指定がそれを上書きする。どちらも無い場合に限り unknown として記録する(AR-8 の2巡目)。
+  requirement_ids:
+  - R-1
+  - R-8
+- id: D-016
+  subject: 生成した音声を携帯端末へ届ける経路
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: ローカルにファイル出力し、携帯端末へは手動転送する。ポッドキャスト RSS・クラウド同期・ストリーミングはスコープ外。
+  requirement_ids:
+  - R-7
+- id: D-017
+  subject: Must として課す非機能要件の集合
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 誤学習の防止・教材データの保護・認証情報の保護・段階的な再実行性の4件を Must とする。処理コストの可視化は Should。
+  requirement_ids:
+  - NFR-1
+  - NFR-2
+  - NFR-3
+  - NFR-4
+  - NFR-7
+- id: D-018
+  subject: 開発基盤の構成
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: PyProjectTemplate に準拠する。uv・ruff・mypy strict・pytest・pre-commit・GitHub Actions・mkdocs を用い、Python は 3.13 系。取り込む設定はリポジトリ内に写し、ホストの外部パスを参照しない(AR-16)。
+  requirement_ids:
+  - NFR-5
+- id: D-019
+  subject: 品質ゲートの構成(何を green の証拠とするか)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: D-018 の回答に従い、.rein/config.yaml の quality_gate を ruff・mypy strict・pytest(テストは PyProjectTemplate に合わせて src/ 配下)に更新する。現行の pytest tests/ と compileall は置き換える。ツール一式がサンドボックスイメージに存在するかは rein baseline measure で実測する(AR-15)。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-020
+  subject: Udemy 抽出を Chrome 拡張で行うかスクリプトで行うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: スクリプト(ヘッドレスブラウザ)で行う。Chrome 拡張は作らない。認証情報の取り扱いは NFR-3 の対象に含める(AR-10)。
+  rationale: 提供形態が CLI + Web UI に決まった(D-012)ため、拡張はビルド対象を1つ増やすだけで同じ抽出結果を得る。実装1箇所の選択で、claim も受入基準も動かない。
+  requirement_ids:
+  - R-2
+- id: D-021
+  subject: NFR-7 のコスト上限値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 初回のフル処理を実測するまで上限を置かない。次サイクルで設定する。推定コストは単価と入出力トークン数を根拠として記録する(AR-24)。
+  rationale: 本サイクルでは記録だけを要件としており、上限を後から加えるのは受入基準の追加であって既存の基準を動かさない。
+  requirement_ids:
+  - NFR-7
+- id: D-022
+  subject: 台本の『間』の表現形式と、音声上の無音区間の下限
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 『間』は SSML の break 相当の機械可読マーカーで表現し、音声上は先頭と末尾を除く位置に、前後を有音区間に挟まれた3秒以上の無音区間を要求する(AR-7 の2巡目)。
+  rationale: マーカー形式と秒数の変更は台本生成と音声化の実装内の話で、claim の骨格(無音区間が存在することを機械判定する)は変わらない。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-023
+  subject: 学習記録ストアの所在と所有者
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: サーバ側に置き、CLI と UI の双方から読み書きする。ブラウザ内ストレージのみに保持する実装は採らない(AR-11)。
+  rationale: 保存先の実装(ファイルか埋め込み DB か)の変更は1タスクで済む。ブラウザ内ストレージを採らないことは要件に書いたが、サーバ側のどこに置くかは実装の選択。
+  requirement_ids:
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-024
+  subject: NFR-1 の矛盾判定機構
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: LLM による含意判定とする。文字列一致は、言い換えを前提とする R-4 に対してほぼ常にエラー終了を起こすため採らない(AR-9)。
+  rationale: 判定器の実装を差し替えても、要件が課す3つの検証(仕込んだ矛盾の検出・言い換えの誤検出0・ミューテーション検出率の記録)は変わらない。判定機構は測られる側であって、測る基準ではない。
+  requirement_ids:
+  - NFR-1
+- id: D-025
+  subject: 再生順を携帯端末へ届ける形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: ゼロ埋め連番のファイル名と m3u プレイリストの両方を出力する(AR-13)。
+  rationale: m3u とファイル名連番はどちらも出力形式の選択で、claim の骨格(端末のソート順で意図した順に並ぶ)は変わらない。
+  requirement_ids:
+  - R-7
+  - R-10
+- id: D-026
+  subject: R-2 の正解ラベルの正確性を何で検証するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 人手で正解を確認した10件のゴールデンセットに対する一致率 100% を基準とし、その10件に受験者の選択と正解が異なる問題を3件以上含める。あわせて正解判定の根拠の要素種別が全問で同一であることを機械判定する(AR-3 の2巡目)。
+  rationale: ゴールデンセットの件数を増減しても、検証するという要件そのものは変わらない。10件は最初の測定のための初期値。
+  requirement_ids:
+  - R-2
+- id: D-027
+  subject: Should / Could 要件の claim を acceptance がどう扱うか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 全 claim が acceptance の判定対象。Priority は着手順序のみを表し、未達を許す指定ではない。範囲を削る場合は mandate の承認前に要件ごと落とす(AR-1)。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-3
+  - R-4
+  - R-5
+  - R-6
+  - R-7
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-028
+  subject: R-9(音声出題と口頭回答の AI 採点)を本サイクルに含めるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 含めない。承認前の縮小で要件ごと落とす。R-7 の学習用音声は答えを含むため出題に使えず、残すには出題専用音声の生成が必要で実質1要件分の増加になる(AR-22)。R-9 は欠番として残す。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-029
+  subject: レビューレンズ L-REQ-FAILURE-MODES を採用するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 採用する。ただし /req のレビュアー再招集枠は使い切っているため、要件段階では適用されない。適用は design / tasks / code から始まる。
+  requirement_ids:
+  - R-2
+  - R-7
+- id: D-030
+  subject: R-3 の再現性測定(キャッシュ迂回の2回実行)をどの証拠種別で判定するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: artifact 判定とし、ホスト上での1回の実測ログをテストプランに記録する。command はネットワーク遮断のサンドボックスでスタブを使うため一致率が常に100%になり測る意味が消え、external は D-003(evidence 待ちを発生させない)と衝突する。
+  rationale: 証拠種別の割り当ては /tasks が決める判定方法の選択であり、claim の文面(一致率が記録される)も受入基準も動かさない。
+  requirement_ids:
+  - R-3
+  - NFR-4
+tasks: []
+lenses:
+- id: L-REQ-AMBIGUITY
+  stage: requirements
+  status: applied
+- id: L-REQ-CONTRADICTIONS
+  stage: requirements
+  status: applied
+- id: L-REQ-HIDDEN-ASSUMPTIONS
+  stage: requirements
+  status: applied
+- id: L-REQ-SCOPE
+  stage: requirements
+  status: applied
+- id: L-REQ-TESTABILITY
+  stage: requirements
+  status: applied
+- id: L-REQ-FAILURE-MODES
+  stage: requirements
+  status: proposed
+- id: L-DES-COVERAGE
+  stage: design
+  status: applied
+- id: L-DES-INFEASIBILITY
+  stage: design
+  status: applied
+- id: L-DES-NFR-HOLES
+  stage: design
+  status: applied
+- id: L-DES-UNSTATED-ASSETS
+  stage: design
+  status: applied
+- id: L-DES-YAGNI
+  stage: design
+  status: applied
+- id: L-DES-ADR
+  stage: design
+  status: proposed
+- id: L-DES-FAILURE-WALK
+  stage: design
+  status: proposed
