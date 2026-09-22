@@ -83,14 +83,14 @@ RUN apt-get update \
 # リポジトリ直下に届かないため。派生物を隣に置き、**lock と一致していることを tests/ の
 # テストが検査する** ので、手で編集された版が黙って焼かれることはない。
 # プロジェクト自身は入れない(--no-emit-project)。ワークツリーとしてマウントされ、
-# `scripts/gate.sh` が sys.path で解決する。
+# `gate.sh` が sys.path で解決する。
 COPY requirements.txt /build/requirements.txt
 RUN uv venv /opt/venv \
  && UV_PROJECT_ENVIRONMENT=/opt/venv uv pip install --python /opt/venv/bin/python \
       --no-cache -r /build/requirements.txt \
  && rm -rf /build
 
-# ゲートの argv は `bash scripts/gate.sh <step>` で、その中の ruff / mypy / pytest /
+# ゲートの argv は `bash gate.sh <step>` で、その中の ruff / mypy / pytest /
 # mkdocs は PATH から引かれる。venv を先頭に置く。
 ENV PATH=/opt/venv/bin:$PATH
 

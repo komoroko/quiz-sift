@@ -865,7 +865,1393 @@ decisions:
   answer: リポジトリ直下。当初 scripts/ に置いたが、scripts/ は guard.paths に含まれ mandate 未承認では書き込みが拒否される。Bash のヒアドキュメントで書いたため PreToolUse フックを素通りしていた(src/ に続いて2回目)。直下へ移して境界を戻した(N-3)。
   requirement_ids:
   - NFR-5
-tasks: []
+tasks:
+- id: T-001
+  title: ドメイン型と共有スキーマ
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-011
+  domains:
+  - domain
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/domain/
+    - src/quiz_sift/decks/
+    - tests/domain/
+    - tests/decks/
+  acceptance:
+  - id: A-1
+    statement: QuestionId と ClusterId が deck_id を含む frozen dataclass で、クラスタリング等の関数が1デッキ分しか受け取らないシグネチャを持ち、別デッキの問題が混入する経路がコード上に存在しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/domain/test_ids.py::test_ids_carry_deck_and_block_cross_deck_calls
+      executor_profile: quality
+  - id: A-2
+    statement: deck.yaml が deck_id / title / language / default_studied を読み取り、language が ja|en 以外ならエラーになる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/decks/test_manifest.py::test_manifest_rejects_unknown_language
+      executor_profile: quality
+  - id: A-3
+    statement: resolve_studied(個別, デッキ既定) が 個別 > デッキ既定 > unknown の順で解決し、unknown から studied/unseen へ変換する関数が存在しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/domain/test_studied.py::test_studied_resolution_order
+      executor_profile: quality
+  - id: A-4
+    statement: '下流が必要とする共有型が揃っている: Question(解説フィールドと既習フラグを含む)、AttemptRecord(選択・正誤・所要時間・セッション ID)、ClusterStat(最終学習日時・誤答回数)、ScriptSegment(Prompt/Pause(seconds)/Answer/Discrimination)、RecallKey(terms)、AudioMeta(language, voice_id)。いずれも他タスクが自分の scope 内で使えるだけのフィールドを持つ。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/domain/test_shared_types.py::test_shared_types_expose_downstream_fields
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: デッキ manifest (data/<deck_id>/deck.yaml)
+    paths:
+    - src/quiz_sift/decks/
+    reversible: true
+    adr: ADR-011
+- id: T-002
+  title: ports の Protocol と計測
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-019
+  domains:
+  - infra
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/ports/
+    - src/quiz_sift/adapters/llm_anthropic.py
+    - src/quiz_sift/adapters/__init__.py
+    - src/quiz_sift/pipeline/meter.py
+    - tests/ports/test_protocols.py
+    - tests/pipeline/test_meter.py
+  acceptance:
+  - id: A-1
+    statement: Llm / Tts / Clock の Protocol が定義され、外部 SDK の import が adapters 配下にのみ存在する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ports/test_protocols.py::test_external_sdk_imports_live_only_in_adapters
+      executor_profile: quality
+  - id: A-2
+    statement: 実行ごとに run_id / elapsed_sec / calls_by_model / estimated_cost が JSON Lines で記録される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_meter_records_run_fields
+      executor_profile: quality
+  - id: A-3
+    statement: トークンが cache 書き込み・cache 読み出し・思考を含む出力に分けて記録され、単価表と priced_at から推定コストの算出根拠が追跡できる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_token_breakdown_and_price_provenance
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: ANTHROPIC_API_KEY(環境変数)。このタスクは実 API を呼ばない — 呼び出しはすべてスタブで、実課金は T-020 が受け持つ
+    paths:
+    - src/quiz_sift/adapters/llm_anthropic.py
+    reversible: true
+    adr: ADR-002
+- id: T-003
+  title: safety 基盤(書き出しガードとログマスク)
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-014
+  - C-015
+  domains:
+  - security
+  risk: critical
+  scope:
+    include:
+    - src/quiz_sift/safety/gitignore_guard.py
+    - src/quiz_sift/safety/log_filter.py
+    - src/quiz_sift/safety/secret_mask.py
+    - tests/safety/test_gitignore_guard.py
+    - tests/safety/test_log_filter.py
+    - tests/safety/test_secret_mask.py
+  acceptance:
+  - id: A-1
+    statement: 全書き出し経路が起動時にパスの .gitignore 対象判定を行い、対象外ならエラー終了する。data/ と out/ のディレクトリ形式が正しく対象と判定される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_gitignore_guard.py::test_directory_form_patterns_match
+      executor_profile: quality
+  - id: A-2
+    statement: ログに問題文本文が出ず、本文を持つ dataclass が repr=False を持つため素の例外トレースにも載らない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_log_filter.py::test_material_text_never_reaches_logs_or_repr
+      executor_profile: quality
+  - id: A-3
+    statement: API キーと Cookie / Set-Cookie / sessionid 系のパターンがログ出力でマスクされる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_secret_mask.py::test_credentials_and_cookies_are_masked
+      executor_profile: quality
+  operator_surface:
+  - kind: security_boundary
+    name: 教材本文と認証情報の出力先ガード
+    paths:
+    - src/quiz_sift/safety/gitignore_guard.py
+    - src/quiz_sift/safety/log_filter.py
+    - src/quiz_sift/safety/secret_mask.py
+    reversible: true
+    adr: ADR-007
+- id: T-004
+  title: ステージキャッシュと再実行性
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-016
+  domains:
+  - pipeline
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/pipeline/stage.py
+    - tests/pipeline/test_stage.py
+  acceptance:
+  - id: A-1
+    statement: 任意の段階から再実行したとき、それより前の段階の外部 API 呼び出し回数が 0 になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_stage.py::test_rerun_makes_no_upstream_calls
+      executor_profile: quality
+  - id: A-2
+    statement: inputs_digest が 前段成果物 + プロンプトテンプレート digest + モデル ID + 生成パラメータ から成り、ステージ実装コードは含まない。プロンプトを変えると digest が変わる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_stage.py::test_digest_covers_prompt_and_model_but_not_code
+      executor_profile: quality
+  - id: A-3
+    statement: ステージ出力が一時パスへ書かれ完了後に os.replace される。途中で落ちた実行の出力が次の実行にキャッシュヒットしない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_stage.py::test_partial_write_does_not_become_a_cache_hit
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: ステージ成果物キャッシュ (out/<deck>/<stage>/)
+    paths:
+    - src/quiz_sift/pipeline/stage.py
+    reversible: true
+    adr: ADR-001
+- id: T-005
+  title: 学習記録ストアと共有スキーマ
+  kind: foundation
+  blocked_by:
+  - T-001
+  claim_ids:
+  - C-011
+  - C-012
+  - C-008
+  - C-010
+  domains:
+  - data
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/store/
+    - tests/store/
+  acceptance:
+  - id: A-1
+    statement: SQLite の所在とスキーマが store/location.py の1箇所で定義され、そこ以外に接続を開く経路が無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/store/test_location.py::test_single_definition_of_location_and_schema
+      executor_profile: quality
+  - id: A-2
+    statement: 学習記録へのアクセスが DeckScopedStore(deck_id) 経由に限定され、2デッキ分のフィクスチャに対して集計が混ざらない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/store/test_deck_scope.py::test_two_decks_do_not_mix
+      executor_profile: quality
+  - id: A-3
+    statement: WAL モードが有効で、接続がリクエストごとに開かれ閉じられる(スレッドをまたいだ接続の再利用が無い)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/store/test_concurrency.py::test_wal_and_per_request_connections
+      executor_profile: quality
+  - id: A-4
+    statement: スキーマが 選択した選択肢・正誤・所要時間・セッション ID・最終学習日時・クラスタ別誤答回数 を保持し、2デッキ分のフィクスチャで書き込みと読み出しが往復する。下流タスク(T-015 / T-016 / T-017)が store/ を編集せずに必要な永続化を行える。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/store/test_schema.py::test_schema_round_trips_all_downstream_fields
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: 学習記録 SQLite (スキーマとファイル位置)
+    paths:
+    - src/quiz_sift/store/
+    reversible: true
+    adr: ADR-005
+- id: T-006
+  title: 含意判定器(誤学習の防止)
+  kind: foundation
+  blocked_by:
+  - T-002
+  claim_ids:
+  - C-013
+  domains:
+  - safety
+  risk: critical
+  scope:
+    include:
+    - src/quiz_sift/safety/entailment.py
+    - tests/safety/test_entailment.py
+  acceptance:
+  - id: A-1
+    statement: 判定が consistent / contradicted / uncertain の3値を返し、contradicted と uncertain の両方で成果物を書かずに非0終了する(書いてから消す経路が無い)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_entailment.py::test_three_verdicts_and_fail_closed
+      executor_profile: quality
+  - id: A-2
+    statement: 手書きフィクスチャの仕込んだ矛盾を検出し、正解を言い換えただけの生成物に対する誤検出が 0 件。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_entailment.py::test_no_false_positive_on_paraphrase
+      executor_profile: quality
+  - id: A-3
+    statement: ミューテーション・フィクスチャに対する検出率が数値として記録される(合格ラインは設けない)。記録が無ければ赤。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_entailment.py::test_mutation_detection_rate_is_recorded
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: 含意判定に使う LLM ポート。このタスクは実 API を呼ばない(手書きフィクスチャのみ、D-043)
+    paths:
+    - src/quiz_sift/safety/entailment.py
+    reversible: true
+    adr: ADR-009
+- id: T-007
+  title: 開発基盤と品質ゲートの仕上げ
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-017
+  - C-018
+  domains:
+  - infra
+  risk: medium
+  scope:
+    include:
+    - gate.sh
+    - pyproject.toml
+    - uv.lock
+    - .rein/oci/quiz-sift/
+    - tests/test_gate_environment.py
+    - tests/measurements/test_pre_commit_log.py
+    - .pre-commit-config.yaml
+    - mkdocs.yml
+    - .github/
+    - src/quiz_sift/__init__.py
+  acceptance:
+  - id: A-1
+    statement: src/quiz_sift/__init__.py が存在し、テストが subprocess で `bash gate.sh smoke` を実行して終了コード 0 を確認する(ファイルの存在確認では緑にならない)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_gate_environment.py::test_gate_smoke_subprocess_exits_zero
+      executor_profile: quality
+  - id: A-2
+    statement: CI の検査 run ステップの <step> 集合と quality_gate の command ステップの集合が一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_gate_environment.py::test_ci_and_the_quality_gate_run_the_same_steps
+      executor_profile: quality
+  - id: A-3
+    statement: イメージにインストールされた各 dist のバージョンが .rein/oci/quiz-sift/requirements.txt の pin と一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_gate_environment.py::test_the_running_environment_matches_the_baked_requirements
+      executor_profile: quality
+  - id: A-4
+    statement: '`pre-commit run --all-files` の実測ログ(argv・逐語の標準出力/標準エラー・実行時刻・コミット ID)が docs/test/measurements/pre-commit.md に規定の見出しで記録されている。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_pre_commit_log.py::test_pre_commit_log_is_recorded
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: gate.sh のサブコマンド(lint/format/types/test/docs/smoke)
+    paths:
+    - gate.sh
+    - .rein/config.yaml
+    reversible: true
+    adr: ADR-001
+- id: T-008
+  title: R-1 問題データの取り込みと正規化
+  kind: parallel
+  blocked_by:
+  - T-001
+  - T-003
+  - T-004
+  claim_ids:
+  - C-001
+  domains:
+  - ingest
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/ingest/
+    - tests/ingest/
+  acceptance:
+  - id: A-1
+    statement: IngestReport が accepted + rejected == input_total を構築時の不変条件として持ち、保存則を壊す値では構築できない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_report.py::test_conservation_is_a_construction_invariant
+      executor_profile: quality
+  - id: A-2
+    statement: 正常系フィクスチャ(全問が妥当)に対する除外件数が 0 になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_validate.py::test_healthy_fixture_excludes_nothing
+      executor_profile: quality
+  - id: A-3
+    statement: 選択肢数が4でない / 正解が特定できない / ID 重複 の各問題が理由 enum つきで個別に列挙される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_validate.py::test_each_rejection_reason_is_listed
+      executor_profile: quality
+  - id: A-4
+    statement: 正規化後の完全一致と ratio 0.95 以上で重複が検出され、件数が報告される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_dedup.py::test_near_duplicates_are_counted
+      executor_profile: quality
+  - id: A-5
+    statement: IngestReport が公式解説を持つ問題数と持たない問題数を報告する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_report.py::test_explanation_presence_is_counted
+      executor_profile: quality
+  - id: A-6
+    statement: 個別の既習フラグを持つ行と持たない行を混ぜたフィクスチャに対し、解決結果が 個別 > デッキ既定 > unknown の順になる。既習フラグ列を無視する実装は赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ingest/test_studied.py::test_per_question_flag_overrides_deck_default
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: 問題データの入力形式 (data/<deck>/*.jsonl のスキーマ)
+    paths:
+    - src/quiz_sift/ingest/
+    reversible: true
+    adr: ADR-011
+- id: T-009
+  title: R-2 Udemy 抽出ロジック(HTML 純粋関数)
+  kind: parallel
+  blocked_by:
+  - T-001
+  - T-002
+  - T-003
+  - T-008
+  claim_ids:
+  - C-002
+  domains:
+  - ingest
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/extract/
+    - src/quiz_sift/adapters/browser_cdp.py
+    - tests/extract/
+  acceptance:
+  - id: A-1
+    statement: 抽出器が「HTML 文字列 -> 結果」の純粋関数で、ブラウザ無しに合成 HTML フィクスチャに対して動く。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_udemy.py::test_extractor_is_a_pure_function_of_html
+      executor_profile: quality
+  - id: A-2
+    statement: selector_kind が実行時にマッチした規則から導出され、フォールバック枝ごとに別の値を返す。DOM 構造が問題ごとに異なる negative control フィクスチャに対して集合サイズが 2 になり、種別一致の判定が赤くなる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_evidence.py::test_selector_kind_negative_control_goes_red
+      executor_profile: quality
+  - id: A-3
+    statement: 抽出失敗が ExtractionFailure、取得失敗が FetchFailure として別々に列挙され、両方が報告件数に算入される。空文字で埋める経路が型で塞がれている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_failures.py::test_element_and_fetch_failures_are_separate
+      executor_profile: quality
+  - id: A-4
+    statement: 書き出し先が .gitignore 対象であることを起動時に検証してから開く。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_writer.py::test_writer_validates_gitignore_before_opening
+      executor_profile: quality
+  - id: A-5
+    statement: 公式解説を取得できた問題数とできなかった問題数が ExtractReport に出る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_udemy.py::test_explanation_fetch_counts_are_reported
+      executor_profile: quality
+  - id: A-6
+    statement: 書き出した JSONL が ingest のバリデータを通り、壊れた1行があれば非0終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/extract/test_writer.py::test_output_passes_ingest_validator
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: ログイン済み Chrome への CDP 接続(デバッグポート)。このタスクは合成 HTML のみを扱い、実アクセスは T-019
+    paths:
+    - src/quiz_sift/adapters/browser_cdp.py
+    reversible: true
+    adr: ADR-007
+- id: T-010
+  title: R-3 クラスタリングと退化ガード
+  kind: parallel
+  blocked_by:
+  - T-001
+  - T-002
+  - T-004
+  - T-006
+  - T-022
+  claim_ids:
+  - C-003
+  - C-013
+  domains:
+  - analysis
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/cluster/
+    - tests/cluster/
+  acceptance:
+  - id: A-1
+    statement: 排他分割が強制され、分類できない問題が「その他」クラスタへ入り、全問題 ID の一覧が各クラスタに付く。クラスタ数 M と M/N が記録される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_assign.py::test_exclusive_partition_and_metrics
+      executor_profile: quality
+  - id: A-2
+    statement: 既知5グループ(各3問以上)の固定フィクスチャに対し、最大クラスタが全体の 50% 以下かつ「その他」比率が 20% 以下になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_degeneracy.py::test_known_five_groups_pass_the_guard
+      executor_profile: quality
+  - id: A-3
+    statement: 退化スタブ2本(全問1グループ / 全問未分類)に対して、上のガードが赤くなる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_degeneracy.py::test_degenerate_stubs_go_red
+      executor_profile: quality
+  - id: A-4
+    statement: 外部 API 呼び出しに失敗があった実行は下流へ進まず非0終了し、サマリに other_ratio / max_cluster_ratio / failure_count が実際の値と一致して出る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_failures.py::test_partial_failure_stops_the_pipeline
+      executor_profile: quality
+  - id: A-5
+    statement: 要約の主要語句が当該クラスタの問題文に実在することが grounding 越しに判定される。実在しない語を含む要約は赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_summary_terms_must_exist_in_the_cluster
+      executor_profile: quality
+  - id: A-6
+    statement: 仕込んだ矛盾を持つクラスタ要約フィクスチャに対し、含意判定が呼ばれて成果物を書かずに非0終了する。entailment を一度も呼ばない実装は赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_summary_goes_through_entailment
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: クラスタリングに使う LLM ポート。このタスクは実 API を呼ばない(スタブと録画フィクスチャ)。実課金は T-020
+    paths:
+    - src/quiz_sift/cluster/
+    reversible: true
+    adr: ADR-003
+- id: T-011
+  title: R-4 想起素材の生成と弁別性判定
+  kind: parallel
+  blocked_by:
+  - T-010
+  - T-006
+  - T-022
+  claim_ids:
+  - C-004
+  - C-013
+  domains:
+  - analysis
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/recall/
+    - tests/recall/
+  acceptance:
+  - id: A-1
+    statement: 各クラスタの想起キー・答え・識別ポイントが空でなく出力される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_three_elements_are_non_empty
+      executor_profile: quality
+  - id: A-2
+    statement: 想起キーの重複判定が frozenset(terms) で行われ、要素順を入れ替えただけのキーが重複として検出される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_verify.py::test_reordered_key_counts_as_duplicate
+      executor_profile: quality
+  - id: A-3
+    statement: 全構成要素が他クラスタにも出現するキーの件数が 0 で、各 term の他クラスタ出現率が記録される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_verify.py::test_generic_only_keys_are_rejected
+      executor_profile: quality
+  - id: A-4
+    statement: 丸写し判定が全誤答選択肢に対する一致区間の和で行われ、2件を貼り合わせた識別ポイントが赤くなる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_verify.py::test_two_distractors_stitched_together_goes_red
+      executor_profile: quality
+  - id: A-5
+    statement: 想起キーの語句が元問題文中に実在し、実在しない語を含むキーは赤になる(混入率 0%)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_presence.py::test_recall_key_terms_exist_in_source
+      executor_profile: quality
+  - id: A-6
+    statement: 識別ポイントが参照する誤答選択肢が元データに実在し、存在しない選択肢を参照するものは赤になる(実在率 100%)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_presence.py::test_referenced_distractors_exist
+      executor_profile: quality
+  - id: A-7
+    statement: 仕込んだ矛盾を持つ想起素材フィクスチャに対し、含意判定が呼ばれて成果物を書かずに非0終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_recall_goes_through_entailment
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: 想起素材生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    paths:
+    - src/quiz_sift/recall/
+    reversible: true
+    adr: ADR-002
+- id: T-012
+  title: R-5 専門用語グロッサリ
+  kind: parallel
+  blocked_by:
+  - T-010
+  - T-006
+  - T-022
+  - T-014
+  claim_ids:
+  - C-005
+  - C-013
+  domains:
+  - analysis
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/glossary/
+    - tests/glossary/
+  acceptance:
+  - id: A-1
+    statement: 専門用語が抽出され、各用語に説明が1件生成される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_extract_terms.py::test_each_term_gets_one_description
+      executor_profile: quality
+  - id: A-2
+    statement: 照合結果が consistent / contradicted / no_reference の3値で、no_reference を consistent に潰す経路が型で塞がれている。公式解説 0 件のとき合格として報告しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_verify.py::test_no_reference_is_not_reported_as_pass
+      executor_profile: quality
+  - id: A-3
+    statement: グロッサリの音声が out/<deck>/glossary/ に g001_ 系列の別連番・専用 m3u で出力され、想起素材の系列と混ざらない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_audio_series.py::test_glossary_series_is_separate
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: グロッサリ生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    paths:
+    - src/quiz_sift/glossary/
+    reversible: true
+    adr: ADR-002
+- id: T-013
+  title: R-6 台本生成とラベル列挙判定
+  kind: parallel
+  blocked_by:
+  - T-011
+  - T-006
+  claim_ids:
+  - C-006
+  - C-013
+  domains:
+  - content
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/script/
+    - tests/script/
+  acceptance:
+  - id: A-1
+    statement: 台本が Prompt | Pause | Answer | Discrimination のセグメント列として構成され、順序が型と検証で保証される。地の文の「間」が混入する経路が無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_segments.py::test_segment_order_is_enforced_by_type
+      executor_profile: quality
+  - id: A-2
+    statement: ラベル列挙判定が 1トラック分のセグメント列を連結した単位で行われ、セグメントを跨いだ4件列挙が赤くなる。英語の冠詞 a や Availability Zone A は落とさない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_label_guard.py::test_cross_segment_enumeration_goes_red
+      executor_profile: quality
+  - id: A-3
+    statement: 推定再生時間が estimate_seconds(segments, language) で計算され、初期レート(日本語 7.0 文字/秒、英語 2.5 語/秒)が適用される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_duration.py::test_language_specific_rates
+      executor_profile: quality
+  - id: A-4
+    statement: 3分超過時に「1問分のセグメント列」の境界でのみ分割され、どのパートも Pause を1つ以上含み Prompt で始まる。末尾の Discrimination を切り離す実装と長さで割る実装の両方が赤くなる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_split.py::test_split_only_at_question_boundaries
+      executor_profile: quality
+  - id: A-5
+    statement: 超過したクラスタが列挙され、打ち切りが起きない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_split.py::test_overlong_clusters_are_listed_not_truncated
+      executor_profile: quality
+  - id: A-6
+    statement: 仕込んだ矛盾を持つ台本フィクスチャに対し、含意判定が呼ばれて成果物を書かずに非0終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_segments.py::test_script_goes_through_entailment
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: 台本生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    paths:
+    - src/quiz_sift/script/
+    reversible: true
+    adr: ADR-008
+- id: T-014
+  title: R-7 音声合成と無音構造判定
+  kind: parallel
+  blocked_by:
+  - T-013
+  - T-002
+  claim_ids:
+  - C-007
+  domains:
+  - audio
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/audio/
+    - src/quiz_sift/adapters/tts_cosyvoice.py
+    - tests/audio/
+  acceptance:
+  - id: A-1
+    statement: Pause セグメントが 3.3 秒の無音 PCM として挿入され、mp3 エンコード後も 3.0 秒以上残る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_synthesize.py::test_inserted_pause_survives_mp3_encoding
+      executor_profile: quality
+  - id: A-2
+    statement: detect_structure が区間列を返し、判定は「3.0 秒以上の Silent Run があり、その前後いずれにも Voiced Run がある」。末尾に無音を足すだけの実装が赤くなり、先頭/末尾に短い無音を含む音声は緑になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_silence.py::test_trailing_padding_goes_red_and_leading_silence_stays_green
+      executor_profile: quality
+  - id: A-3
+    statement: ゼロ埋め連番のファイル名リストを sorted() した結果が意図順と一致し、m3u が出力される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_naming.py::test_sorted_filenames_match_intended_order
+      executor_profile: quality
+  - id: A-4
+    statement: AudioMeta の language と VOICE_TABLE[voice_id].language が一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_voice_table.py::test_recorded_language_matches_voice
+      executor_profile: quality
+  - id: A-5
+    statement: SynthesisReport が失敗クラスタを列挙し、部分成功時にプロセスが非0終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_synthesize.py::test_partial_failure_exits_nonzero
+      executor_profile: quality
+  - id: A-6
+    statement: クラスタごと・合計の再生時間が記録される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_synthesize.py::test_durations_are_recorded
+      executor_profile: quality
+  - id: A-7
+    statement: 日本語本文に英語のサービス名が混在するテキストを分割せずそのまま TTS ポートへ渡し、例外を投げない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_synthesize.py::test_mixed_language_text_is_passed_through
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: CosyVoice のモデル重み(ホストに人が用意する)。このタスクはスタブ TTS で判定し、実合成は T-020
+    paths:
+    - src/quiz_sift/adapters/tts_cosyvoice.py
+    reversible: true
+    adr: ADR-004
+- id: T-015
+  title: R-8 出題・採点・レポート
+  kind: parallel
+  blocked_by:
+  - T-001
+  - T-005
+  claim_ids:
+  - C-008
+  domains:
+  - measurement
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/scoring/
+    - tests/scoring/
+  acceptance:
+  - id: A-1
+    statement: '回答の受け口が submit(session_id, question_id, chosen: OptionId) のみで、表示位置インデックスを受け取る API が存在しない。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_api_shape.py::test_no_positional_index_api_exists
+      executor_profile: quality
+  - id: A-2
+    statement: フィクスチャが問題ごとに異なる並びを持ち、少なくとも1問は正解 ID が表示位置 0 に来ない。その提示下で、選択肢 ID で同定した全問正解入力が正答率 100%、全問誤答入力が 0% になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_grade.py::test_grading_under_nonidentity_shuffle
+      executor_profile: quality
+  - id: A-3
+    statement: シャッフル seed が (セッション ID × 問題 ID) から導出され、同一問題の2セッションで presentation が異なる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_session.py::test_same_question_differs_across_sessions
+      executor_profile: quality
+  - id: A-4
+    statement: レポートが既習フラグの値ごと(studied / unseen / unknown)に正答率を分けて出す。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_report.py::test_report_splits_by_studied_flag
+      executor_profile: quality
+  - id: A-5
+    statement: レポートに hold-out 不在とテスト効果の両方を明示した限界開示文が必ず含まれる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_report.py::test_limits_disclosure_is_always_present
+      executor_profile: quality
+  - id: A-6
+    statement: 2セッション分の合成ログに対し、事前・事後それぞれの正答率と差分がレポートに出る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_report.py::test_pre_post_rates_and_delta
+      executor_profile: quality
+  - id: A-7
+    statement: 問題ごとの選択・正誤・所要時間がストア越しに永続記録され、プロセスをまたいで読み戻せる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/scoring/test_persistence.py::test_attempts_survive_a_restart
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: 学習記録(回答・正誤・所要時間)
+    paths:
+    - src/quiz_sift/scoring/
+    - src/quiz_sift/store/
+    reversible: true
+    adr: ADR-005
+- id: T-016
+  title: R-10 復習スケジューリング
+  kind: parallel
+  blocked_by:
+  - T-014
+  - T-015
+  claim_ids:
+  - C-010
+  domains:
+  - scheduling
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/schedule/
+    - tests/schedule/
+  acceptance:
+  - id: A-1
+    statement: クラスタが誤答率の降順に並び、同率は 最終学習日時が古い順 → クラスタ ID 昇順 で決定的になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/schedule/test_rank.py::test_descending_error_rate_with_deterministic_tiebreak
+      executor_profile: quality
+  - id: A-2
+    statement: 全問正解時に空リストではなく NoTargets が返り、型で区別される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/schedule/test_rank.py::test_no_targets_is_a_distinct_type
+      executor_profile: quality
+  - id: A-3
+    statement: 出力が out/<deck>/review/ の別系列へ複製され、そこで誤答率順の連番が振られる。out/<deck>/audio/ のファイル名は変わらない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/schedule/test_playlist.py::test_review_series_does_not_rename_audio
+      executor_profile: quality
+  - id: A-4
+    statement: 各クラスタの最終学習日時と誤答回数がストア越しに永続記録され、順序の根拠として読み戻せる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/schedule/test_playlist.py::test_cluster_stats_persist
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: 復習用再生リスト (out/<deck>/review/)
+    paths:
+    - src/quiz_sift/schedule/
+    reversible: true
+    adr: ADR-004
+- id: T-017
+  title: R-12 ローカル API と Web UI
+  kind: parallel
+  blocked_by:
+  - T-003
+  - T-005
+  - T-015
+  claim_ids:
+  - C-012
+  domains:
+  - ui
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/server/
+    - web/
+    - tests/server/
+  acceptance:
+  - id: A-1
+    statement: API が学習記録ストアへの唯一の書き込み経路で、UI 側に localStorage への永続化経路が無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/server/test_contract.py::test_api_is_the_only_write_path
+      executor_profile: quality
+  - id: A-2
+    statement: ThreadingHTTPServer を使い、SQLite の接続がリクエストごとに開かれ閉じられる。並行リクエストで ProgrammingError が出ない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/server/test_concurrency.py::test_concurrent_requests_do_not_raise
+      executor_profile: quality
+  - id: A-3
+    statement: Next.js の rewrites で同一オリジンに寄せており、API 側に CORS の許可オリジン設定が無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/server/test_origin.py::test_no_cors_allowlist_in_api
+      executor_profile: quality
+  - id: A-4
+    statement: out/ の配信が読み取り専用エンドポイント1本に限定され、gitignore_guard の対象パス配下のみを配信する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/server/test_serving.py::test_only_guarded_paths_are_served
+      executor_profile: quality
+  - id: A-5
+    statement: UI が CLI の成果物を読むだけで、web/ から LLM SDK を import していない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/server/test_contract.py::test_web_does_not_import_llm_sdk
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: ローカル HTTP API のエンドポイントとポート番号
+    paths:
+    - src/quiz_sift/server/
+    reversible: true
+    adr: ADR-006
+- id: T-018
+  title: CLI 統合とパイプライン結線
+  kind: integration
+  blocked_by:
+  - T-007
+  - T-008
+  - T-009
+  - T-010
+  - T-011
+  - T-012
+  - T-013
+  - T-014
+  - T-015
+  - T-016
+  - T-017
+  claim_ids:
+  - C-017
+  domains:
+  - infra
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/cli.py
+    - tests/test_cli.py
+  acceptance:
+  - id: A-1
+    statement: cli.py が 取り込み / クラスタリング / 想起素材 / グロッサリ / 台本 / 音声 / 復習リスト / serve の各段を個別に起動でき、段階キャッシュが効く。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_every_stage_has_an_entry_point
+      executor_profile: quality
+  - id: A-2
+    statement: gate.sh smoke の差し替え先である CLI の入口が、subprocess から 0 で終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_cli_entry_point_exits_zero
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: quiz-sift CLI のサブコマンド
+    paths:
+    - src/quiz_sift/cli.py
+    reversible: true
+    adr: ADR-001
+- id: T-019
+  title: 【不可逆】Udemy からの実取得とゴールデンセット実測
+  kind: integration
+  blocked_by:
+  - T-009
+  claim_ids:
+  - C-002
+  domains:
+  - ingest
+  risk: critical
+  scope:
+    include:
+    - docs/test/measurements/golden-set.md
+    - docs/test/measurements/extraction-run.md
+    - tests/measurements/test_extraction_logs.py
+  acceptance:
+  - id: A-1
+    statement: ログイン済み Chrome へ CDP 接続して 100〜200問(模擬試験2〜3回分)を実取得した記録が、argv・逐語の標準出力/標準エラー・実行時刻・コミット ID とともに docs/test/measurements/extraction-run.md に規定の見出しで残っている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_extraction_logs.py::test_extraction_run_log_is_recorded
+      executor_profile: quality
+  - id: A-2
+    statement: 人手で正解を確認したゴールデンセット10件(受験者の選択と正解が異なるものを3件以上含む)に対する正解ラベル一致率の実測が、同じ形式のログとともに docs/test/measurements/golden-set.md に記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_extraction_logs.py::test_golden_set_log_is_recorded
+      executor_profile: quality
+  - id: A-3
+    statement: 正解と判定した根拠の要素種別が実データ上でも全問で同一であることが、そのログから読み取れる。
+  operator_surface:
+  - kind: security_boundary
+    name: Udemy への実アクセス(アカウントにログイン履歴が残り、ボット検知を招きうる)。この承認が覆うのは 100〜200問の取得まで
+    paths:
+    - src/quiz_sift/adapters/browser_cdp.py
+    reversible: false
+    adr: ADR-007
+- id: T-020
+  title: 【不可逆】フル処理の実測と artifact 記録
+  kind: integration
+  blocked_by:
+  - T-018
+  - T-019
+  claim_ids:
+  - C-003
+  - C-007
+  - C-019
+  domains:
+  - measurement
+  risk: critical
+  scope:
+    include:
+    - docs/test/measurements/full-run.md
+    - docs/test/measurements/reproducibility.md
+    - docs/test/measurements/audio-silence.md
+    - tests/measurements/test_full_run_logs.py
+  acceptance:
+  - id: A-1
+    statement: 100〜200問のフル処理を1回実行した記録(経過時間・外部 API 呼び出し回数・推定コスト)が、argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/full-run.md に残っている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_full_run_log_is_recorded
+      executor_profile: quality
+  - id: A-2
+    statement: キャッシュを迂回した再クラスタリング2回の割当一致率と、外部 API 呼び出し回数が1回分の2倍になったことが、同じ形式で docs/test/measurements/reproducibility.md に記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_reproducibility_log_is_recorded
+      executor_profile: quality
+  - id: A-3
+    statement: 生成した mp3 に対する無音構造判定の実行結果が、同じ形式で docs/test/measurements/audio-silence.md に記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_audio_silence_log_is_recorded
+      executor_profile: quality
+  - id: A-4
+    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md のログから読み取れ、人が圧縮の質を判定できる。
+  operator_surface:
+  - kind: dependency
+    name: LLM API の課金(フル処理と再現性測定の2回分)
+    paths:
+    - src/quiz_sift/pipeline/meter.py
+    reversible: false
+    adr: ADR-002
+- id: T-021
+  title: 残る artifact 実測(gitignore 等価性とブラウザ動作)
+  kind: integration
+  blocked_by:
+  - T-003
+  - T-017
+  claim_ids:
+  - C-014
+  - C-012
+  domains:
+  - security
+  - ui
+  risk: medium
+  scope:
+    include:
+    - docs/test/measurements/gitignore-equivalence.md
+    - docs/test/measurements/ui-e2e.md
+    - tests/measurements/test_host_check_logs.py
+  acceptance:
+  - id: A-1
+    statement: 自前の .gitignore 評価器と git check-ignore -v の判定が代表パス集合に対して一致したことが、argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/gitignore-equivalence.md に記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_host_check_logs.py::test_gitignore_equivalence_log_is_recorded
+      executor_profile: quality
+  - id: A-2
+    statement: ブラウザからテストの実施と結果の閲覧ができたことが、E2E の逐語ログとスクリーンショットのパスとともに docs/test/measurements/ui-e2e.md に記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_host_check_logs.py::test_ui_e2e_log_is_recorded
+      executor_profile: quality
+  operator_surface:
+  - kind: observability
+    name: artifact 実測の記録 (docs/test/measurements/)
+    paths:
+    - docs/test/measurements/
+    reversible: true
+    adr: ADR-012
+- id: T-022
+  title: 語句の実在性判定(grounding)
+  kind: foundation
+  blocked_by:
+  - T-001
+  claim_ids:
+  - C-003
+  - C-004
+  domains:
+  - analysis
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/grounding/
+    - tests/grounding/
+  acceptance:
+  - id: A-1
+    statement: 日本語テキストから名詞句が切り出され、形態素解析が分割してしまう大文字略語(S3, EC2 など)がヒューリスティックで拾える。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/grounding/test_terms.py::test_acronyms_survive_tokenisation
+      executor_profile: quality
+  - id: A-2
+    statement: 語句が指定テキスト集合に実在するかの判定が、日本語と英語の双方で行える。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/grounding/test_presence.py::test_presence_in_ja_and_en
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: fugashi + unidic-lite(サンドボックスイメージに焼き込み済み)
+    paths:
+    - src/quiz_sift/grounding/
+    reversible: true
+    adr: ADR-010
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements
@@ -906,3 +2292,53 @@ lenses:
 - id: L-DES-FAILURE-WALK
   stage: design
   status: proposed
+- id: L-TASK-COLLISION
+  stage: tasks
+  status: applied
+- id: L-TASK-MISSING-EDGE
+  stage: tasks
+  status: applied
+- id: L-TASK-SCOPE
+  stage: tasks
+  status: applied
+- id: L-TASK-UNREADABLE-PLAN
+  stage: tasks
+  status: applied
+- id: L-TASK-UNTESTABLE-ACCEPTANCE
+  stage: tasks
+  status: applied
+- id: L-TASK-CUTOVER
+  stage: tasks
+  status: proposed
+- id: L-CODE-CI-AUTHORITY
+  stage: code
+  status: applied
+- id: L-CODE-DEP-SURFACE
+  stage: code
+  status: applied
+- id: L-CODE-TEST-INERTNESS
+  stage: code
+  status: applied
+- id: L-CODE-CONCURRENCY
+  stage: code
+  status: proposed
+- id: L-CODE-ERROR-PATH
+  stage: code
+  status: proposed
+scope:
+  include:
+  - src/
+  - tests/
+  - web/
+  - docs/
+  - gate.sh
+  - scripts/
+  - .rein/oci/
+  - .github/
+  - pyproject.toml
+  - uv.lock
+  - mkdocs.yml
+  - makefile
+  - .pre-commit-config.yaml
+  - .gitignore
+  - out/
