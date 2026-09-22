@@ -878,6 +878,19 @@ decisions:
   requirement_ids:
   - NFR-5
   - NFR-6
+- id: D-079
+  subject: T-007 の受入基準 A-4 が要求する実測ログ docs/test/measurements/pre-commit.md をどの scope に置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-007 の scope.include に足す。A-4 は「pre-commit run --all-files の実測ログが docs/test/measurements/pre-commit.md
+    に記録され、記録された終了コードが 0 である」ことを tests/measurements/test_pre_commit_log.py で判定するが、そのログの置き場が scope
+    に無かった。書けば scope_violation、書かなければ判定テストが赤のままで gate.sh test が全タスク分赤くなる。同種の成果物を持つ T-019(golden-set.md,
+    extraction-run.md) / T-020(full-run.md, reproducibility.md, audio-silence.md) / T-021(gitignore-equivalence.md,
+    ui-e2e.md) はいずれも自分の docs/test/measurements/*.md を scope に持っており、T-007 だけの抜けだった。判定方法も基準も変えず、抜けていた1パスを足すだけに留める。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
@@ -1225,6 +1238,7 @@ tasks:
     - .rein/oci/quiz-sift/
     - tests/test_gate_environment.py
     - tests/measurements/test_pre_commit_log.py
+    - docs/test/measurements/pre-commit.md
     - .pre-commit-config.yaml
     - mkdocs.yml
     - .github/
