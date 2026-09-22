@@ -24,6 +24,7 @@ src/quiz_sift/
   adapters/   ports の実装。外部 SDK の import はこの中だけ
   ingest/     R-1  parse → normalize → validate → dedup → IngestReport
   extract/    R-2  Udemy DOM → 問題 + 正解根拠。HTML 文字列を入力とする純粋関数
+  grounding/  語句の実在性判定(R-3 / R-4 / R-5 が共有。形態素解析 + 大文字略語)
   cluster/    R-3  排他分割 + 退化メトリクス + 要約の実在性判定
   recall/     R-4  想起キー / 答え / 識別ポイント + 弁別性・丸写し判定
   glossary/   R-5
@@ -148,7 +149,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 
 ### R-3 → design
 
-- **Required features/modules**: `ports/llm.py`, `cluster/assign.py`, `cluster/metrics.py`, `cluster/summary.py`, `cluster/grounding.py`
+- **Required features/modules**: `ports/llm.py`, `cluster/assign.py`, `cluster/metrics.py`, `cluster/summary.py`, `grounding/`
 - **Implementation method**:
   **2層に割る**。上層 = LLM にグループ分けを返させる。下層 = 「生の応答 → 排他分割 + その他」の
   純粋アルゴリズムと、そこから計算されるメトリクス群。M/N・排他性・最大クラスタ比率・その他比率・
@@ -174,7 +175,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   (AR-26: どの要件も強制しておらず、置けば R-3 の「2回の実行で API 呼び出しが2倍になる」基準が
   それを検出するために存在することになる)。再現性測定は成果物キャッシュを迂回して2回走らせ、
   API 呼び出し回数が1回分の2倍になることを確認する。
-  要約の語句実在性は `cluster/grounding.py` が名詞句を切り出して照合する(R-4 と共有。重複実装を
+  要約の語句実在性は `grounding/` が名詞句を切り出して照合する(R-4 と共有。重複実装を
   作らない)。**形態素解析だけでは足りない**: 実測(2026-09-22)で fugashi + unidic-lite は
   「Amazon EventBridge のルールで S3 のイベントを捕捉する」から Amazon / EventBridge / ルール /
   イベント / 捕捉 を正しく取ったが、**`S3` を `S` と `3` に分割した**。AWS のサービス名は
@@ -212,7 +213,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   一致区間は全体の約半分で、残り 50% が閾値を超えるため。**全誤答選択肢に対する一致区間の和**を
   `difflib.SequenceMatcher.get_matching_blocks` で取り、それを除いた残りが全体の 30% 以上あることを
   要求する。上の形の識別ポイントが赤くなるフィクスチャを置く。
-- **Existing assets to reuse**: `difflib`, `collections.Counter`。`cluster/grounding.py` を共有。
+- **Existing assets to reuse**: `difflib`, `collections.Counter`。`grounding/` を共有。
 - **Corresponding technical choice**: ADR-010
 - **What this requires of a person**: API キー。生成された想起キーが本当に手がかりになるかの主観判定
   (機械判定は「汎用語でない」までしか言えない)。
@@ -228,7 +229,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   ヒューリスティックを併用する。
   グロッサリ音声は `out/<deck>/glossary/` に `g001_...` の**別連番系列**で出し、専用の m3u を
   もう1本出す。想起素材の再生リストには混ぜない(D-049)。
-- **Existing assets to reuse**: `cluster/grounding.py`, `safety/entailment.py`, `audio/naming.py`
+- **Existing assets to reuse**: `grounding/`, `safety/entailment.py`, `audio/naming.py`
 - **Corresponding technical choice**: ADR-010
 - **What this requires of a person**: API キー。**公式解説が0件だった場合に「照合対象なし」で進めることの
   承認** — R-1 / R-2 が件数を報告するので承認前に判断材料は揃う。

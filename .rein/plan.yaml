@@ -910,7 +910,7 @@ tasks:
       - tests/domain/test_studied.py::test_studied_resolution_order
       executor_profile: quality
   - id: A-4
-    statement: '下流が必要とする共有型が揃っている: Question(解説フィールドと既習フラグを含む)、AttemptRecord(選択・正誤・所要時間・セッション ID)、ClusterStat(最終学習日時・誤答回数)、ScriptSegment(Prompt/Pause(seconds)/Answer/Discrimination)、RecallKey(terms)、AudioMeta(language, voice_id)。いずれも他タスクが自分の scope 内で使えるだけのフィールドを持つ。'
+    statement: '下流が必要とする共有型が揃っている: **OptionId**、Question(選択肢4件を OptionId 付きで保持し、解説フィールドと既習フラグを含む)、**IngestReport**、AttemptRecord(選択・正誤・所要時間・セッション ID)、ClusterStat(最終学習日時・誤答回数)、ScriptSegment(Prompt/Pause(seconds)/Answer/Discrimination)、RecallKey(terms)、AudioMeta(language, voice_id)。いずれも他タスクが自分の scope 内で使えるだけのフィールドを持つ。'
     evidence:
       kind: command
       command:
@@ -1241,13 +1241,13 @@ tasks:
       - tests/test_gate_environment.py::test_the_running_environment_matches_the_baked_requirements
       executor_profile: quality
   - id: A-4
-    statement: '`pre-commit run --all-files` の実測ログ(argv・逐語の標準出力/標準エラー・実行時刻・コミット ID)が docs/test/measurements/pre-commit.md に規定の見出しで記録されている。'
+    statement: '`pre-commit run --all-files` の実測ログが docs/test/measurements/pre-commit.md に規定の見出しで記録され、**記録された終了コードが 0 である**。失敗ログが記録されている場合は赤。'
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_pre_commit_log.py::test_pre_commit_log_is_recorded
+      - tests/measurements/test_pre_commit_log.py::test_pre_commit_log_records_a_zero_exit
       executor_profile: quality
   operator_surface:
   - kind: public_interface
@@ -1591,7 +1591,6 @@ tasks:
   - T-010
   - T-006
   - T-022
-  - T-014
   claim_ids:
   - C-005
   - C-013
@@ -1622,13 +1621,13 @@ tasks:
       - tests/glossary/test_verify.py::test_no_reference_is_not_reported_as_pass
       executor_profile: quality
   - id: A-3
-    statement: グロッサリの音声が out/<deck>/glossary/ に g001_ 系列の別連番・専用 m3u で出力され、想起素材の系列と混ざらない。
+    statement: 仕込んだ矛盾を持つ用語説明フィクスチャに対し、含意判定が呼ばれて成果物を書かずに非0終了する。entailment を呼ばず自前の文字列比較で済ませる実装は赤になる。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/glossary/test_audio_series.py::test_glossary_series_is_separate
+      - tests/glossary/test_verify.py::test_glossary_goes_through_entailment
       executor_profile: quality
   operator_surface:
   - kind: dependency
@@ -1794,6 +1793,15 @@ tasks:
       - pytest
       - -q
       - tests/audio/test_synthesize.py::test_mixed_language_text_is_passed_through
+      executor_profile: quality
+  - id: A-8
+    statement: naming と playlist が 出力ディレクトリ・連番 prefix・識別子 を引数に取り、`audio/` を編集せずに別系列(グロッサリ・復習)を出力できる。cluster_id をハードコードする実装は赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/audio/test_naming.py::test_naming_and_playlist_are_parameterised
       executor_profile: quality
   operator_surface:
   - kind: dependency
@@ -2033,6 +2041,7 @@ tasks:
   - T-015
   - T-016
   - T-017
+  - T-023
   claim_ids:
   - C-017
   domains:
@@ -2085,25 +2094,32 @@ tasks:
     - tests/measurements/test_extraction_logs.py
   acceptance:
   - id: A-1
-    statement: ログイン済み Chrome へ CDP 接続して 100〜200問(模擬試験2〜3回分)を実取得した記録が、argv・逐語の標準出力/標準エラー・実行時刻・コミット ID とともに docs/test/measurements/extraction-run.md に規定の見出しで残っている。
+    statement: Udemy からの実取得の記録が argv・逐語の標準出力/標準エラー・実行時刻・コミット ID とともに docs/test/measurements/extraction-run.md に規定の見出しで残り、**記録された取得件数が 100〜200 の範囲に入る**。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_extraction_logs.py::test_extraction_run_log_is_recorded
+      - tests/measurements/test_extraction_logs.py::test_extraction_run_records_100_to_200_questions
       executor_profile: quality
   - id: A-2
-    statement: 人手で正解を確認したゴールデンセット10件(受験者の選択と正解が異なるものを3件以上含む)に対する正解ラベル一致率の実測が、同じ形式のログとともに docs/test/measurements/golden-set.md に記録されている。
+    statement: ゴールデンセット10件(受験者の選択と正解が異なるものを3件以上含む)に対する正解ラベル一致率の実測が docs/test/measurements/golden-set.md に記録され、**記録された一致率が 100%(10/10)である**。それ未満なら赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_extraction_logs.py::test_golden_set_log_is_recorded
+      - tests/measurements/test_extraction_logs.py::test_golden_set_records_full_agreement
       executor_profile: quality
   - id: A-3
-    statement: 正解と判定した根拠の要素種別が実データ上でも全問で同一であることが、そのログから読み取れる。
+    statement: ゴールデンセットのログに selector_kind の値が全問分記録され、**その集合の要素数が 1 である**(根拠の要素種別が実データ上でも全問で同一)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_extraction_logs.py::test_golden_set_selector_kind_is_uniform
+      executor_profile: quality
   operator_surface:
   - kind: security_boundary
     name: Udemy への実アクセス(アカウントにログイン履歴が残り、ボット検知を招きうる)。この承認が覆うのは 100〜200問の取得まで
@@ -2132,34 +2148,41 @@ tasks:
     - tests/measurements/test_full_run_logs.py
   acceptance:
   - id: A-1
-    statement: 100〜200問のフル処理を1回実行した記録(経過時間・外部 API 呼び出し回数・推定コスト)が、argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/full-run.md に残っている。
+    statement: 100〜200問のフル処理の記録が argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/full-run.md に残り、**経過時間・外部 API 呼び出し回数・推定コストの3項目がいずれも数値として記録されている**。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_full_run_log_is_recorded
+      - tests/measurements/test_full_run_logs.py::test_full_run_records_all_three_metrics
       executor_profile: quality
   - id: A-2
-    statement: キャッシュを迂回した再クラスタリング2回の割当一致率と、外部 API 呼び出し回数が1回分の2倍になったことが、同じ形式で docs/test/measurements/reproducibility.md に記録されている。
+    statement: キャッシュを迂回した再クラスタリング2回の記録が docs/test/measurements/reproducibility.md に残り、**記録された外部 API 呼び出し回数が1回分のちょうど2倍で、割当一致率が数値として記録されている**。2倍でなければ赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_reproducibility_log_is_recorded
+      - tests/measurements/test_full_run_logs.py::test_reproducibility_records_doubled_calls
       executor_profile: quality
   - id: A-3
-    statement: 生成した mp3 に対する無音構造判定の実行結果が、同じ形式で docs/test/measurements/audio-silence.md に記録されている。
+    statement: 生成した mp3 に対する無音構造判定の実行結果が docs/test/measurements/audio-silence.md に記録され、**全クラスタについて判定結果が真である**(3.0 秒以上の無音が前後を有音に挟まれて検出された)。1件でも偽なら赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_audio_silence_log_is_recorded
+      - tests/measurements/test_full_run_logs.py::test_audio_silence_is_true_for_every_cluster
       executor_profile: quality
   - id: A-4
-    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md のログから読み取れ、人が圧縮の質を判定できる。
+    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md に数値として記録され、人が圧縮の質を判定できる。**3値のいずれかが欠ければ赤**(値そのものに合格ラインは設けない — D-004)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_compression_metrics_are_present
+      executor_profile: quality
   operator_surface:
   - kind: dependency
     name: LLM API の課金(フル処理と再現性測定の2回分)
@@ -2187,22 +2210,22 @@ tasks:
     - tests/measurements/test_host_check_logs.py
   acceptance:
   - id: A-1
-    statement: 自前の .gitignore 評価器と git check-ignore -v の判定が代表パス集合に対して一致したことが、argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/gitignore-equivalence.md に記録されている。
+    statement: 自前の .gitignore 評価器と git check-ignore -v の判定の突き合わせが docs/test/measurements/gitignore-equivalence.md に記録され、**代表パス集合の全件で判定が一致している**。1件でも不一致なら赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_host_check_logs.py::test_gitignore_equivalence_log_is_recorded
+      - tests/measurements/test_host_check_logs.py::test_gitignore_equivalence_is_total
       executor_profile: quality
   - id: A-2
-    statement: ブラウザからテストの実施と結果の閲覧ができたことが、E2E の逐語ログとスクリーンショットのパスとともに docs/test/measurements/ui-e2e.md に記録されている。
+    statement: ブラウザからのテスト実施と結果閲覧の E2E 記録が docs/test/measurements/ui-e2e.md に残り、**記録された E2E の終了コードが 0 で、スクリーンショットのパスが実在する**。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_host_check_logs.py::test_ui_e2e_log_is_recorded
+      - tests/measurements/test_host_check_logs.py::test_ui_e2e_passed_and_screenshots_exist
       executor_profile: quality
   operator_surface:
   - kind: observability
@@ -2252,6 +2275,38 @@ tasks:
     - src/quiz_sift/grounding/
     reversible: true
     adr: ADR-010
+- id: T-023
+  title: R-5 グロッサリ音声の別系列出力
+  kind: parallel
+  blocked_by:
+  - T-012
+  - T-014
+  claim_ids:
+  - C-005
+  domains:
+  - audio
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/glossary/audio_series.py
+    - tests/glossary/test_audio_series.py
+  acceptance:
+  - id: A-1
+    statement: グロッサリの音声が out/<deck>/glossary/ に g001_ 系列の別連番・専用 m3u で出力され、想起素材の系列(out/<deck>/audio/)と混ざらない。audio/ を編集せず、T-014 が引数化した naming / playlist を呼ぶ。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_audio_series.py::test_glossary_series_is_separate
+      executor_profile: quality
+  operator_surface:
+  - kind: persistence
+    name: グロッサリ音声の出力先 (out/<deck>/glossary/)
+    paths:
+    - src/quiz_sift/glossary/audio_series.py
+    reversible: true
+    adr: ADR-004
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements
