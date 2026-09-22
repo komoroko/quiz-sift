@@ -144,3 +144,21 @@ def test_each_gate_step_invokes_the_tool_it_claims_to() -> None:
         body = script.split(f"  {step})", 1)[1].split(";;", 1)[0]
         assert tool in body, f"{step} が {tool} を呼んでいない"
         assert "||" not in body, f"{step} の本体が失敗を握りつぶしている"
+
+
+def test_gate_smoke_subprocess_exits_zero() -> None:
+    """`bash gate.sh smoke` が実際に走って終了コード 0 を返すこと(A-1)。
+
+    `src/quiz_sift/__init__.py` の存在を `Path.exists()` で assert するだけでは、
+    import できない `__init__.py` でも、`__version__` の無い `__init__.py` でも緑になる。
+    smoke ステップが見ているのは「起動経路が生きているか」なので、**subprocess で
+    gate.sh を呼ぶこと自体**がこの基準の中身。
+    """
+    result = subprocess.run(
+        ["bash", "gate.sh", "smoke"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"gate.sh smoke が非0終了した: {result.stderr.strip()}"
+    assert result.stdout.strip(), "smoke が何も出力していない(__version__ が読めていない)"
