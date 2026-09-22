@@ -19,6 +19,7 @@ that decision is a human's: `rein next` / `/status` names the rows still blank, 
 | mandate | Python スケルトン: `pyproject.toml`(uv / ruff / mypy strict / pytest)、`tests/test_scaffold.py`、`.pre-commit-config.yaml`、`.github/workflows/ci.yml`、`mkdocs.yml`、`makefile`、`README.md`、`.gitignore` の拡張 | nothing — D-018(PyProjectTemplate 準拠)は人間が決めた mandate 事項であり、要件の増減では変わらない。`tests/test_scaffold.py` のみ、製品コードが入った時点で役目を終えるので削除する | |
 | mandate | **是正**: 最初は `src/quiz_sift/` と `src/tests/` に置いたが、`src/` は `guard.paths` に含まれ mandate 未承認では書き込みが拒否される。Bash のヒアドキュメントで書いたため PreToolUse フックを素通りしていた。`tests/` へ移し、品質ゲート・CI・makefile の対象パスを `.` に揃えた(`src/` は承認後にしか生えないため、パスを列挙すると不在で落ちる) | nothing — ガードの境界を戻しただけ | |
 | mandate | `.gitignore` に `data/` `out/` を追加(NFR-2: 取り込んだ実教材の本文を追跡対象に入れない) | nothing | |
+| mandate | **読み取り専用の実現性調査**(`/design` step 6 の `run_experiment`): プローブイメージを 2 本組み、`--network none` で fugashi + unidic-lite の形態素解析、ffmpeg `silencedetect` による mp3 の無音検出、Playwright chromium の起動とページ操作が動くことを実測した。イメージは削除済みで、リポジトリには何も書いていない。結果は `docs/20-design.md` の NFR-6 節に記録 | nothing — どの要件が残っても、ネットワーク遮断のゲートで何が動くかは知る必要がある | |
 
 - **Phase** — the gate that was pending: `mandate`, `acceptance`, or the `T-NNN` of an
   irreversible point this cycle is stopped in front of.

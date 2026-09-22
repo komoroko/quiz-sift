@@ -98,7 +98,7 @@ executors:
 executor_profiles:
   quality:
     kind: oci
-    image: localhost/rein-quality@sha256:0d4ead2f33c66d647d389f0c58f328f11eb26c6dfc19b17e494f95d921f1a008
+    image: localhost/rein-quality@sha256:fea7acc6e18863f7369b0f9e9261abc65f17694e972b5be933edee4db31aad65
     network_profile: none
     dockerfile: .rein/oci/quiz-sift/Containerfile
     # kind: oci
@@ -170,31 +170,31 @@ quality_gate:
   # 同じ検査を ruff と mypy の直接実行として置いてある。
   - name: lint
     kind: command
-    command: [ruff, check, "."]
+    command: [bash, scripts/gate.sh, lint]
     executor_profile: quality
     retries: 2
     required: true
   - name: format
     kind: command
-    command: [ruff, format, --check, "."]
+    command: [bash, scripts/gate.sh, format]
     executor_profile: quality
     retries: 2
     required: true
   - name: types
     kind: command
-    command: [mypy, "."]
+    command: [bash, scripts/gate.sh, types]
     executor_profile: quality
     retries: 2
     required: true
   - name: test
     kind: command
-    command: [pytest, -q]
+    command: [bash, scripts/gate.sh, test]
     executor_profile: quality
     retries: 2
     required: true
   - name: docs
     kind: command
-    command: [mkdocs, build, --strict]
+    command: [bash, scripts/gate.sh, docs]
     executor_profile: quality
     retries: 1
     required: true
@@ -203,11 +203,11 @@ quality_gate:
     agent_role: code_reviewer
     retries: 1
     required: true
-  # CLI の入口が決まり次第 /design で実コマンドに差し替え、required: true にする。
-  # config.yaml は mandate で凍結されるので、その差し替えは承認前に行う。
+  # D-033 の差し替え先。src/ を sys.path に入れて quiz_sift の __version__ を読む。
+  # 製品コードが入るまでは src/ が無いので required: false のまま。承認前に true にする。
   - name: smoke
     kind: command
-    command: ["true"]
+    command: [bash, scripts/gate.sh, smoke]
     executor_profile: quality
     retries: 1
     required: false

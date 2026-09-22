@@ -60,23 +60,39 @@ ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
     UV_NO_CACHE=1 \
     HOME=/home/runner
 
-# The quality gate's tool set, baked in because the runner passes `--network none`: a step that
-# would install its own linter at run time cannot run here at all. Pinned exactly, for the same
-# reason the base image is — a review recorded against "whatever ruff was current" is a review of
-# an environment nobody can reconstruct. These mirror the dev group of the project's
-# pyproject.toml; when one moves there, this image is rebuilt and config.yaml's digest repinned,
-# which is a change to the frozen environment and so happens before a mandate is approved.
+# ffmpeg: mp3 のデコードと無音区間の検出(R-7)。エンコードも同じ経路を使う(AR-27)。
+# Python の 3.13 で `audioop` が削除されたこと、`wave` が mp3 を読めないことが理由で、
+# これは stdlib では代替できない。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+# 製品の実行時依存と検査ツールを、**ロックファイルから**焼き込む(ADR-001 / AR-1)。
 #
-# `pre-commit` is deliberately absent. Its hooks are cloned from GitHub on first run, so
-# `pre-commit run --all-files` cannot work without egress; it belongs on the host at commit time
-# and in CI. The gate runs ruff and mypy directly instead — the same check without the fetch.
-RUN python -m pip install --no-cache-dir --root-user-action=ignore \
-      "pytest==9.0.3" \
-      "ruff==0.15.16" \
-      "mypy==2.1.0" \
-      "mkdocs==1.6.1" \
-      "mkdocs-material==9.7.6" \
-      "mkdocstrings[python]==1.0.4"
+# 手でバージョンを並べる代わりに uv.lock を使うのは、ホストと CI とこのイメージが
+# 同じ解決結果を使うため。`[tool.uv] exclude-newer` は相対指定なので、三者が別々に
+# 解決すると同じ pyproject から違う依存集合が出る。
+#
+# ビルド時にはネットワークがある。実行時は `--network none` なので、ここで入らなかった
+# ものは二度と入らない。
+#
+# requirements.txt は uv.lock から機械的に導出したもの:
+#   uv export --frozen --no-emit-project --all-groups --format requirements-txt \
+#     -o .rein/oci/quiz-sift/requirements.txt
+# lock を直接 COPY できないのは、`rein oci build` のビルドコンテキストがこのディレクトリで、
+# リポジトリ直下に届かないため。派生物を隣に置き、**lock と一致していることを tests/ の
+# テストが検査する** ので、手で編集された版が黙って焼かれることはない。
+# プロジェクト自身は入れない(--no-emit-project)。ワークツリーとしてマウントされ、
+# `scripts/gate.sh` が sys.path で解決する。
+COPY requirements.txt /build/requirements.txt
+RUN uv venv /opt/venv \
+ && UV_PROJECT_ENVIRONMENT=/opt/venv uv pip install --python /opt/venv/bin/python \
+      --no-cache -r /build/requirements.txt \
+ && rm -rf /build
+
+# ゲートの argv は `bash scripts/gate.sh <step>` で、その中の ruff / mypy / pytest /
+# mkdocs は PATH から引かれる。venv を先頭に置く。
+ENV PATH=/opt/venv/bin:$PATH
 
 # A non-root default for anyone who runs this image by hand. `rein` does not use it: every
 # launch passes `--user <the host user's uid:gid>`, because the worktree and the 0600 control

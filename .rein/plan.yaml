@@ -448,6 +448,394 @@ decisions:
   rationale: 入口が存在しない段階で smoke を required にしても、検査するものが無い。差し替えは承認前に行うので凍結後の変更にはならず、claim も受入基準も動かない。
   requirement_ids:
   - NFR-5
+- id: D-034
+  subject: 製品の実行時依存をネットワーク遮断の品質ゲートへどう届けるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: サンドボックスイメージに焼く。Containerfile で uv sync --frozen し、ffmpeg・fugashi+unidic・node+Playwright を入れる。依存を変えるたびにイメージ再ビルドとダイジェスト再ピンが要り、それは凍結環境の変更なので mandate 承認前に行う(ADR-001)。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-035
+  subject: LLM プロバイダと ports の粒度
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Anthropic 1社、モデルは claude-opus-5。ports はタスク別メソッド(classify_clusters / summarize / check_entailment 等)とし、mypy strict の下で呼び出し側の誤用が落ちる形にする(ADR-002)。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+  - R-6
+  - NFR-1
+  - NFR-7
+- id: D-036
+  subject: クラスタリングの方式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: LLM に直接分類させ、排他分割と『その他』は後処理で強制する。埋め込み方式は割当一致率が構造的に100%近くなり、R-3 の受入基準1本の意味が変わるため採らない(ADR-003)。
+  requirement_ids:
+  - R-3
+- id: D-037
+  subject: TTS プロバイダ
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: ローカル OSS の CosyVoice(Apache-2.0)。文内の日英コードスイッチを扱えることが決め手。SSML break は無いので『間』は自前で PCM 無音を挿入する。結果として TTS の課金が無くなり、R-7 は不可逆点を持たない(ADR-004)。
+  requirement_ids:
+  - R-7
+  - R-11
+  - NFR-7
+- id: D-038
+  subject: 学習記録ストアの実体
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: SQLite(stdlib の sqlite3)。WAL モードで CLI と server の同時アクセスを扱う(ADR-005)。
+  requirement_ids:
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-039
+  subject: 採点・シャッフル・レポートをどちらの言語に置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: '全部 Python 側。Web UI は presentation を表示して OptionId を送るだけ。回答の受け口は submit(question_id, chosen: OptionId) のみとし、表示位置インデックスを受け取る API を存在させない。これで AR-4 の裏切り実装はコード上の経路が無くなる(ADR-006)。'
+  requirement_ids:
+  - R-8
+  - R-12
+- id: D-040
+  subject: Udemy 抽出の方式と認証情報の持ち方
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人がログイン済みの Chrome をデバッグポート付きで起動し、そこへ CDP 接続する。パスワードもセッションクッキーもプログラムが持たないので NFR-3 の対象から消える。ただし実アクセスの不可逆性(アクセス履歴・ボット検知)は残る(ADR-007)。
+  requirement_ids:
+  - R-2
+  - NFR-3
+- id: D-041
+  subject: 台本が3分を超えたときの対処
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 台本のみを分割し、1クラスタが複数トラック(012a_, 012b_)になる。クラスタを割ると R-3 の M が動き、退化ガードの測定対象が崩れるため採らない(ADR-008)。
+  requirement_ids:
+  - R-6
+  - R-3
+  - R-7
+  - R-10
+- id: D-042
+  subject: 含意判定が uncertain を返したときの挙動
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: contradicted と同じくエラー終了させ、成果物を書かない。誤学習は本人が気づけない種類の失敗なので、判定できないものを通すリスクを取らない(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-043
+  subject: NFR-1 の誤検出0・検出率の検証方法
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 手書きフィクスチャのみ。録画再生は採らない。測れるのは判定器のパースとしきい値ロジックであって、モデルの判定能力ではない — この限界を承知のうえでの判断(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-044
+  subject: ミューテーション検出率の合格ライン
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 置かない(記録のみ)。結果として、検出率が低くても『矛盾件数 0』は成立しうる。この穴は人間が承知のうえで残し、design の Open questions に記録した(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-045
+  subject: 語句の実在性判定の実装
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 形態素解析(fugashi + unidic-lite)。大文字略語とカタカナ列のヒューリスティックを併用する(実測で S3 が S/3 に割れたため必須)。文字 n-gram は日本語で過剰に緩く、AR-14 が塞いだ穴を開け直すため採らない。サンドボックスイメージが数百 MB 増える(ADR-010)。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+- id: D-046
+  subject: 問題データとデッキ manifest の形式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 問題データは JSONL(機械が書き、行単位のエラー報告と相性がいい)、manifest は YAML(人が書き、コメントが書ける)。PyYAML は明示的な依存として宣言する(ADR-011)。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-11
+- id: D-047
+  subject: R-12 の受入基準の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: CI とサンドボックスイメージに node と Playwright を入れ、E2E を command として毎回走らせる。ネットワーク遮断下でブラウザが起動するかは未検証で、崩れたら artifact へ落とすことになる(ADR-012)。
+  requirement_ids:
+  - R-12
+  - NFR-5
+  - NFR-6
+- id: D-048
+  subject: R-2 のゴールデンセット10件の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 合成 HTML フィクスチャに対する抽出器のテストを command、実教材10件の一致率をホストでの artifact 実測とする。実教材は NFR-2 によりコミットできずサンドボックスから読めないため。
+  requirement_ids:
+  - R-2
+  - NFR-2
+- id: D-049
+  subject: グロッサリ音声の連番系列と再生リスト
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 別ディレクトリ・別連番(g001_)で出し、専用の m3u をもう1本出す。想起素材の再生リストには混ぜない。台本に解説が混ざるのと同じ交絡を避けるため。
+  requirement_ids:
+  - R-5
+  - R-7
+  - R-10
+- id: D-050
+  subject: 重複問題の『ほぼ同一』の判定
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 正規化(空白畳み込み・NFKC・記号除去)後の完全一致に加え、difflib.SequenceMatcher の ratio 0.95 以上を『ほぼ同一』とする。
+  rationale: 距離関数としきい値の変更は ingest/dedup.py 1ファイルとそのテストで済み、claim の文面(重複が検出され件数が報告される)は動かない。
+  requirement_ids:
+  - R-1
+- id: D-051
+  subject: 識別ポイントの丸写し判定のしきい値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 誤答選択肢との最長共通部分列区間を除いた残りが全体の 30% 以上あることを要求する。
+  rationale: 定数の変更のみ。判定の構造も claim も動かない。
+  requirement_ids:
+  - R-4
+- id: D-052
+  subject: 再生時間推定の初期レート
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 日本語 7.0 文字/秒、英語 2.5 語/秒を初期値とし、初回実測後に見直す(D-010 が見直しを前提としている)。
+  rationale: 定数の変更のみ。推定式の構造も受入基準も動かない。
+  requirement_ids:
+  - R-6
+- id: D-053
+  subject: 無音判定のしきい値と最小継続長
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 挿入する無音は 3.3 秒、判定のしきい値は −50 dBFS 未満が 3.0 秒以上。実測(2026-09-22)で 3.000 秒の無音を mp3 にエンコードし直すと 2.992 秒になったため、3.0 秒ちょうど挿入する実装は受入基準『3 秒以上』を通らない。挿入側に余裕を持たせ、判定側は基準どおりに置く。
+  rationale: 定数の変更のみ。区間列を返す判定の構造は動かない。挿入側の余裕は実測値から決めたもので、TTS やエンコーダを変えたら測り直す。
+  requirement_ids:
+  - R-7
+- id: D-054
+  subject: 誤答率が同率のときの並び順
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 最終学習日時が古い順 → クラスタ ID 昇順。決めないと出力が非決定的になりテストが書けない。
+  rationale: 比較関数の変更のみ。受入基準(誤答率の降順に並ぶ)は動かない。
+  requirement_ids:
+  - R-10
+- id: D-055
+  subject: .gitignore 対象判定の実装
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 自前の fnmatch ベースのパターン評価器を書く。git check-ignore はサンドボックスに git が無いため使えず、その判定のテストがゲートで走らなくなる。
+  rationale: safety/gitignore_guard.py 1ファイル。判定が command 証拠であることは保たれるので、何が証拠かは動かない。
+  requirement_ids:
+  - NFR-2
+  - R-2
+- id: D-056
+  subject: 専門用語の抽出方法
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 形態素解析の名詞句抽出に、大文字略語(S3, IAM)とカタカナ列のヒューリスティックを併用する。実測(2026-09-22)で fugashi + unidic-lite は S3 を S と 3 に分割したため、AWS のサービス名を扱うにはヒューリスティックが補助ではなく必須である。
+  rationale: glossary/extract_terms.py 1ファイル。D-045 で形態素解析を焼くと決まった以上、追加の依存は増えない。
+  requirement_ids:
+  - R-5
+- id: D-057
+  subject: 音声の出力形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: mp3。無音構造判定はエンコード後の mp3 をデコードして行う(受入基準の文言どおり)。ffmpeg をイメージに焼く。
+  rationale: 形式の変更は adapters と audio/silence.py のデコード経路の差し替えで済む。判定の構造は動かない。
+  requirement_ids:
+  - R-7
+- id: D-058
+  subject: ステージ成果物の置き場と上書きポリシー
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: out/<deck>/<stage>/ にコンテンツアドレス方式((inputs_digest) -> artifact)で置く。同じ入力なら同じパスなので、上書きが破壊にならない。
+  rationale: pipeline/stage.py のレイアウト変更で済み、NFR-4 の受入基準(前段の呼び出し0)は動かない。
+  requirement_ids:
+  - NFR-4
+- id: D-059
+  subject: デッキ ID の可変性
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 不変として扱う。後から変えると学習記録のパーティションキーが動き、移行が要る。
+  rationale: 設計上の取り決めであり、実装は複合キーの型で表現される。claim も受入基準も動かない。
+  requirement_ids:
+  - R-11
+- id: D-060
+  subject: 日英混在テキストを TTS へどう渡すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 分割せずそのまま渡す。CosyVoice が文内コードスイッチを扱うため(D-037)。SSML の lang マークアップは使わない。
+  rationale: アダプタ内の選択。1ファイル内に2言語が現れないので、R-7 の『記録された言語とボイスの一致』の判定も単数のまま保たれる。
+  requirement_ids:
+  - R-11
+  - R-7
+- id: D-061
+  subject: 形態素解析の辞書を unidic と unidic-lite のどちらにするか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: unidic-lite。実測で AWS 教材相当の日本語文を正しく分割できることを確認した。フル unidic は数百 MB 大きく、この用途で差が出る根拠が無い。
+  rationale: 辞書の差し替えは Containerfile の1行と grounding のテスト再実行で済み、claim も受入基準も動かない。ただしイメージ再ピンを伴うので承認前に確定する。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+  - NFR-6
+- id: D-062
+  subject: R-7『生成した mp3 に無音区間がある』の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: artifact に落とす。CosyVoice は pip で入らず(実測)、torch を含めるとイメージが数 GB 級になるため、ゲートに重みを置かない。ゲートでは合成 PCM に対する detect_structure を command として走らせ、実 mp3 はホストで1回実測して記録する。回帰検知を失う代償を承知のうえでの判断(AR-3 / ADR-012)。
+  requirement_ids:
+  - R-7
+  - NFR-6
+- id: D-063
+  subject: R-12『ブラウザからテストを実施・閲覧できる』の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: artifact に落とす。node_modules・next build・PYTEST_DISABLE_PLUGIN_AUTOLOAD・uid とブラウザ配置・2プロセス起動の5点が遮断下で塞がっており、承認前に解ける見込みが無い。ゲートでは API 契約テストを command として走らせ、ブラウザ動作はホストで E2E を1回走らせて記録する(AR-2 / ADR-012)。
+  requirement_ids:
+  - R-12
+  - NFR-5
+  - NFR-6
+- id: D-064
+  subject: NFR-5 (d)『CI の run と同一のコマンド列がゲートで緑』の成立させ方
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: scripts/gate.sh を作り、CI の run もゲートの argv も同じスクリプトを呼ぶ。同一性の対象は検査ステップだけで、環境を用意する手順(uv sync 等)は含まない — ゲートは依存が焼き込まれたイメージで走り、uv sync は --network none では原理的に動かないため(AR-6)。
+  requirement_ids:
+  - NFR-5
+- id: D-065
+  subject: 台本を分割するときの最小単位
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Prompt | Pause | Answer を最小単位とし、その境界でしか割らない。割れない場合は再生成側へ倒す。素朴に長さで割ると Pause を含まないパートが生まれ、そのパートは R-7 の無音構造基準を必ず落ちる。この規則により、聞く人が受け取る1ファイルに必ず『間』がある(AR-8)。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-066
+  subject: 品質ゲートの smoke ステップが赤いまま mandate を開けること
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: '既知の赤として rein baseline measure --freeze で凍結する。smoke は CLI の入口を叩くが、CLI は src/ に住み、src/ は guard.paths にあるので承認まで書けない。config.yaml は承認で凍結されるため『承認前に緑にする』ことが原理的にできない順序になっている。required: false なので DoD はブロックしない(AR-20)。'
+  requirement_ids:
+  - NFR-5
+- id: D-067
+  subject: R-2 の selector_kind をどう決めるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実行時にどの抽出規則が実際にマッチしたかから導出し、フォールバック枝ごとに別の値を返す。定数にすると『全問で同一種別』の判定が恒真式になる。加えて、集合サイズが 2 になって赤くなる negative control フィクスチャを置く。
+  rationale: 抽出器の内部実装。claim の文面(根拠が目視で追跡できる)も受入基準の文言も動かないが、判定が恒真式かどうかという意味では証拠能力そのものなので、negative control とセットで初めて local と言える。
+  requirement_ids:
+  - R-2
+- id: D-068
+  subject: 出題のシャッフル seed の導出元
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: セッション ID × 問題 ID。問題 ID だけだと同じ問題がいつ出題しても同じ順列になり、事前で位置を覚えた人が事後でも当てられる。同一問題の2セッションで presentation が異なることを機械判定する。
+  rationale: seed の導出は scoring/session.py 1ファイル。受入基準の文言(事後テストではシャッフルされる)は動かず、その目的を満たす形に直しただけ。
+  requirement_ids:
+  - R-8
+- id: D-069
+  subject: ports/browser.py と LLM レスポンスキャッシュを置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: どちらも置かない。抽出器を HTML 文字列の純粋関数にした時点でテスト容易性は得られており、D-008 が挙げるのは LLM・TTS・音声認識でブラウザは入っていない。LLM レスポンスキャッシュはどの要件も強制しておらず、置くと R-3 の『2回の実行で API 呼び出しが2倍』基準がそれを検出するために存在することになる。
+  rationale: どちらも足す方向なら後からできる。落とすことで壊れる受入基準は無い。
+  requirement_ids:
+  - R-2
+  - R-3
+  - NFR-4
+- id: D-070
+  subject: inputs_digest の構成要素
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 前段成果物の内容 + プロンプトテンプレートの digest + モデル ID + 生成パラメータ。ステージ実装コード自体は入れない。前者が欠けるとプロンプトを直しても旧成果物がキャッシュヒットで返り、後者を入れると無関係な編集で全ステージが再実行されてコストが毎回乗る。
+  rationale: pipeline/stage.py の digest 関数。NFR-4 の受入基準(前段の呼び出し0)は動かない。
+  requirement_ids:
+  - NFR-4
+- id: D-071
+  subject: 学習記録へのアクセス経路
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: DeckScopedStore(deck_id) 経由に限定し、生の接続を store/location.py の外に出さない。deck_id 列だけだと WHERE を1本書き忘れた集計クエリが型検査にも mypy strict にも引っかからず、2デッキ分を合算する。
+  rationale: store/ の内部設計。R-11 の受入基準(記録がセット単位で分離される)の文言は動かず、それを構造で保証する形にしただけ。
+  requirement_ids:
+  - R-11
+  - R-8
+  - R-10
+- id: D-072
+  subject: Web UI と API のオリジンとサーバのスレッドモデル
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: Next.js の rewrites で同一オリジンに寄せ、ThreadingHTTPServer を使い、SQLite の接続はリクエストごとに開いて閉じる。out/ の配信は読み取り専用エンドポイント1本。BaseHTTPRequestHandler は preflight の OPTIONS に 501 を返すので、そのままでは回答の送信が失敗する。
+  rationale: server/ の内部設計。R-12 の受入基準の文言は動かない。
+  requirement_ids:
+  - R-12
+- id: D-073
+  subject: R-10 の復習用再生リストと R-7 の連番の共存
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: out/<deck>/review/ の別系列へ複製(可能ならハードリンク)して誤答率順の連番を振る。out/<deck>/audio/ の改名は R-7 の『ファイル名昇順で意図した順に並ぶ』を壊す。グロッサリが D-049 で採っているのと同じ形。
+  rationale: 出力レイアウトの選択。両方の受入基準が同時に成立する形を選んだだけで、文言は動かない。
+  requirement_ids:
+  - R-10
+  - R-7
+- id: D-074
+  subject: サンドボックスイメージへ依存を焼く手段
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: uv.lock から uv export で導出した requirements.txt を .rein/oci/quiz-sift/ に置き、Containerfile はそれを COPY して uv pip install する。lock を直接 COPY できないのは rein oci build のビルドコンテキストが Containerfile のディレクトリだから。派生物が lock と一致していることを tests/test_gate_environment.py が検査する。
+  rationale: ビルド手段の選択。ADR-001 の決定(依存をイメージに焼く)は動かず、その実現方法を1つに決めただけ。一致検査があるので、手で編集された版が黙って焼かれることはない。
+  requirement_ids:
+  - NFR-6
+  - NFR-5
 tasks: []
 lenses:
 - id: L-REQ-AMBIGUITY

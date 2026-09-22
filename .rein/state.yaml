@@ -14,7 +14,15 @@ execution:
   status: idle
 tasks: {}
 baseline:
-  measured_at: '2026-09-21T21:41:56+00:00'
-  tree_digest: sha256:3c23378b3a05064deeda6d78ba1c28cf964dfe1549e6a6cd509d6dd0c15a97b1
-  red_steps: []
-  frozen: false
+  measured_at: '2026-09-22T00:10:09+00:00'
+  tree_digest: sha256:56362aac9a1acdffd8709854a42732b88b1809555b3a60675a4ef84f4a17536f
+  red_steps:
+  - name: smoke
+    failure: '$ bash scripts/gate.sh smoke (rc=1)
+
+      … (3 line(s) omitted; kept salient lines only)
+
+      Traceback (most recent call last):
+
+      ModuleNotFoundError: No module named ''quiz_sift'''
+  frozen: true

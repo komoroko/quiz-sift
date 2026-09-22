@@ -4,7 +4,15 @@ version = "0.1.0"
 description = "4択問題集を、耳だけでも効率的に学習できる形へ AI で変換する"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    # LLM(ADR-002)。adapters 層からのみ import する。
+    "anthropic>=0.75.0",
+    # デッキ manifest(ADR-011)。mkdocs 経由の暗黙依存にしない。
+    "pyyaml>=6.0.2",
+    # 語句の実在性判定(ADR-010)。辞書は unidic ではなく unidic-lite(D-061)。
+    "fugashi>=1.5.1",
+    "unidic-lite>=1.0.8",
+]
 
 [tool.uv]
 # アップロードから1週間以内の新しいバージョンはインストール対象から除外する。
@@ -27,11 +35,19 @@ line-ending = "auto"
 
 [tool.mypy]
 strict = true
+warn_unused_ignores = false
 # src/ はまだ存在しない(guard.paths のため mandate 承認後に作る)。パスを列挙すると
 # 不在で落ちるので、除外側で絞る。
 exclude = ["^site/", "^\\.rein/", "^\\.venv/", "^\\.worktrees/"]
+# tests/ から import した製品コードの型が Any に落ちないようにする(AR-23)。
+mypy_path = ["src"]
+# ignore_missing_imports を全体既定にすると strict が広い範囲で空振りする(AR-23)。
+# 型スタブを持たないサードパーティにだけ、override で限定して許す。
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["fugashi.*", "unidic_lite.*"]
 ignore_missing_imports = true
-warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 # テストは tests/ に置く。src/ は .rein/config.yaml の guard.paths に含まれ、mandate が
