@@ -46,7 +46,12 @@ mypy_path = ["src"]
 ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
-module = ["fugashi.*", "unidic_lite.*"]
+# PyYAML は py.typed を同梱せず、型情報は別配布の types-PyYAML にある。それを dev 依存に
+# 足すと uv.lock → .rein/oci/quiz-sift/requirements.txt → サンドボックスイメージまで
+# 焼き直しが波及する(凍結された config.yaml のダイジェスト再ピンを伴う)。設計が
+# 「型スタブを持たないサードパーティにだけ override で限定して許す」と定めた口(AR-23)は
+# まさにこれのためのもの。
+module = ["fugashi.*", "unidic_lite.*", "yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
