@@ -14,11 +14,11 @@ execution:
   status: idle
 tasks: {}
 baseline:
-  measured_at: '2026-09-22T00:10:09+00:00'
-  tree_digest: sha256:56362aac9a1acdffd8709854a42732b88b1809555b3a60675a4ef84f4a17536f
+  measured_at: '2026-09-22T06:29:20+00:00'
+  tree_digest: sha256:4b3f112f6f637a5662cdc345741ddca225714688e2ea14fd68067dde4b6b8501
   red_steps:
   - name: smoke
-    failure: '$ bash scripts/gate.sh smoke (rc=1)
+    failure: '$ bash gate.sh smoke (rc=1)
 
       … (3 line(s) omitted; kept salient lines only)
 

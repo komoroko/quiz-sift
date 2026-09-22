@@ -170,31 +170,31 @@ quality_gate:
   # 同じ検査を ruff と mypy の直接実行として置いてある。
   - name: lint
     kind: command
-    command: [bash, scripts/gate.sh, lint]
+    command: [bash, gate.sh, lint]
     executor_profile: quality
     retries: 2
     required: true
   - name: format
     kind: command
-    command: [bash, scripts/gate.sh, format]
+    command: [bash, gate.sh, format]
     executor_profile: quality
     retries: 2
     required: true
   - name: types
     kind: command
-    command: [bash, scripts/gate.sh, types]
+    command: [bash, gate.sh, types]
     executor_profile: quality
     retries: 2
     required: true
   - name: test
     kind: command
-    command: [bash, scripts/gate.sh, test]
+    command: [bash, gate.sh, test]
     executor_profile: quality
     retries: 2
     required: true
   - name: docs
     kind: command
-    command: [bash, scripts/gate.sh, docs]
+    command: [bash, gate.sh, docs]
     executor_profile: quality
     retries: 1
     required: true
@@ -204,10 +204,11 @@ quality_gate:
     retries: 1
     required: true
   # D-033 の差し替え先。src/ を sys.path に入れて quiz_sift の __version__ を読む。
-  # 製品コードが入るまでは src/ が無いので required: false のまま。承認前に true にする。
+  # 製品コードが入るまでは src/ が無いので赤い。D-066 で「既知の赤」として凍結済みで、
+  # required: false のまま承認する(true にすると凍結された赤が DoD をブロックする)。
   - name: smoke
     kind: command
-    command: [bash, scripts/gate.sh, smoke]
+    command: [bash, gate.sh, smoke]
     executor_profile: quality
     retries: 1
     required: false

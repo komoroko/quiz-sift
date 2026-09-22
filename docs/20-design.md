@@ -38,7 +38,8 @@ src/quiz_sift/
   safety/     NFR-1 含意判定 / NFR-2 パス検証 / NFR-3 ログマスク
   cli.py      CLI 入口(D-033 の smoke の差し替え先)
 web/          Next.js / React。表示と OptionId の送信のみ
-scripts/      gate.sh — CI と品質ゲートが同じ検査を呼ぶための単一の入口(NFR-5 (d))
+gate.sh       CI と品質ゲートが同じ検査を呼ぶ単一の入口(NFR-5 (d))。リポジトリ直下なのは
+              `scripts/` が guard.paths に含まれ、承認前に書けないため(N-3)
 tests/        ゲートが走らせるテストとフィクスチャ
 ```
 
@@ -159,14 +160,16 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   退化スタブを2本(全問を1グループに返す / 全問を未分類で返す)固定フィクスチャとして置き、
   **そのスタブに対して最大クラスタ 50%・その他 20% のガードが赤くなること**をテストで要求する。
   これは受入基準の追加ではなく、既存基準の判定可能性の確保。
-  **実データの退化は閾値ではなく警告で人に突きつける**(AR-5)。D-004 は実データに合格ラインを
-  置かないと決めており、それは変えない。代わりに、その他比率・最大クラスタ比率・LLM 呼び出しの
-  失敗件数を**成果物のサマリに必ず出力し、閾値なしの警告として目に入る形にする**。
-  これが無いと、分割呼び出しの3回目が 429 で落ちて 120 問が「その他」に落ちても、排他分割も
-  M/N も成立したまま、その他比率 60% の出力が 90 分の音声になる。
-  **LLM の部分失敗を無音で吸収しない**: `classify_clusters` は
-  `ClassificationResult(assignments, failures: list[CallFailure])` を返し、`failures` が空でない
-  実行は成果物のサマリにその件数を出す。
+  **外部呼び出しの失敗は非 0 終了にする**(AR-5 / S-1)。`classify_clusters` は
+  `ClassificationResult(assignments, failures: list[CallFailure])` を返し、**`failures` が空でない
+  実行は下流ステージへ進まず非 0 終了する**。これは圧縮の質についての閾値ではなく「外部呼び出しが
+  失敗した」という事実についての規則なので、**D-004(実データに合格ラインを置かない)とは衝突しない**
+  — R-7 の `SynthesisReport` が既に同じ形を採っている。
+  「サマリに警告を出して先へ進む」では足りない: 分割呼び出しの3回目が 429 で落ちて 120 問が
+  「その他」に落ちても、排他分割も M/N も成立したまま、その他比率 60% の出力が 90 分の音声になる。
+  警告を読むのは人間であって機械ではなく、見落とす経路を誰も塞げない。
+  あわせて、**サマリに `other_ratio` / `max_cluster_ratio` / `failure_count` の3値が出力され、
+  失敗件数が実際の失敗数に一致すること**を、失敗スタブに対する `command` 証拠として1本置く。
   キャッシュは NFR-4 の**成果物キャッシュのみ**とし、**LLM レスポンスキャッシュは置かない**
   (AR-26: どの要件も強制しておらず、置けば R-3 の「2回の実行で API 呼び出しが2倍になる」基準が
   それを検出するために存在することになる)。再現性測定は成果物キャッシュを迂回して2回走らせ、
@@ -253,10 +256,14 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   初期レートは日本語 7.0 文字/秒、英語 2.5 語/秒とし、初回実測後に見直す(D-052)。
   **3分超過時は台本のみを分割**する。1クラスタが複数トラック(`012a_`, `012b_`)になり、クラスタは
   割らないので R-3 の M は動かない(ADR-008)。
-  **分割は `Prompt | Pause | Answer` を最小単位とし、その境界でしか割らない**(AR-8)。
-  素朴に長さで割ると `Pause` を1つも含まないパートが生まれ、そのパートは R-7 の無音構造基準を
-  **必ず**落とす。最小単位でも3分を超える場合は分割せず、再生成側へ倒す。この規則により
-  **聞く人が受け取る1ファイルに必ず「間」がある**という性質が保たれる。
+  **分割は「1問分のセグメント列」= `Prompt, Pause, Answer, Discrimination?` を最小単位とし、
+  問の境界でしか割らない**(AR-8 / S-3)。`Prompt | Pause | Answer` を最小単位にすると
+  **最後の `Answer` の直後が正当な境界になり、`Discrimination` だけのパートが作れてしまう** —
+  それは `Pause` を1つも含まないので R-7 の無音構造基準を必ず落とし、AR-8 が名指しした穴が復活する。
+  `Discrimination` で始まるトラックができれば R-6 の順序基準も落ちる。
+  **どのパートも `Pause` を1つ以上含み、かつ `Prompt` で始まること**をテストで固定する
+  (長さで割る実装と、末尾の `Discrimination` を切り離す実装の両方がこのテストで赤になる)。
+  1問分でも3分を超える場合は分割せず、再生成側へ倒す。
   超過したクラスタは列挙する。
 - **Existing assets to reuse**: `re`, `unicodedata`, `dataclasses`
 - **Corresponding technical choice**: ADR-002, ADR-008
@@ -301,7 +308,8 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   **実際に生成した mp3 に無音区間があることは `artifact`**(ADR-012)。CosyVoice は pip で入らず、
   torch を含めるとイメージが数 GB 級になるため、ゲートに重みを置かない。ホストで1回実測して記録する。
 - **What this requires of a person**:
-  (1) CosyVoice をホストに導入し、モデル重みを用意すること(git clone + サブモジュール + torch)。
+  (1) **artifact 実測が走る前に**、CosyVoice をホストに導入しモデル重みを用意すること
+  (git clone + サブモジュール + torch)。実測コマンド自体はループが行う(N-2)。
   (2) 日本語 / 英語それぞれで使うボイスの選択。
   (3) 生成された mp3 を**携帯端末へ手動転送すること**(D-016)。
   (4) 端末の音楽アプリがファイル名昇順で並べることの確認(端末依存で、ループは検証できない)。
@@ -404,7 +412,8 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   **ブラウザから実施・閲覧できることは `artifact`**(ADR-012)。node と Playwright を
   ネットワーク遮断のイメージに入れる経路が塞がっているため、ホストで E2E を1回走らせて
   ログとスクリーンショットを記録する。
-- **What this requires of a person**: ポート番号の選択。ブラウザで実際に触って使うこと。
+- **What this requires of a person**: ポート番号の選択。**artifact 実測が走る前に `npm ci` と
+  `next build` をホストで済ませておくこと**(実測コマンド自体はループが行う。N-2)。
 - **Reversibility**: **可逆**。ローカル起動のみ、外部公開なし。
 
 ## How non-functional requirements are met
@@ -460,10 +469,17 @@ R-3 の再現性測定はこの対象外とし、`artifact` 判定(D-030)。
 uv / ruff / mypy strict / pytest / pre-commit / mkdocs。テストは `tests/`(`src/` は `guard.paths` に
 含まれるため、mandate 承認までスケルトンを置けない)。
 
-**(d) の「同一のコマンド列」は `scripts/gate.sh` で構造的に保証する**(AR-6)。CI の `run` も
-品質ゲートの argv も `bash scripts/gate.sh <step>` を呼ぶ。**同一性の対象は検査ステップだけで、
+**(d) の「同一のコマンド列」は `gate.sh` で構造的に保証する**(AR-6)。CI の `run` も
+品質ゲートの argv も `bash gate.sh <step>` を呼ぶ。**同一性の対象は検査ステップだけで、
 環境を用意する手順(`uv sync` など)は含まない** — ゲートは依存が焼き込まれたイメージで走り、
-`uv sync` は `--network none` では原理的に動かないため。この線引きは要件の NFR-5 に明記する。
+`uv sync` は `--network none` では原理的に動かないため。**この線引きは要件 NFR-5 (d) に
+書き換え済み**(S-2)。要件は「部分集合」ではなく**集合の一致**を求める — でないと CI から
+検査を1本落としても「同一のコマンド列がゲートで緑」が真になる。
+`tests/test_gate_environment.py` が (1) 両者の `<step>` 集合の一致、(2) 各ケースが名前どおりの
+ツールを呼び失敗を握りつぶしていないこと、(3) イメージの実バージョンが焼き込み requirements と
+一致すること(N-1)を機械判定する。共通スクリプト化は「2箇所がずれる」を「1箇所を緩めれば
+両方同時に緩む」に置き換えるので、(2) が無いと `lint) ruff check . || true` の1行編集で
+CI とゲートが同時に無害化される。
 
 **(c) の pre-commit はゲートにも CI にも置かない**(D-031)。フックを GitHub から clone するため
 遮断下で動かない。証拠は**ホストでの `pre-commit run --all-files` の artifact** とする(AR-19)。
@@ -512,7 +528,7 @@ adaptive thinking を既定にしているので出力側に思考トークン�
   ゲートは赤くならず、`/verify` の実測で初めて分かる。代償は ADR-006 により小さく抑えられている
   (判定されるロジックは全部 Python 側にあり、UI に残るのは表示と送信、音声側に残るのは TTS 呼び出し)。
   artifact 判定は計5本(R-2 のゴールデンセット、R-3 の再現性、R-7 の無音、R-12 のブラウザ動作、
-  NFR-2 の gitignore 等価性)。
+  NFR-2 の gitignore 等価性)。**実行主体は「人が環境を用意し、ループが実測する」**(N-2)。
 - **NFR-1 の検証が手書きフィクスチャに限定されている**(D-043)。判定器のパースとしきい値ロジックは
   測れるが、**モデルの判定能力は測っていない**。加えて検出率に合格ラインが無い(D-044)ので、
   検出率が低くても「矛盾件数 0」は成立する。この穴は人間が承知のうえで残した。
@@ -563,7 +579,7 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
 | AR-3 | blocker | CosyVoice は pip で入らず(git clone + サブモジュール)、torch だけで 196 MB(圧縮時)。重みが無ければゲート内に mp3 が生まれず、R-7 の `command` 証拠が成立しない | **run_experiment → reduce_scope → fixed**: `pip download cosyvoice` の失敗と wheel サイズを実測。人間の判断で R-7 の証拠を `artifact` に落とし、ADR-004 / ADR-012 を更新 |
 | AR-4 | blocker | `selector_kind` を定数にする設計が「根拠の要素種別が全問で同一」を**恒真式**にし、要件段階の AR-3(誤答を正解として取り込む)を開け直す | **revise_design → fixed**: 実行時にマッチした規則から導出する形に変更し、集合サイズが 2 になって赤くなる negative control フィクスチャを要求 |
 | AR-5 | blocker | 外部依存の失敗経路が設計に1行も無い。LLM の分割呼び出しが途中で落ちると 120 問が「その他」に落ち、実データに合格ラインが無い(D-004)ため何にも引っかからず 90 分の音声になる | **revise_design → fixed**: `ClassificationResult(assignments, failures)` / `FetchFailure` / `SynthesisReport` を定め、その他比率・最大クラスタ比率・失敗件数を**閾値なしの警告として成果物サマリに必ず出す**。D-004 は変えていない |
-| AR-6 | blocker | NFR-5 (d)「CI の run と同一のコマンド列」が構造的に成立しない(`uv sync` は遮断下で走らない)。不一致ごと凍結される | **revise_design → fixed**: `scripts/gate.sh` を作り、CI の `run` とゲートの argv が同じスクリプトを呼ぶ形にした。同一性の対象を検査ステップに限ることを設計に明記 |
+| AR-6 | blocker | NFR-5 (d)「CI の run と同一のコマンド列」が構造的に成立しない(`uv sync` は遮断下で走らない)。不一致ごと凍結される | **revise_design → fixed**: `gate.sh` を作り、CI の `run` とゲートの argv が同じスクリプトを呼ぶ形にした。同一性の対象を検査ステップに限ることを設計に明記 |
 | AR-7 | blocker | シャッフル seed を問題 ID だけから導出すると事前/事後で並びが同一になり、「位置を覚えたことによる偽陽性の排除」という基準の目的を裏切る | **revise_design → fixed**: seed を (セッション ID × 問題 ID) から導出し、同一問題の2セッションで `presentation` が異なることを機械判定 |
 | AR-8 | blocker | 台本分割で `Pause` を含まないパートが生まれ、そのクラスタは R-7 の無音構造基準を必ず落ちる | **revise_design → fixed**(人間の判断): `Prompt \| Pause \| Answer` を最小単位とし、その境界でしか割らない。割れない場合は再生成側へ倒す |
 | AR-9 | major | `runs[0].voiced` が要件に無い条件を足しており、`min_silence_sec` の意味論が未定義で判定が二読みになる | **revise_design → fixed**: 判定式を要件の文言に揃え、`min_silence_sec` を「これ未満の無音は Run として出さない」と定義 |
@@ -577,7 +593,7 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
 | AR-17 | major | `AnswerEvidence.raw_text` は実教材本文なのに保存先が未定義。素の例外トレースにはログフィルタが効かない | **revise_design → fixed**: 根拠レコードは `out/<deck>/` のみ、本文を持つ dataclass は `repr=False`。`raw_text` はフィールドから外した |
 | AR-18 | major | R-11 の混入防止は clustering にしか効かず、学習記録の分離は `deck_id` 列だけで構造的保証が無い | **revise_design → fixed**: `DeckScopedStore(deck_id)` 経由に限定し、生の接続を `store/location.py` の外に出さない |
 | AR-19 | major | NFR-5 (c) の pre-commit に証拠経路が無く、`name-tests-test` が既存ファイルで既に赤 | **revise_design → fixed**: 証拠をホストでの artifact と明示。`--pytest-test-first` を `.pre-commit-config.yaml` に追加済み |
-| AR-20 | major | 凍結前に必須の smoke 差し替え先が設計に無く、イメージ内で CLI を起動する経路も無い | **revise_design → fixed**: `scripts/gate.sh smoke` が `sys.path` に `src` を入れて `quiz_sift.__version__` を読む。`config.yaml` に反映済み。src/ が生えるまで赤なので**人間の判断で既知の赤として凍結**した |
+| AR-20 | major | 凍結前に必須の smoke 差し替え先が設計に無く、イメージ内で CLI を起動する経路も無い | **revise_design → fixed**: `gate.sh smoke` が `sys.path` に `src` を入れて `quiz_sift.__version__` を読む。`config.yaml` に反映済み。src/ が生えるまで赤なので**人間の判断で既知の赤として凍結**した |
 | AR-21 | major | `inputs_digest` の構成要素が未定義で、プロンプト変更が古い成果物の再利用として通る | **revise_design → fixed**: 前段成果物 + プロンプト digest + モデル ID + 生成パラメータ。実装コードは入れない、と明記 |
 | AR-22 | major | `command_timeout_sec: 1800` に CosyVoice の CPU 推論と E2E が乗る | **fixed(AR-2 / AR-3 の帰結)**: 音声生成も E2E もゲートから出たので、この衝突は消えた |
 | AR-23 | major | `ignore_missing_imports = true` + `mypy_path` 不在で strict が広く空振りする | **revise_design → fixed**: `mypy_path = ["src"]`、`ignore_missing_imports = false` + override で限定。`pyproject.toml` に反映済み |
@@ -588,10 +604,29 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
 | AR-28 | minor | CDP はクッキーを読み出せるのに NFR-3 のマスク対象から Udemy 資格情報が外された | **revise_design → fixed**: 「保存しない」と「露出しない」を区別し、Cookie 系をマスク対象に残す |
 | AR-29 | minor | NFR-7 の単価表が cache トークンと thinking の出力トークンを勘定に入れていない | **revise_design → fixed**: `calls_by_model` の内訳を cache write / cache read / 思考を含む出力で分ける |
 
-**未解決の dispute**: なし。29 件すべてを処置した。
-**人間が判断した点**: R-7 と R-12 の証拠種別を `artifact` に落とすこと(AR-2 / AR-3)、
-NFR-5 (d) を共通スクリプトで成立させること(AR-6)、台本分割の最小単位(AR-8)、
-smoke を既知の赤として凍結すること(AR-20)。
+### 2巡目(blocker 修正の再レビュー、規定により1回のみ)
+
+| ID | 2巡目の判定 | 内容と最終処置 |
+|----|------------|---------------|
+| AR-1 | **closed** | lock・requirements・ffmpeg 入りイメージが実在し、凍結 baseline が `docs`(mkdocs)まで緑 = 依存が実際に入っている。手編集 requirements の裏切りはイメージに `uv` があるため skip されず赤になる |
+| AR-2 / AR-3 | **closed** | 証拠を `artifact` に落としたので「遮断下で command にする経路」の要求自体が消えた。node / Playwright / torch / CosyVoice はイメージに無い |
+| AR-4 | **closed** | 「両枝が同じ定数を返す」「1つの汎用規則で吸収する」の2通りとも、要求した negative control が落とす |
+| AR-7 | **closed** | 問題 ID のみ / デッキ由来の決定的セッション ID / セッション ID のみ の3通りを試して、位置記憶の偽陽性を復活させられなかった |
+| AR-5 | still-open → **fixed** | 「サマリに警告を出す」だけで非 0 終了も判定基準も無く、C-003 に失敗件数が一語も入っていなかった。**`failures` が空でない実行は下流へ進まず非 0 終了**に変更し、要件 R-3 に基準を2本追加、C-003 の statement にも反映(D-075)。D-004 は変えていない |
+| AR-6 | still-open → **fixed** | `gate.sh` は作ったが要件 NFR-5 (d) と C-017 が未改訂で、`uv sync` が対象に残り、かつ「部分集合でも真」だった。**要件と claim を「集合の一致」に書き換え**、CI 側も読むテストと各ケースの本体コマンド検査を追加 |
+| AR-8 | still-open → **fixed** | 最小単位に `Discrimination` が入っておらず、末尾 `Discrimination` だけのパートが作れた。**最小単位を「1問分」に変更**し、問の境界でしか割らないことにした(D-065 改訂) |
+| N-1 | newly-broken → **fixed** | lock 一致検査が2ファイル同士しか見ておらず、イメージの中身は誰も見ていなかった。**イメージ内の実バージョンと焼き込み pin を突き合わせるテスト**を追加(61 pin を読み、1つ偽装すると赤くなることを確認) |
+| N-2 | newly-broken → **fixed**(人間の判断) | artifact 実測の実行主体が成果物の4箇所で矛盾していた。**人が環境を用意し、ループが実測する**に統一(D-076)。artifact の本数も 4→5 に訂正 |
+| N-3 | newly-broken → **fixed**(人間の判断) | `gate.sh` を `scripts/`(guard.paths)に承認前に置いていた。`src/` に続く2回目のガード違反。**リポジトリ直下へ移した**(D-077) |
+| 追加 | **fixed** | `config.yaml` の smoke コメントが D-066 と食い違っていた / `gate.sh` の未使用 `all)` ケースを削除 |
+
+**未解決の dispute**: なし。1巡目 29 件と2巡目 6 件をすべて処置した。
+**規定により、これ以上のレビュアーのラウンドは回さない**(`/design` step 6: 再招集は1回のみ)。
+**2巡目で still-open / newly-broken とされた 6 件の最終修正は、独立に検証されていない。**
+ただし N-1 と S-2 の修正については、テストが実際に赤くなることを手元で確認してある
+(pin を1つ偽装 → 赤、CI から1ステップ削除 → 赤)。
+**人間が判断した点**: R-7 / R-12 の証拠種別(AR-2 / AR-3)、NFR-5 (d) の成立方法(AR-6)、
+台本分割の最小単位(AR-8)、smoke の凍結(AR-20)、artifact の実行主体(N-2)、`gate.sh` の位置(N-3)。
 
 
 ## Self-assessment (assumptions, confidence)
@@ -617,5 +652,8 @@ smoke を既知の赤として凍結すること(AR-20)。
 - **Open questions / points for the human to decide**:
   - 上の Open questions 4点。
   - `/tasks` で分解した結果が現実的な規模に収まらない場合の、スコープ縮小の判断。
-  - **2巡目のレビューを回していない**: `/design` step 6 は blocker 修正について再招集を1回許すが、
-    本サイクルではまだ使っていない。使うかどうかはこの後の判断。
+  - **2巡目の修正が独立に検証されていない**: 再招集枠は使い切った。AR-5 / AR-6 / AR-8 / N-1 / N-2 /
+    N-3 の最終修正はリードが適用したままレビューを受けていない(N-1 と S-2 のテストが赤くなることは
+    手元で確認済み)。
+  - **ガードの境界を2度越えた**: `src/` と `scripts/` に、Bash のヒアドキュメントで
+    PreToolUse フックを素通りして書き込んだ。どちらも是正済みだが、同じ機構で再発しうる。

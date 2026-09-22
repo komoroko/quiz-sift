@@ -55,12 +55,92 @@ def test_baked_requirements_match_the_lockfile() -> None:
     assert deps(baked.read_text(encoding="utf-8")) == deps(exported)
 
 
-def test_the_gate_script_exposes_every_step_the_config_uses() -> None:
-    """scripts/gate.sh が config.yaml の quality_gate が呼ぶ引数を全部持つこと(AR-6)。"""
-    script = (ROOT / "scripts" / "gate.sh").read_text(encoding="utf-8")
+def _steps_in_config() -> set[str]:
     config = (ROOT / ".rein" / "config.yaml").read_text(encoding="utf-8")
+    return {line.split("gate.sh,")[1].strip().rstrip("]").strip() for line in config.splitlines() if "gate.sh," in line}
 
-    used = {line.split("gate.sh,")[1].strip().rstrip("]").strip() for line in config.splitlines() if "gate.sh," in line}
+
+def _steps_in_ci() -> set[str]:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    return {
+        line.split("gate.sh")[1].strip()
+        for line in workflow.splitlines()
+        if "gate.sh" in line and line.lstrip().startswith("- run:")
+    }
+
+
+def test_the_gate_script_exposes_every_step_the_config_uses() -> None:
+    """gate.sh が config.yaml の quality_gate が呼ぶ引数を全部持つこと(AR-6)。"""
+    script = (ROOT / "gate.sh").read_text(encoding="utf-8")
+    used = _steps_in_config()
     assert used, "config.yaml が gate.sh を呼んでいない"
     for step in used:
         assert f"  {step})" in script, f"gate.sh に {step} のケースが無い"
+
+
+def test_ci_and_the_quality_gate_run_the_same_steps() -> None:
+    """NFR-5 (d): CI の run ステップと品質ゲートの argv が同じ検査を呼ぶこと。
+
+    `gate.sh` を両方から呼ぶだけでは足りない — **引数の集合が食い違えば**
+    「同一のコマンド列」は成立しない。CI にだけあるステップ、ゲートにだけあるステップの
+    両方を検出する。
+    """
+    in_config = _steps_in_config()
+    in_ci = _steps_in_ci()
+    assert in_ci, "ci.yml が gate.sh を呼んでいない"
+    assert in_config == in_ci, (
+        f"CI とゲートで検査ステップが食い違う: "
+        f"CI のみ={sorted(in_ci - in_config)} / ゲートのみ={sorted(in_config - in_ci)}"
+    )
+
+
+def test_the_running_environment_matches_the_baked_requirements() -> None:
+    """**走っている環境**が requirements.txt の pin どおりであること(N-1)。
+
+    `test_baked_requirements_match_the_lockfile` が比べているのはリポジトリ内の2ファイル同士で、
+    ゲートが実際に走っているイメージの中身ではない。`uv lock` と `uv export` をやり直しても
+    `rein oci build --write-config` を忘れれば、2ファイルは一致したままイメージだけが古い。
+    その上で取られた緑は「宣言した依存集合についての証拠」ではなくなる。
+    """
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    baked = ROOT / ".rein" / "oci" / "quiz-sift" / "requirements.txt"
+    pins: dict[str, str] = {}
+    for line in baked.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^ \\;]+)", line)
+        if m and ";" not in line:
+            pins[m.group(1).lower().replace("_", "-")] = m.group(2)
+    assert pins, "requirements.txt から pin を1つも読めていない"
+
+    mismatched: list[str] = []
+    for dist, pinned in pins.items():
+        try:
+            installed = version(dist)
+        except PackageNotFoundError:
+            # 環境マーカーで除外される配布物がある。ここで落とすと偽陽性になる。
+            continue
+        if installed != pinned:
+            mismatched.append(f"{dist}: installed={installed} pinned={pinned}")
+    assert not mismatched, "イメージと requirements.txt が食い違う: " + "; ".join(mismatched)
+
+
+def test_each_gate_step_invokes_the_tool_it_claims_to() -> None:
+    """gate.sh の各ケースが名前どおりのツールを呼ぶこと(S-2)。
+
+    共通スクリプト化は「2箇所がずれる」を「1箇所を緩めれば両方同時に緩む」に置き換えた。
+    `lint) ruff check . || true` の1行編集で CI とゲートが同時に無害化されるので、
+    ケース本体に何が書いてあるかを固定しておく。
+    """
+    script = (ROOT / "gate.sh").read_text(encoding="utf-8")
+    expected = {
+        "lint": "ruff check",
+        "format": "ruff format --check",
+        "types": "mypy",
+        "test": "pytest",
+        "docs": "mkdocs build --strict",
+    }
+    for step, tool in expected.items():
+        body = script.split(f"  {step})", 1)[1].split(";;", 1)[0]
+        assert tool in body, f"{step} が {tool} を呼んでいない"
+        assert "||" not in body, f"{step} の本体が失敗を握りつぶしている"

@@ -20,7 +20,7 @@ claims:
 - id: C-003
   requirement_ids:
   - R-3
-  statement: 問題群は排他クラスタへまとめられ、既知5グループ(各3問以上)の固定フィクスチャに対し最大クラスタが全体の50%以下・「その他」比率が20%以下に収まり、実データの M/N と最大クラスタ比率、およびキャッシュを迂回した再クラスタリング2回(外部 API 呼び出しが2倍になることを確認)の割当一致率が記録され、各クラスタの要約の主要語句が当該クラスタの問題文に実在する。
+  statement: 問題群は排他クラスタへまとめられ、外部 API 呼び出しに失敗があった実行は下流へ進まず非0終了し、既知5グループ(各3問以上)の固定フィクスチャに対し最大クラスタが全体の50%以下・「その他」比率が20%以下に収まり、退化スタブに対してはそのガードが赤くなり、実行サマリに未分類比率・最大クラスタ比率・失敗件数の3値が実際の値と一致して出力され、キャッシュを迂回した再クラスタリング2回(外部 API 呼び出しが2倍になることを確認)の割当一致率が記録され、各クラスタの要約の主要語句が当該クラスタの問題文に実在する。
   risk: high
   domains:
   - analysis
@@ -111,7 +111,7 @@ claims:
 - id: C-017
   requirement_ids:
   - NFR-5
-  statement: uv で依存が同期でき、ruff・mypy strict・pytest・pre-commit が全て通り、GitHub Actions のワークフロー定義が存在してその run ステップのコマンド列と同一のものが品質ゲート上でローカルに green になり、mkdocs build が警告なく完了し、取り込んだ設定が外部パスを参照しない。
+  statement: uv で依存が同期でき、ruff・mypy strict・pytest・pre-commit が全て通り、GitHub Actions の検査 run ステップがbash gate.sh <step> の形をとってその <step> 集合が quality_gate の command ステップ集合と一致し、同じコマンド列が品質ゲート上でローカルに green になり、mkdocs build が警告なく完了し、取り込んだ設定が外部パスを参照しない。
   risk: high
   domains:
   - infra
@@ -738,7 +738,7 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: scripts/gate.sh を作り、CI の run もゲートの argv も同じスクリプトを呼ぶ。同一性の対象は検査ステップだけで、環境を用意する手順(uv sync 等)は含まない — ゲートは依存が焼き込まれたイメージで走り、uv sync は --network none では原理的に動かないため(AR-6)。
+  answer: 'gate.sh(リポジトリ直下。scripts/ は guard.paths に含まれ承認前に書けない)を作り、CI の run もゲートの argv も同じスクリプトを呼ぶ。要件 NFR-5 (d) を『検査を行う run ステップの <step> 集合が quality_gate の command ステップの集合と一致する』に書き換えた — 部分集合で真だと CI から検査を1本落としても緑になるため。環境を用意する run ステップとuses: のアクションは対象外(AR-6 / S-2)。'
   requirement_ids:
   - NFR-5
 - id: D-065
@@ -746,7 +746,7 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: Prompt | Pause | Answer を最小単位とし、その境界でしか割らない。割れない場合は再生成側へ倒す。素朴に長さで割ると Pause を含まないパートが生まれ、そのパートは R-7 の無音構造基準を必ず落ちる。この規則により、聞く人が受け取る1ファイルに必ず『間』がある(AR-8)。
+  answer: 1問分のセグメント列(Prompt, Pause, Answer, Discrimination?)を最小単位とし、問の境界でしか割らない。Prompt|Pause|Answer を最小単位にすると最後の Answer の直後が正当な境界になり、Discrimination だけのパート(Pause を含まない)が作れて AR-8 の穴が復活する。どのパートも Pause を1つ以上含み Prompt で始まることをテストで固定する。1問分でも3分を超える場合は分割せず再生成側へ倒す(AR-8 / S-3)。
   requirement_ids:
   - R-6
   - R-7
@@ -835,6 +835,35 @@ decisions:
   rationale: ビルド手段の選択。ADR-001 の決定(依存をイメージに焼く)は動かず、その実現方法を1つに決めただけ。一致検査があるので、手で編集された版が黙って焼かれることはない。
   requirement_ids:
   - NFR-6
+  - NFR-5
+- id: D-075
+  subject: 外部 API 呼び出しに失敗があった実行をどう扱うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 下流ステージへ進ませず非0終了する。サマリに未分類比率・最大クラスタ比率・失敗件数の3値を出し、失敗スタブに対する command 証拠を1本置く。
+  rationale: 『外部呼び出しが失敗した』という事実についての規則であって、圧縮の質についての閾値ではないので D-004(実データに合格ラインを置かない)と衝突しない。R-7 の SynthesisReport が既に同じ形。要件 R-3 に基準として書き足したが、これは基準の追加であって既存基準の軟化ではない。
+  requirement_ids:
+  - R-3
+- id: D-076
+  subject: artifact 実測(5本)の実行主体
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人が事前にホスト環境を用意し(CosyVoice の導入、npm ci、next build)、実測コマンドはループが実行する。external にはしない — D-003 が evidence 待ちを発生させないと決めているため。セットアップ手順は /tasks で決め、該当タスクの前提条件として明記する(N-2)。
+  requirement_ids:
+  - R-7
+  - R-12
+  - R-2
+  - R-3
+  - NFR-2
+- id: D-077
+  subject: gate.sh をリポジトリのどこに置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: リポジトリ直下。当初 scripts/ に置いたが、scripts/ は guard.paths に含まれ mandate 未承認では書き込みが拒否される。Bash のヒアドキュメントで書いたため PreToolUse フックを素通りしていた(src/ に続いて2回目)。直下へ移して境界を戻した(N-3)。
+  requirement_ids:
   - NFR-5
 tasks: []
 lenses:
