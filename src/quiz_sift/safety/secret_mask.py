@@ -21,6 +21,8 @@ SECRET_MASK = "***"
 _SECRET_NAME = r"[\w.-]*(?:cookie|session|token|jwt|csrf|password|passwd|secret|api[_-]?key|authorization)[\w.-]*"
 # 引用符で囲まれた値(repr のバックスラッシュエスケープを含む)。
 _QUOTED_VALUE = r"'(?:[^'\\\r\n]|\\.)*'" + r'|"(?:[^"\\\r\n]|\\.)*"'
+# 同じく、開き引用符を `q` に取って置換後も同じ引用符で囲めるようにした形。
+_QUOTED_VALUE_Q = r"""(?P<q>["'])(?:(?!(?P=q))[^\\\r\n]|\\.)*(?P=q)"""
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"sk-ant-[\w-]+"), SECRET_MASK),
@@ -28,11 +30,14 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # CDP の cookie オブジェクト: 名前と値が別の項目に分かれている。名前が認証情報らしくない
     # cookie もセッションを担いうるので、名前を問わず値を伏せる。
     (
-        re.compile(r"""(?i)(["']name["']\s*:\s*["'][^"']*["']\s*,\s*["']value["']\s*:\s*["'])[^"']*"""),
-        rf"\g<1>{SECRET_MASK}",
+        re.compile(rf"""(?i)(["']name["']\s*:\s*(?:{_QUOTED_VALUE})\s*,\s*["']value["']\s*:\s*){_QUOTED_VALUE_Q}"""),
+        rf"\g<1>\g<q>{SECRET_MASK}\g<q>",
     ),
     # "name": "value" / 'name': 'value'
-    (re.compile(rf"""(?i)(["']{_SECRET_NAME}["']\s*:\s*["'])[^"']*"""), rf"\g<1>{SECRET_MASK}"),
+    (
+        re.compile(rf"""(?i)(["']{_SECRET_NAME}["']\s*:\s*){_QUOTED_VALUE_Q}"""),
+        rf"\g<1>\g<q>{SECRET_MASK}\g<q>",
+    ),
     # ヘッダ行 Name: value(値は行末まで。Cookie は `; ` で複数の値を持つ)と Name: 'value'
     (
         re.compile(rf"""(?im)(\b{_SECRET_NAME}\s*:[ \t]*)(?:{_QUOTED_VALUE}|(?!["'\s])[^\r\n]+)"""),

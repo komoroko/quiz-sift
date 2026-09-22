@@ -1,6 +1,7 @@
 """認証情報のログ遮断(C-015 / NFR-3 / AR-28)。値はすべて合成のダミー。"""
 
 import io
+import json
 import logging
 from collections.abc import Iterator
 
@@ -16,7 +17,10 @@ PASSWORD = "SyntheticPassw0rd!"
 # 名前が認証情報らしくない cookie。Cookie / Set-Cookie ヘッダとして伏せなければ漏れる。
 UD_USER = "SyntheticUdCacheUser77"
 JWT = "SyntheticJwtHeader.SyntheticJwtBody.Sig"
-SECRETS = (API_KEY, SESSION, ACCESS, CSRF, PASSWORD, UD_USER, JWT)
+# 値の中の引用符で止まると後半が漏れる。repr は反対側の引用符で囲み、JSON はバックスラッシュで逃がす。
+QUOTED_PASSWORD_TAIL = "PassTailQ1"
+QUOTED_COOKIE_TAIL = "CookieTailQ2"
+SECRETS = (API_KEY, SESSION, ACCESS, CSRF, PASSWORD, UD_USER, JWT, QUOTED_PASSWORD_TAIL, QUOTED_COOKIE_TAIL)
 
 
 @pytest.fixture
@@ -56,6 +60,10 @@ def test_credentials_and_cookies_are_masked(captured: tuple[logging.Logger, io.S
     logger.info('sessionid: %r / password: "%s"', SESSION, PASSWORD)
     logger.info("csrftoken=%r; next", "Synthetic'Quoted" + CSRF)
     logger.info("form %s", {"password": PASSWORD})
+    logger.info("form %s", {"password": "Synth'" + QUOTED_PASSWORD_TAIL})
+    logger.info("form %s", json.dumps({"password": 'Synth"' + QUOTED_PASSWORD_TAIL}))
+    logger.info("cookies %s", [{"name": "ud_cache_user", "value": "Synth'" + QUOTED_COOKIE_TAIL}])
+    logger.info("cookies %s", json.dumps([{"name": "ud_cache_user", "value": 'Synth"' + QUOTED_COOKIE_TAIL}]))
     try:
         raise RuntimeError(f"auth failed with sessionid={SESSION} {token=}")
     except RuntimeError:
