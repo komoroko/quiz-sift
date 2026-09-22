@@ -8,12 +8,31 @@
 そちらは本文を持つ dataclass に `repr=False` を指定して塞ぐ(AR-17)。
 """
 
+import json
 import logging
 from collections.abc import Callable
 
 from quiz_sift.domain.question import Question
 
 MATERIAL_MASK = "[教材本文を伏せた]"
+
+
+def escaped_forms(text: str) -> set[str]:
+    """本文そのものと、ログに出るときエスケープされた形(repr と JSON)を返す。
+
+    `%r` / `!r` / `repr()` は改行・バックスラッシュ・引用符をエスケープするので、本文そのままの
+    文字列では一致しない。repr の中身は外側の引用符で変わるため両方を入れる。末尾に足した引用符が
+    外側の引用符を決める: `"` を含む文字列は `'` で囲まれ、`'` だけを含む文字列は `"` で囲まれる。
+    """
+    forms = {
+        text,
+        repr(text + '"')[1:-2],
+        json.dumps(text)[1:-1],
+        json.dumps(text, ensure_ascii=False)[1:-1],
+    }
+    if '"' not in text:
+        forms.add(repr(text + "'")[1:-2])
+    return forms
 
 
 def rewrite_record(record: logging.LogRecord, transform: Callable[[str], str]) -> None:
@@ -40,11 +59,12 @@ class MaterialTextFilter(logging.Filter):
         self._texts: set[str] = set()
 
     def register_question(self, question: Question) -> None:
-        """問題文・選択肢・公式解説を伏せる対象に加える。"""
-        self._texts.add(question.stem)
-        self._texts.update(option.text for option in question.options)
+        """問題文・選択肢・公式解説を、repr と JSON でエスケープされた形も含めて伏せる対象に加える。"""
+        texts: list[str] = [question.stem, *(option.text for option in question.options)]
         if question.explanation is not None:
-            self._texts.add(question.explanation)
+            texts.append(question.explanation)
+        for text in texts:
+            self._texts.update(escaped_forms(text))
 
     def mask(self, text: str) -> str:
         # 長い順に置き換える。短い本文が長い本文の一部だった場合に、長い方の残りが漏れない。

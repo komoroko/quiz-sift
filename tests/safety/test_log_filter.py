@@ -5,6 +5,7 @@
 """
 
 import io
+import json
 import logging
 import traceback
 from collections.abc import Iterator
@@ -96,3 +97,38 @@ def test_longer_material_is_masked_before_its_substring() -> None:
     )
     material_filter.register_question(stem_extended)
     assert material_filter.mask(f"x {STEM}(続き) y") == f"x {MATERIAL_MASK} y"
+
+
+def test_escaped_material_is_masked_in_repr_and_json(captured: tuple[logging.Logger, io.StringIO]) -> None:
+    # 実教材の解説は複数行で、引用符やバックスラッシュも含む。repr と JSON はそれらをエスケープする。
+    explanation = "合成解説1行目: 'ゾーン' を\n2行目: \"冗長化\" と C:\\path"
+    stem = "合成問題文: it's 複数行\n続き"
+    question = Question(
+        question_id=Q1,
+        stem=stem,
+        options=QUESTION.options,
+        correct_option_id=QUESTION.correct_option_id,
+        explanation=explanation,
+        studied=StudiedFlag.UNKNOWN,
+    )
+    logger, stream = captured
+    material_filter = MaterialTextFilter()
+    material_filter.register_question(question)
+    # 子ロガーにはハンドラがないので、親のハンドラへフィルタを足す。
+    logging.getLogger("quiz_sift_test_material").handlers[0].addFilter(material_filter)
+
+    logger.warning("解説: %r", explanation)
+    logger.warning("組: %r", (stem, explanation))
+    try:
+        raise ValueError(f"抽出に失敗 {stem!r}")
+    except ValueError:
+        logger.exception("失敗")
+    logger.info("json: %s / %s", json.dumps(explanation), json.dumps(stem, ensure_ascii=False))
+
+    output = stream.getvalue()
+    for text in (stem, explanation):
+        for form in (text, repr(text)[1:-1], repr((text,))[2:-3], json.dumps(text)[1:-1]):
+            assert form not in output, form
+    for fragment in ("1行目", "2行目", "複数行", "冗長化"):
+        assert fragment not in output, fragment
+    assert output.count(MATERIAL_MASK) >= 6
