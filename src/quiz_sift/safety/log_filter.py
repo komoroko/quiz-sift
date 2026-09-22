@@ -57,6 +57,8 @@ class MaterialTextFilter(logging.Filter):
     def __init__(self) -> None:
         super().__init__()
         self._texts: set[str] = set()
+        # 長い順。短い本文が長い本文の一部だった場合に、長い方の残りが漏れない。
+        self._ordered: list[str] = []
 
     def register_question(self, question: Question) -> None:
         """問題文・選択肢・公式解説を、repr と JSON でエスケープされた形も含めて伏せる対象に加える。"""
@@ -64,11 +66,13 @@ class MaterialTextFilter(logging.Filter):
         if question.explanation is not None:
             texts.append(question.explanation)
         for text in texts:
-            self._texts.update(escaped_forms(text))
+            # 空文字列を置き換えると全文字の間に伏せ字が入る。
+            if text:
+                self._texts.update(escaped_forms(text))
+        self._ordered = sorted(self._texts, key=len, reverse=True)
 
     def mask(self, text: str) -> str:
-        # 長い順に置き換える。短い本文が長い本文の一部だった場合に、長い方の残りが漏れない。
-        for material in sorted(self._texts, key=len, reverse=True):
+        for material in self._ordered:
             text = text.replace(material, MATERIAL_MASK)
         return text
 

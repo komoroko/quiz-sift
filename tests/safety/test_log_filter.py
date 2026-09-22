@@ -99,6 +99,21 @@ def test_longer_material_is_masked_before_its_substring() -> None:
     assert material_filter.mask(f"x {STEM}(続き) y") == f"x {MATERIAL_MASK} y"
 
 
+def test_empty_material_is_not_registered() -> None:
+    material_filter = MaterialTextFilter()
+    material_filter.register_question(
+        Question(
+            question_id=Q1,
+            stem=STEM,
+            options=QUESTION.options,
+            correct_option_id=QUESTION.correct_option_id,
+            explanation="",
+            studied=StudiedFlag.UNKNOWN,
+        )
+    )
+    assert material_filter.mask("処理した問題数 3") == "処理した問題数 3"
+
+
 def test_escaped_material_is_masked_in_repr_and_json(captured: tuple[logging.Logger, io.StringIO]) -> None:
     # 実教材の解説は複数行で、引用符やバックスラッシュも含む。repr と JSON はそれらをエスケープする。
     explanation = "合成解説1行目: 'ゾーン' を\n2行目: \"冗長化\" と C:\\path"

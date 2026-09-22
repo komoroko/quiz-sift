@@ -15,7 +15,8 @@ CSRF = "SyntheticCsrf42"
 PASSWORD = "SyntheticPassw0rd!"
 # 名前が認証情報らしくない cookie。Cookie / Set-Cookie ヘッダとして伏せなければ漏れる。
 UD_USER = "SyntheticUdCacheUser77"
-SECRETS = (API_KEY, SESSION, ACCESS, CSRF, PASSWORD, UD_USER)
+JWT = "SyntheticJwtHeader.SyntheticJwtBody.Sig"
+SECRETS = (API_KEY, SESSION, ACCESS, CSRF, PASSWORD, UD_USER, JWT)
 
 
 @pytest.fixture
@@ -45,10 +46,18 @@ def test_credentials_and_cookies_are_masked(captured: tuple[logging.Logger, io.S
     # CDP の Network.getCookies が返す cookie オブジェクトは名前と値が別の項目に分かれる。
     logger.info("cookies %s", [{"name": "sessionid", "value": SESSION, "domain": ".udemy.com"}])
     logger.info('cookies [{"name": "access_token", "value": "%s"}]', ACCESS)
+    logger.info("cookies %s", [{"name": "ud_cache_user", "value": UD_USER}, {"name": "ud_user_jwt", "value": JWT}])
+    logger.info("ud_user_jwt=%s; Path=/", JWT)
     logger.info("login password=%s", PASSWORD)
+    # %r と f"{x=}" は値を引用符で囲む: sessionid='…'
+    logger.info("sessionid=%r", SESSION)
+    sessionid, token = SESSION, ACCESS
+    logger.info(f"auth failed {sessionid=} {token=}")
+    logger.info('sessionid: %r / password: "%s"', SESSION, PASSWORD)
+    logger.info("csrftoken=%r; next", "Synthetic'Quoted" + CSRF)
     logger.info("form %s", {"password": PASSWORD})
     try:
-        raise RuntimeError(f"auth failed with sessionid={SESSION}")
+        raise RuntimeError(f"auth failed with sessionid={SESSION} {token=}")
     except RuntimeError:
         logger.exception("CDP 取得に失敗した")
 
