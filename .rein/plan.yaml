@@ -865,11 +865,25 @@ decisions:
   answer: リポジトリ直下。当初 scripts/ に置いたが、scripts/ は guard.paths に含まれ mandate 未承認では書き込みが拒否される。Bash のヒアドキュメントで書いたため PreToolUse フックを素通りしていた(src/ に続いて2回目)。直下へ移して境界を戻した(N-3)。
   requirement_ids:
   - NFR-5
+- id: D-078
+  subject: src/quiz_sift/** に書き込むタスクの DAG 上の位置(T-007 への依存を宣言するか)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-001〜T-004 に blocked_by:[T-007] を足し、T-007 を DAG の単一ルートにする。T-007 の受入基準 A-1 が作る src/quiz_sift/__init__.py
+    が無いと quiz_sift は名前空間パッケージになり、bash gate.sh types(mypy .)が同じファイルを domain.ids と quiz_sift.domain.ids
+    の二重に解決して全チェックを中断する。src/quiz_sift/** に書き込むタスクは 20 本あり、そのすべてが types の緑をこのファイルに依存している。初版 DAG
+    は T-001〜T-004 と T-007 を同格ルートに置いたため T-001 がこの赤で blocked になり(2026-09-22、実測 $4.83/18分)、消費順では
+    T-007 が5番目なので再実行しても手前の4タスクが同じ赤を踏む。消費順はループの裁量だが、これは DAG の欠落辺なので /revise で直した。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
   kind: foundation
-  blocked_by: []
+  blocked_by:
+  - T-007
   claim_ids:
   - C-011
   domains:
@@ -928,7 +942,8 @@ tasks:
 - id: T-002
   title: ports の Protocol と計測
   kind: foundation
-  blocked_by: []
+  blocked_by:
+  - T-007
   claim_ids:
   - C-019
   domains:
@@ -980,7 +995,8 @@ tasks:
 - id: T-003
   title: safety 基盤(書き出しガードとログマスク)
   kind: foundation
-  blocked_by: []
+  blocked_by:
+  - T-007
   claim_ids:
   - C-014
   - C-015
@@ -1035,7 +1051,8 @@ tasks:
 - id: T-004
   title: ステージキャッシュと再実行性
   kind: foundation
-  blocked_by: []
+  blocked_by:
+  - T-007
   claim_ids:
   - C-016
   domains:
