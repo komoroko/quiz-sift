@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-22T16:07:44+09:00'
+updated_at: '2026-09-22T17:17:50+09:00'
 gates:
   mandate:
     status: approved
@@ -19,11 +19,29 @@ gates:
     status: pending
     receipt: null
   T-019:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-019-C2623454
+      confirmed_at: '2026-09-22T17:17:43+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:5d82399c0c8bf2443dae8760c97204faba90f71ebee6dade134988aced8c6fe0
+      plan_digest: sha256:7fcae83b3cb242d4ec3b7ae40703db21d1499f6d8826929be662d4a6bb8286b5
+      config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:25dc37ea4af01e0b59e206258b43c42b24639a704e8f4c2d624500642312a56c
+      attested_chain_root: sha256:0c7fd9a47d2d2eeb47e7cb32f095c88fdfbe42582514659c11c124a90499d234
   T-020:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-020-70844CFB
+      confirmed_at: '2026-09-22T17:17:50+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:5c0f83bb6cbdc4af441fc5168c1d8203d35035e5e9093fa9675fafb8c7176d3f
+      plan_digest: sha256:7fcae83b3cb242d4ec3b7ae40703db21d1499f6d8826929be662d4a6bb8286b5
+      config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:46ed54048a19729608236c01773eb1ace7d0a9fb26bb3848b8cf73d4fc720805
+      attested_chain_root: sha256:5d82399c0c8bf2443dae8760c97204faba90f71ebee6dade134988aced8c6fe0
 plan:
   status: frozen
   digest: sha256:7fcae83b3cb242d4ec3b7ae40703db21d1499f6d8826929be662d4a6bb8286b5
