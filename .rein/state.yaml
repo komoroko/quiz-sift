@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-22T17:53:19+09:00'
+updated_at: '2026-09-22T21:40:16+09:00'
 gates:
   mandate:
     status: approved
@@ -79,115 +79,8 @@ execution:
   status: idle
 tasks:
   T-001:
-    status: blocked
+    status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: blocked
-        summary: '実装とテストは完成しコミット済み(898a842)。受入基準 A-1〜A-4 の4ノードとも緑、lint/format/test/docs も緑。しかし **bash
-          gate.sh types が通らない**: mypy が ''Source file found twice under different module names: "domain.ids"
-          and "quiz_sift.domain.ids"'' で全チェックを中断する。原因は src/quiz_sift/__init__.py が無く quiz_sift が名前空間パッケージになっていること(mypy
-          . のファイル走査と mypy_path=["src"] で別名になる)。このファイルは T-007 の scope include かつ T-007 の受入基準 A-1 そのものなので
-          T-001 では作れない。空の src/quiz_sift/__init__.py を一時的に置いて実測したところ types は ''Success: no issues found
-          in 22 source files'' になり、これ1ファイルだけが原因だと確認した。決定が必要な点: plan.yaml で T-001 と T-007 はどちらも blockedBy:
-          none だが、src/ 配下に最初のモジュールを置くタスクはすべて T-007 の成果物に依存する。DAG の消費順で T-007 を先に流して T-001 を再実行すれば解ける(ループの裁量)。DAG
-          に辺を足すなら /revise。なお smoke は quiz_sift.__version__ が無く赤だが、これは T-007 A-1 の担当で config.yaml が required:
-          false の既知の赤として凍結済み。付随事項: PyYAML はスタブ別配布のため mypy strict が import-untyped で落ちる。types-PyYAML の追加は
-          pyproject/uv.lock/イメージ再ピン(凍結済み config.yaml)を伴い scope 外なので、AR-23 の方針に沿って import 1行への # type:
-          ignore[import-untyped] に留めた(rein decision add で記録済み)。'
-        at: '2026-09-22T17:37:38+09:00'
-        touched:
-        - src/quiz_sift/domain/__init__.py
-        - src/quiz_sift/domain/ids.py
-        - src/quiz_sift/domain/language.py
-        - src/quiz_sift/domain/studied.py
-        - src/quiz_sift/domain/question.py
-        - src/quiz_sift/domain/deck.py
-        - src/quiz_sift/domain/cluster.py
-        - src/quiz_sift/domain/report.py
-        - src/quiz_sift/domain/attempt.py
-        - src/quiz_sift/domain/recall.py
-        - src/quiz_sift/domain/script.py
-        - src/quiz_sift/domain/audio_meta.py
-        - src/quiz_sift/decks/__init__.py
-        - src/quiz_sift/decks/manifest.py
-        - src/quiz_sift/decks/registry.py
-        - tests/domain/test_ids.py
-        - tests/domain/test_studied.py
-        - tests/domain/test_shared_types.py
-        - tests/decks/test_manifest.py
-        - tests/decks/test_registry.py
-      updated_at: '2026-09-22T17:37:47+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-001: the implementer reported blocked — 実装とテストは完成しコミット済み(898a842)。受入基準 A-1〜A-4 の4ノードとも緑、lint/format/test/docs
-          も緑。しかし **bash gate.sh types が通らない**: mypy が ''Source file found twice under different module
-          names: "domain.ids" and "quiz_sift.domain.ids"'' で全チェックを中断する。原因は src/quiz_sift/__init__.py が無く
-          quiz_sift が名前空間パッケージになっていること(mypy . のファイル走査と mypy_path=["src"] で別名になる)。このファイルは T-007 の scope
-          include かつ T-007 の受入基準 A-1 そのものなので T-001 では作れない。空の src/quiz_sift/__init__.py を一時的に置いて実測したところ
-          types は ''Success: no issues found in 22 source files'' になり、これ1ファイルだけが原因だと確認した。決定が必要な点: plan.yaml
-          で T-001 と T-007 はどちらも blockedBy: none だが、src/ 配下に最初のモジュールを置くタスクはすべて T-007 の成果物に依存する。DAG の消費順で
-          T-007 を先に流して T-001 を再実行すれば解ける(ループの裁量)。DAG に辺を足すなら /revise。なお smoke は quiz_sift.__version__ が無く赤だが、これは
-          T-007 A-1 の担当で config.yaml が required: false の既知の赤として凍結済み。付随事項: PyYAML はスタブ別配布のため mypy strict
-          が import-untyped で落ちる。types-PyYAML の追加は pyproject/uv.lock/イメージ再ピン(凍結済み config.yaml)を伴い scope
-          外なので、AR-23 の方針に沿って import 1行への # type: ignore[import-untyped] に留めた(rein decision add で記録済み)。'
-        tree: sha256:3ee5c2edac493eaf1902eaf198a905de071de0043c0c2a5d806aa88336352343
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 37540b82-a79a-4eac-a043-752d3488de69
-        output_tail: 'T-001 は実装完了・コミット済み(`898a842`)、ただし **`gate.sh types` が通らないため `blocked` で報告**しました。
-
-
-          ## 作ったもの
-
-
-          `src/quiz_sift/domain/`(12 モジュール)と `src/quiz_sift/decks/`(manifest / registry)、テスト5本。
-
-
-          R-11 の「混入しない」は検査ではなく**構造**にしました。`QuestionId` / `ClusterId` / `SessionId` を `(deck_id, local_id)`
-          の frozen dataclass に、`OptionId` は `QuestionId` を内包。問題を束ねる型は `Deck` / `Cluster` だけで、どちらも `__post_init__`
-          で別デッキの構成員を拒みます。加えて `test_ids.py` が `src/quiz_sift/` 全体を AST 走査し、`list[Question]` のように**デッキの外で問題を束ねて受け取る関数**が生えたら赤にします(走査自体の
-          negative control 付き)。
-
-
-          `resolve_studied` は個別 > デッキ既定 > `unknown` で、`unknown` を変換する関数は置かず、モジュールの公開関数が1本だけであることをテストで固定。manifest
-          は `language` が `ja|en` 以外、`default_studied` が規定外、キーの綴り間違い、`deck_id` の不正なディレクトリ名をすべてエラーにします。
-
-
-          ゲート結果: lint / format / test / docs 緑、受入基準 A-1〜A-4 の4ノードも緑。
-
-
-          ## 止まった理由
-
-
-          ```
-
-          src/quiz_sift/domain/ids.py: error: Source file found twice under different
-
-          module names: "domain.ids" and "quiz_sift.domain.ids"
-
-          ```
-
-
-          `src/quiz_sift/__init__.py` が無く `quiz_sift` が名前空間パッケージなので、`mypy .` のファイル走査と `mypy_path = ["src"]`
-          が同じファイルに別名を付けます。このファイルは **T-007 の scope include かつ T-007 の受入基準 A-1 そのもの**なので T-001 では作れません。空のファイルを一時的に置いて実測すると
-          `types` は `Success: no issues found in 22 source files` になり、原因がこれ1つだけだと確認しました。
-
-
-          plan.yaml では T-001 も T-007 も `blockedBy: none` ですが、`src/` に最初のモジュールを置くタスクはすべて T-007 の成果物に依存します。**T-007
-          を先に流して T-001 を再実行すれば解け**(DAG の消費順はループの裁量)、DAG に辺を足すなら `/revise` です。
-
-
-          smoke の赤は `quiz_sift.__version__` 不在によるもので、T-007 A-1 の担当かつ `config.yaml` が `required: false`
-          の既知の赤として凍結済みです。
-
-
-          付随して、PyYAML はスタブが別配布のため mypy strict が `import-untyped` で落ちます。`types-PyYAML` の追加は pyproject /
-          uv.lock / イメージ再ピン(凍結済み `config.yaml`)を伴い scope 外なので、AR-23 の「全体既定を緩めない」方針に沿って import 1行の `# type:
-          ignore[import-untyped]` に留め、`rein decision add` で記録しました。'
-        at: '2026-09-22T17:37:45+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
