@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-22T22:28:23+09:00'
+updated_at: '2026-09-22T22:28:52+09:00'
 gates:
   mandate:
     status: approved
@@ -82,84 +82,8 @@ tasks:
     status: todo
     attempts: 1
   T-007:
-    status: needs-revision
+    status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: needs-revision
-        summary: 'A-1/A-2/A-3 は実装済みで、host で lint/format/types/test/docs/smoke の6ステップすべて exit 0。(1) src/quiz_sift/__init__.py
-          を作り quiz_sift を正規パッケージにした(DAG 単一ルートの本体。T-001 が blocked になった mypy の二重解決はこれが無いことが原因)。(2) tests/test_gate_environment.py
-          に test_gate_smoke_subprocess_exits_zero を追加。subprocess.run([''bash'',''gate.sh'',''smoke''])
-          を実際に呼ぶ。__init__.py を退避すると赤になることを実測済み(負の対照)。(3) .pre-commit-config.yaml の trailing-whitespace
-          に --markdown-linebreak-ext=md を追加。既定の挙動は Markdown 行末2スペース(ハード改行)を剥がし、docs/tasks/*.md 23 本を書き換えて
-          pre-commit run --all-files を exit 1 にする。それらは mandate 承認レシートがダイジェストで束ねる凍結文書なので、剥がすとレシートも壊れる。修正後
-          pre-commit run --all-files は exit 0・無変更(実測)。A-2/A-3 は既存テストがそのまま緑。 ★ needs-revision の理由は A-4
-          ひとつ: 判定コマンドが読む実測ログの置き場 docs/test/measurements/pre-commit.md が plan.yaml の T-007 scope.include
-          に入っていない(T-019/T-020 は自分の docs/test/measurements/*.md を scope に持っている — T-007 だけの抜け)。そのファイルを書けば
-          scope_violation、書かなければ tests/measurements/test_pre_commit_log.py が必ず赤になり gate.sh test が全タスク分赤くなる。後者を避けるため
-          A-4 のテストファイル自体も作っていない。/revise で T-007 の scope.include に docs/test/measurements/pre-commit.md
-          を足してほしい。証拠の中身はすでに手元にある(pre-commit run --all-files が exit 0)ので、scope が開けば A-4 はログの記録とテスト1本で閉じる。'
-        at: '2026-09-22T21:46:03+09:00'
-        touched:
-        - src/quiz_sift/__init__.py
-        - tests/test_gate_environment.py
-        - .pre-commit-config.yaml
-      updated_at: '2026-09-22T21:46:13+09:00'
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-007: the implementer reported needs-revision — A-1/A-2/A-3 は実装済みで、host で lint/format/types/test/docs/smoke
-          の6ステップすべて exit 0。(1) src/quiz_sift/__init__.py を作り quiz_sift を正規パッケージにした(DAG 単一ルートの本体。T-001
-          が blocked になった mypy の二重解決はこれが無いことが原因)。(2) tests/test_gate_environment.py に test_gate_smoke_subprocess_exits_zero
-          を追加。subprocess.run([''bash'',''gate.sh'',''smoke'']) を実際に呼ぶ。__init__.py を退避すると赤になることを実測済み(負の対照)。(3)
-          .pre-commit-config.yaml の trailing-whitespace に --markdown-linebreak-ext=md を追加。既定の挙動は Markdown
-          行末2スペース(ハード改行)を剥がし、docs/tasks/*.md 23 本を書き換えて pre-commit run --all-files を exit 1 にする。それらは mandate
-          承認レシートがダイジェストで束ねる凍結文書なので、剥がすとレシートも壊れる。修正後 pre-commit run --all-files は exit 0・無変更(実測)。A-2/A-3
-          は既存テストがそのまま緑。 ★ needs-revision の理由は A-4 ひとつ: 判定コマンドが読む実測ログの置き場 docs/test/measurements/pre-commit.md
-          が plan.yaml の T-007 scope.include に入っていない(T-019/T-020 は自分の docs/test/measurements/*.md を scope
-          に持っている — T-007 だけの抜け)。そのファイルを書けば scope_violation、書かなければ tests/measurements/test_pre_commit_log.py
-          が必ず赤になり gate.sh test が全タスク分赤くなる。後者を避けるため A-4 のテストファイル自体も作っていない。/revise で T-007 の scope.include
-          に docs/test/measurements/pre-commit.md を足してほしい。証拠の中身はすでに手元にある(pre-commit run --all-files が exit
-          0)ので、scope が開けば A-4 はログの記録とテスト1本で閉じる。'
-        tree: sha256:96ca94ed7a5f0e4427e160ef4df95eaa8dc188ae97d9c4b2487fba769e8b07a6
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 13920f36-7875-4580-857a-61ed4724ce4e
-        output_tail: 'T-007 は **A-1〜A-3 完了、A-4 で `needs-revision`**。コミット `aeca522`、host で6ステップすべて exit
-          0。
-
-
-          **実装したもの**（すべて scope 内）
-
-
-          - `src/quiz_sift/__init__.py` — DAG 単一ルートの本体。これが無いと `quiz_sift` が名前空間パッケージになり `mypy .` が二重解決で全停止する（T-001
-          が blocked になった赤）。
-
-          - `tests/test_gate_environment.py::test_gate_smoke_subprocess_exits_zero` — `subprocess.run([''bash'',''gate.sh'',''smoke''])`
-          を実際に呼ぶ。`__init__.py` を退避すると赤になることを実測（負の対照）。
-
-          - `.pre-commit-config.yaml` の `trailing-whitespace` に `--markdown-linebreak-ext=md` を追加。既定の挙動は
-          Markdown 行末2スペース（ハード改行）を剥がし、`docs/tasks/*.md` 23本を書き換えて `pre-commit run --all-files` を exit
-          1 にする。あれらは mandate 承認レシートがダイジェストで束ねる凍結文書なので、剥がすとレシートごと壊れる。修正後は exit 0・無変更。
-
-
-          A-2/A-3 は既存テストがそのまま緑。
-
-
-          **A-4 が閉じられない理由（人間の判断が要る）**
-
-
-          判定コマンドが読む実測ログの置き場 `docs/test/measurements/pre-commit.md` が、`plan.yaml` の T-007 `scope.include`
-          に入っていない。T-019/T-020 は自分の `docs/test/measurements/*.md` を scope に持っているので、T-007 だけの抜けに見える。
-
-
-          書けば `scope_violation`、書かなければ `tests/measurements/test_pre_commit_log.py` が必ず赤になり `gate.sh test`
-          が全タスク分赤くなる。後者を避けるため A-4 のテストファイル自体も作っていない。
-
-
-          `/revise` で T-007 の `scope.include` にそのパスを足せば、証拠の中身（`pre-commit run --all-files` が exit 0）はすでに取れているので、ログの記録とテスト1本で閉じる。'
-        at: '2026-09-22T21:46:12+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
