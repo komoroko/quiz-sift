@@ -1,11 +1,17 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-22'
+updated_at: '2026-09-22T16:06:14+09:00'
 gates:
   mandate:
     status: pending
     receipt: null
   acceptance:
+    status: pending
+    receipt: null
+  T-019:
+    status: pending
+    receipt: null
+  T-020:
     status: pending
     receipt: null
 plan:
