@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T08:38:36+09:00'
+updated_at: '2026-09-23T18:11:57+09:00'
 gates:
   mandate:
     status: approved
@@ -900,47 +900,135 @@ tasks:
       tree: sha256:35cc43451f4943a4856cb6b964dfbdf87bce1b96c4cb21b22ff8d78d6f3b7b5f
       updated_at: '2026-09-23T08:34:38+09:00'
   T-013:
-    status: todo
-    attempts: 1
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 1
-        session: 2151050b-ee09-4502-8bef-d2045ee7c7e8
-        output_tail: '{"duration_api_ms":190088,"stop_reason":"stop_sequence","session_id":"2151050b-ee09-4502-8bef-d2045ee7c7e8","total_cost_usd":1.2667198000000002,"usage":{"input_tokens":32,"cache_creation_input_tokens":84473,"cache_read_input_tokens":954239,"output_tokens":19998,"output_tokens_details":{"thinking_tokens":9631},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":84473,"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","iterations":[{"input_tokens":2,"output_tokens":156,"cache_read_input_tokens":91046,"cache_creation_input_tokens":3263,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":3263},"type":"message"}],"speed":"standard"},"modelUsage":{"claude-opus-5-5":{"inputTokens":32,"outputTokens":19998,"cacheReadInputTokens":954239,"cacheCreationInputTokens":84473,"webSearchRequests":0,"costUSD":1.2667198000000002,"contextWindow":1000000,"maxOutputTokens":128000,"thinkingTokens":9631,"canonicalModel":"claude-opus-5-5","provider":"firstParty","costBasis":"list"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"is_error":true,"num_turns":17,"subtype":"success","api_error_status":429,"result":"You''ve
-          hit your session limit · resets 12:50pm (Asia/Tokyo)","type":"result","duration_ms":225329,"uuid":"e697df67-cffa-4e26-9596-ad1fa5c0852e","queued_turn_count":0,"result_index":0}
-
-          '
-        at: '2026-09-23T08:38:36+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-013: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 12:50pm (Asia/Tokyo)
-        at: '2026-09-23T08:38:36+09:00'
-      updated_at: '2026-09-23T08:38:36+09:00'
+    status: done
+    attempts: 2
+    completed_commit: a4998389d667b9bf3d9ac33fd7d39acf9ce8a8ed
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: f44d9fd61019b58bad07da0f41b9f4161156bddb
+        step: lint
+      tree: sha256:c4282e3581e7df6d8080886dbf999859733af33953ea6c64b20dcc45a0159736
+      updated_at: '2026-09-23T17:59:23+09:00'
   T-017:
-    status: todo
-    attempts: 1
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 1
-        session: 145618a2-4646-4fac-88b0-7e48a3cf999c
-        output_tail: '{"duration_api_ms":163400,"stop_reason":"stop_sequence","session_id":"145618a2-4646-4fac-88b0-7e48a3cf999c","total_cost_usd":1.29608,"usage":{"input_tokens":34,"cache_creation_input_tokens":90464,"cache_read_input_tokens":1100160,"output_tokens":17610,"output_tokens_details":{"thinking_tokens":6923},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":90464,"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","iterations":[{"input_tokens":2,"output_tokens":564,"cache_read_input_tokens":95901,"cache_creation_input_tokens":4399,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":4399},"type":"message"}],"speed":"standard"},"modelUsage":{"claude-opus-5-5":{"inputTokens":34,"outputTokens":17610,"cacheReadInputTokens":1100160,"cacheCreationInputTokens":90464,"webSearchRequests":0,"costUSD":1.29608,"contextWindow":1000000,"maxOutputTokens":128000,"thinkingTokens":6923,"canonicalModel":"claude-opus-5-5","provider":"firstParty","costBasis":"list"}},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"is_error":true,"num_turns":21,"subtype":"success","api_error_status":429,"result":"You''ve
-          hit your session limit · resets 12:50pm (Asia/Tokyo)","type":"result","duration_ms":221554,"uuid":"95ecd6c2-d558-449a-bfd6-cca78c0069e4","queued_turn_count":0,"result_index":0}
-
-          '
-        at: '2026-09-23T08:38:32+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-017: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 12:50pm (Asia/Tokyo)
-        at: '2026-09-23T08:38:32+09:00'
-      updated_at: '2026-09-23T08:38:36+09:00'
+    status: done
+    attempts: 2
+    completed_commit: 46d58a3e4445b4e23ff75cce5d9d96cf77808874
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: f44d9fd61019b58bad07da0f41b9f4161156bddb
+        step: lint
+      tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
+      updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
     status: blocked
     attempts: 1
@@ -992,6 +1080,143 @@ tasks:
 
           上の4点が揃えば、次の試行で取得を実行し、ログ2本とテスト3本を書けます。'
         at: '2026-09-23T08:36:04+09:00'
+  T-014:
+    status: done
+    attempts: 1
+    completed_commit: deb63dcf6e6b82a23777d42367c985da0185395c
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-7
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-8
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      - id: A-7
+        kind: command
+        reused: false
+      - id: A-8
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 46d58a3e4445b4e23ff75cce5d9d96cf77808874
+        step: lint
+      tree: sha256:7263d9673b05ca1aa9da8d5dad5f7345f3f42e8506b56e4a44669617de3d22db
+      updated_at: '2026-09-23T18:11:57+09:00'
+  T-021:
+    status: needs-revision
+    attempts: 1
+    handoff:
+      report:
+        outcome: needs-revision
+        summary: 'A-1 は実装済み・コミット済み(fc6ca70): tests/measurements/test_host_check_logs.py が使い捨てリポジトリで git
+          check-ignore -v -n --no-index(core.excludesFile=/dev/null)と自前評価器を突き合わせ、リポジトリの .gitignore 25パス+否定・**・文字クラス・エスケープを踏む合成
+          .gitignore 31パスの計56件で不一致0件を docs/test/measurements/gitignore-equivalence.md に記録。テストは不一致・.gitignore
+          の digest 変化・代表集合の変化・評価器の再計算との食い違い・git への再照会との食い違いのいずれでも赤(改ざん1行で赤を確認)。lint/format/types/test/docs/smoke
+          は緑。A-2 は計画の欠陥で着手していない: A-2 は『スクリーンショットのパスが実在する』ことを要求し、判定は worktree だけをマウントする OCI サンドボックスで走るので、スクリーンショット(PNG)はコミットされたリポジトリ内に無ければならないが、T-021
+          の scope は docs/test/measurements/ui-e2e.md・gitignore-equivalence.md・tests/measurements/test_host_check_logs.py
+          の3ファイルだけで画像を置けるパスが無い(out/ 等の gitignore 先はサンドボックスから見えず赤、scope 外に置けば scope_violation)。必要な判断: scope
+          に例えば docs/test/measurements/ui-e2e/*.png を加える /revise。併せて前提未充足の報告: (1) N-2/ADR-012 が人に求める web/
+          の npm ci と next build が未実施(web/node_modules・web/.next 無し)、(2) web/package.json に Playwright
+          依存が無く E2E スクリプトの置き場も scope に無い(ホストの ~/.cache/ms-playwright に chromium-1228 はある)、(3) ルート .gitignore
+          に node_modules/ と .next/ が無く、web/ で npm ci すると大量の未追跡ファイルが git add -A の対象になる。副次所見: tests/fixtures/data/
+          配下は data/ 規則で無視される(git と評価器で一致しており等価性の問題ではない)。'
+        at: '2026-09-23T18:05:45+09:00'
+        touched:
+        - docs/test/measurements/gitignore-equivalence.md
+        - tests/measurements/test_host_check_logs.py
+      updated_at: '2026-09-23T18:11:55+09:00'
+      escalation:
+        kind: agent_needs_revision
+        message: 'T-021: the implementer reported needs-revision — A-1 は実装済み・コミット済み(fc6ca70): tests/measurements/test_host_check_logs.py
+          が使い捨てリポジトリで git check-ignore -v -n --no-index(core.excludesFile=/dev/null)と自前評価器を突き合わせ、リポジトリの
+          .gitignore 25パス+否定・**・文字クラス・エスケープを踏む合成 .gitignore 31パスの計56件で不一致0件を docs/test/measurements/gitignore-equivalence.md
+          に記録。テストは不一致・.gitignore の digest 変化・代表集合の変化・評価器の再計算との食い違い・git への再照会との食い違いのいずれでも赤(改ざん1行で赤を確認)。lint/format/types/test/docs/smoke
+          は緑。A-2 は計画の欠陥で着手していない: A-2 は『スクリーンショットのパスが実在する』ことを要求し、判定は worktree だけをマウントする OCI サンドボックスで走るので、スクリーンショット(PNG)はコミットされたリポジトリ内に無ければならないが、T-021
+          の scope は docs/test/measurements/ui-e2e.md・gitignore-equivalence.md・tests/measurements/test_host_check_logs.py
+          の3ファイルだけで画像を置けるパスが無い(out/ 等の gitignore 先はサンドボックスから見えず赤、scope 外に置けば scope_violation)。必要な判断: scope
+          に例えば docs/test/measurements/ui-e2e/*.png を加える /revise。併せて前提未充足の報告: (1) N-2/ADR-012 が人に求める web/
+          の npm ci と next build が未実施(web/node_modules・web/.next 無し)、(2) web/package.json に Playwright
+          依存が無く E2E スクリプトの置き場も scope に無い(ホストの ~/.cache/ms-playwright に chromium-1228 はある)、(3) ルート .gitignore
+          に node_modules/ と .next/ が無く、web/ で npm ci すると大量の未追跡ファイルが git add -A の対象になる。副次所見: tests/fixtures/data/
+          配下は data/ 規則で無視される(git と評価器で一致しており等価性の問題ではない)。'
+        tree: sha256:74eaaf3c457fddaad108cbe54da1b5a3288b8d0fa5847770f912824545ed0433
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 83fecea1-6d44-4920-b391-5b5d65a873c9
+        output_tail: "`needs-revision` で報告しました。A-1 は完了していますが、A-2 は計画の欠陥があるため着手していません。\n\n**A-1(完了、コミット\
+          \ `fc6ca70`)**\n- `tests/measurements/test_host_check_logs.py` で、自前評価器と `git check-ignore -v\
+          \ -n --no-index` の判定を突き合わせます。git 側は使い捨てのリポジトリで動かすので、実リポジトリの設定が混ざりません。\n- 対象はリポジトリの `.gitignore`\
+          \ の 25 パスと、合成 `.gitignore` の 31 パスです。合成側は否定・`**`・文字クラス・エスケープを一通り含みます。結果は計 56 件中の不一致 0 件で、`docs/test/measurements/gitignore-equivalence.md`\
+          \ に記録しました。\n- テストが赤になる条件は次のとおりです。記録を 1 行改ざんすると実際に赤になることも確かめました。\n  - 1 件でも判定が食い違う\n  - `.gitignore`\
+          \ の digest や代表パス集合が変わった\n  - 今の評価器で計算し直した判定が記録と違う\n  - git に聞き直した判定が記録と違う\n- lint / format /\
+          \ types / test / docs / smoke はすべて緑です。\n\n**A-2(未着手、計画の欠陥)**\n- A-2 はスクリーンショットのファイルが実在することを求めていますが、T-021\
+          \ の scope は md 2 つとテストファイルだけで、画像を置けるパスがありません。\n- 判定は worktree だけを見るサンドボックスで走るため、gitignore された\
+          \ `out/` に置くとファイルが見えずに赤になります。scope 外に置けば scope 違反です。\n- `/revise` で scope に画像の置き場(例: `docs/test/measurements/ui-e2e/*.png`)を加える必要があります。\n\
+          \n**A-2 に入る前に片づけておくこと**\n- 人が済ませる前提の `web/` の `npm ci` と `next build` が、まだ行われていません。\n- `web/`\
+          \ に Playwright の依存がなく、E2E スクリプトを置く場所も scope にありません。\n- ルートの `.gitignore` に `node_modules/` と\
+          \ `.next/` が入っていないため、`npm ci` を実行すると大量の未追跡ファイルがコミット対象になります。\n\n`tests/fixtures/data/` 配下のファイルは\
+          \ `data/` の規則で無視されます。git と評価器の判定は一致しているので等価性の問題ではありませんが、この下に置いた合成フィクスチャはコミットされません。"
+        at: '2026-09-23T18:05:55+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
