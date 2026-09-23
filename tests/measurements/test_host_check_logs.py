@@ -21,7 +21,10 @@ E2E はホストで1回走らせる(`run_ui_e2e`)。記録は
 `PYTHONPATH=src python tests/measurements/test_host_check_logs.py ui-e2e --node-modules <npm ci した node_modules>`
 で作り直す。ブラウザは Playwright が置いた chromium を、既存の `adapters/browser_cdp.CdpSession`
 で CDP 越しに操作する(Playwright の Node パッケージを依存に足さないため)。スクリーンショットは
-gitignore 対象の `out/ui-e2e/` に書く。品質ゲートは作業ツリーの bind マウントなので、そこも見える。
+`docs/test/measurements/ui-e2e/` に書いてコミットする(D-080)。gitignore 対象の `out/` に置くと、
+追跡ファイルだけのチェックアウトで走る worktree では実在せず、判定の緑が走る木に依存する。
+スクリーンショットが追跡対象になるので、E2E は使い捨ての作業ルートに置いた架空のデッキに対してだけ
+走らせる(D-081)。リポジトリの `data/`・`out/` は読まないので、実教材の本文が画像に写る経路は無い。
 テストは次のどれかで赤になる:
 
 - 記録された終了コードが 0 でない、または手順のどれかが ok でない(A-2 の本体)。
@@ -57,7 +60,7 @@ from quiz_sift.store.location import store_path
 ROOT = Path(__file__).resolve().parent.parent.parent
 GITIGNORE_LOG = ROOT / "docs" / "test" / "measurements" / "gitignore-equivalence.md"
 UI_E2E_LOG = ROOT / "docs" / "test" / "measurements" / "ui-e2e.md"
-SCREENSHOT_DIR = Path("out") / "ui-e2e"
+SCREENSHOT_DIR = Path("docs") / "test" / "measurements" / "ui-e2e"
 
 #: リポジトリの `.gitignore` に対する代表パス集合。書き出し先(data/・out/)の深い階層、
 #: 無視されないはずの追跡対象、拡張子パターン、ディレクトリ形式の規則に同名のファイルが
@@ -78,6 +81,7 @@ REPO_PATHS: tuple[tuple[str, bool], ...] = (
     ("src/quiz_sift/cli.py", False),
     ("tests/fixtures/data/synthetic.jsonl", False),
     ("docs/test/measurements/gitignore-equivalence.md", False),
+    ("docs/test/measurements/ui-e2e/01-decks.png", False),
     ("web/app/page.tsx", False),
     ("web/lib/data", False),
     ("web/out", False),
@@ -546,7 +550,7 @@ def _answer_all(page: _Page, choose: Callable[[str], str], graded_shot: Path | N
             f" return !document.querySelector('[role=status]') && (!h || h.textContent !== {json.dumps(stem)}); }})()",
             "次の問題",
         )
-    page.wait("document.body.innerText.includes('すべて回答済み')", "全問回答済みの表示")
+    page.wait("document.body?.innerText.includes('すべて回答済み')", "全問回答済みの表示")
     return verdicts
 
 
@@ -654,12 +658,12 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
                         steps.append(E2eStep(pending.pop(0), OK, detail))
 
                     page.goto("/")
-                    page.wait("document.body.innerText.includes('架空デッキ')", "デッキ一覧")
+                    page.wait("document.body?.innerText.includes('架空デッキ')", "デッキ一覧")
                     taken.append(page.screenshot(shots / E2E_SCREENSHOTS[0]))
                     step("一覧に「架空デッキ」が出た")
 
                     page.click("a", "架空デッキ")
-                    page.wait(f"document.body.innerText.includes('{len(E2E_QUESTIONS)} 問')", "デッキ画面")
+                    page.wait(f"document.body?.innerText.includes('{len(E2E_QUESTIONS)} 問')", "デッキ画面")
                     pre = _start_session(page)
                     step(f"セッション {pre} の画面へ遷移した")
 
@@ -734,7 +738,9 @@ R-12(C-012)の「ローカル起動した Web UI からテストを実施し、�
 `QUIZ_SIFT_API` をその API に向けて `next build` してから `next start` で立てた(rewrites は
 ビルド時に固定されるため)。
 ブラウザは Playwright が置いた chromium をヘッドレスで起動し、`adapters/browser_cdp.CdpSession`
-で CDP 越しにクリックした。スクリーンショットは gitignore 対象の `{SCREENSHOT_DIR.as_posix()}/` にある。
+で CDP 越しにクリックした。スクリーンショットは `{SCREENSHOT_DIR.as_posix()}/` にコミットしてある(D-080)。
+画像が追跡対象になるので、E2E は使い捨ての作業ルートに置いた架空のデッキに対してだけ走らせる(D-081)。
+リポジトリの `data/`・`out/` は読まない。
 
 ## 実行条件
 
