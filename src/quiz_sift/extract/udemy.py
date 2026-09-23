@@ -3,14 +3,19 @@
 `extract` は取得済みのページ(または取得失敗)の列だけを入力にとる純粋関数で、ブラウザにも
 ネットワークにも触らない。
 
-抽出規則は下の定数に集めてある。正解は2段で同定し、マッチした段を `SelectorKind` として
-全問の根拠に残す(AR-4):
+抽出規則は下の定数に集めてある。値は実物の結果ページ(`/learn/quiz/<id>/result/<id>`)の DOM を
+実測して決めた。Udemy のクラス名は CSS Modules の `<ファイル>--<ローカル名>--<ハッシュ>` 形式で、
+ハッシュはデプロイごとに変わりうるので、ハッシュを除いた接頭辞で照合する。
 
-1. 正解マーク(`CORRECT_CLASS`)の付いた選択肢がちょうど1つ → `CORRECT_MARK`
-2. 正解マークが1つも無く、受験者の選択(`USER_SELECTED_CLASS`)がちょうど1つ → `USER_SELECTED`
+正解は2段で同定し、マッチした段を `SelectorKind` として全問の根拠に残す(AR-4):
+
+1. 正解マーク(`CORRECT_CLASS_PREFIX`)の付いた選択肢がちょうど1つ → `CORRECT_MARK`
+2. 正解マークが1つも無く、受験者の選択(選択アイコンが `SELECTED_ICONS` のどれか)がちょうど1つ
+   → `USER_SELECTED`
 
 2段目は受験者が誤答していれば誤るので、「根拠の要素種別が全問で同一」の判定で見つかるように
 別の値を返す。それ以外(マークが複数、どちらも無い)は `ExtractionFailure` にする。
+複数選択問題(選択肢5件以上・正解マーク複数)は `OPTIONS` の失敗として報告する。
 
 問題文・選択肢・解説の本文は `NonEmptyText` で受ける。空文字で穴を埋めた問題は構築できない。
 本文を持つ dataclass は `repr=False` にする(AR-17)。
@@ -24,16 +29,22 @@ from quiz_sift.extract.evidence import AnswerEvidence, SelectorKind
 from quiz_sift.extract.failures import ExtractField, ExtractionFailure, FetchFailure, FetchFailureReason
 from quiz_sift.extract.html_tree import Element, parse_html
 
-QUESTION_BLOCK = ("data-purpose", "question-result")
-"""問題1問分のブロック。"""
-QUESTION_BLOCK_SELECTOR = '[data-purpose="question-result"]'
-"""`QUESTION_BLOCK` の CSS セレクタ表記。ブラウザ側でページの準備完了を待つのに使う。"""
-STEM = ("data-purpose", "question-prompt")
+QUESTION_BLOCK_CLASS_PREFIX = "result-pane--question-result-pane--"
+"""問題1問分のブロック。外側の `...-pane-wrapper--` や内側の `...-pane-expanded-content--` とは
+`--` の位置で区別される。"""
+QUESTION_BLOCK_SELECTOR = f'[class*="{QUESTION_BLOCK_CLASS_PREFIX}"]'
+"""問題ブロックの CSS セレクタ表記。ブラウザ側でページの準備完了を待つのに使う。"""
+STEM_ID = "question-prompt"
 OPTION = ("data-purpose", "answer")
 OPTION_BODY = ("data-purpose", "answer-body")
-EXPLANATION = ("data-purpose", "overall-explanation")
-CORRECT_CLASS = "answer--correct"
-USER_SELECTED_CLASS = "answer--user-selected"
+EXPLANATION_ID = "overall-explanation"
+"""「全体的な説明」。選択肢ごとの `question-explanation` は公式解説として扱わない。"""
+CORRECT_CLASS_PREFIX = "answer-result-pane--answer-correct--"
+"""正解の選択肢に付くクラス。受験者が選んだかどうかに依らず付く。"""
+SELECTION_ICON = ("data-purpose", "answer-result-body-selection-icon")
+SELECTED_ICONS = frozenset({"#icon-success", "#icon-cancel", "#icon-checkbox-filled", "#icon-wrong-selection"})
+"""受験者が選んだ選択肢の選択アイコン(`<use xlink:href>`)。選ばなかった選択肢は `#icon-radio-empty` /
+`#icon-checkbox-empty`。"""
 
 OPTION_LABELS = "ABCD"
 """選択肢 ID。ページ上の並び順に振る。"""
@@ -139,7 +150,7 @@ def extract(pages: Sequence[FetchedPage | FetchFailure]) -> ExtractResult:
         if isinstance(page, FetchFailure):
             fetch_failures.append(page)
             continue
-        blocks = parse_html(page.html).find_all(*QUESTION_BLOCK)
+        blocks = parse_html(page.html).find_by_class_prefix(QUESTION_BLOCK_CLASS_PREFIX)
         if not blocks:
             fetch_failures.append(FetchFailure(page.url, FetchFailureReason.NO_QUESTIONS))
             continue
@@ -167,7 +178,7 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
     def fail(field: ExtractField, element: Element) -> ExtractionFailure:
         return ExtractionFailure(question_index, field, element.path)
 
-    stems = block.find_all(*STEM)
+    stems = block.find_all("id", STEM_ID)
     stem = _text_of(stems[0]) if stems else None
     if stem is None:
         return fail(ExtractField.STEM, stems[0] if stems else block)
@@ -188,7 +199,7 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
         return fail(ExtractField.ANSWER, block)
     position, evidence = answer
 
-    explanations = block.find_all(*EXPLANATION)
+    explanations = block.find_all("id", EXPLANATION_ID)
     return ExtractedQuestion(
         local_id=local_id,
         stem=stem,
@@ -201,16 +212,28 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
 
 def _identify_answer(option_elements: Sequence[Element]) -> tuple[int, AnswerEvidence] | None:
     """正解の選択肢の位置と根拠。どの規則でも一意に決まらなければ `None`。"""
-    for css_class, kind in (
-        (CORRECT_CLASS, SelectorKind.CORRECT_MARK),
-        (USER_SELECTED_CLASS, SelectorKind.USER_SELECTED),
+    for is_marked, kind in (
+        (_is_correct_mark, SelectorKind.CORRECT_MARK),
+        (_is_user_selected, SelectorKind.USER_SELECTED),
     ):
-        marked = [position for position, element in enumerate(option_elements) if css_class in element.classes]
+        marked = [position for position, element in enumerate(option_elements) if is_marked(element)]
         if len(marked) == 1:
             return marked[0], AnswerEvidence(kind, option_elements[marked[0]].path)
         if marked:
             return None
     return None
+
+
+def _is_correct_mark(option: Element) -> bool:
+    return option.has_class_prefix(CORRECT_CLASS_PREFIX)
+
+
+def _is_user_selected(option: Element) -> bool:
+    return any(
+        use.tag == "use" and use.attrs.get("xlink:href") in SELECTED_ICONS
+        for icon in option.find_all(*SELECTION_ICON)
+        for use in icon.iter()
+    )
 
 
 def _text_of(element: Element) -> NonEmptyText | None:

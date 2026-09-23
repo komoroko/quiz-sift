@@ -5,7 +5,6 @@ import pytest
 from quiz_sift.extract.evidence import AnswerEvidence, SelectorKind
 from quiz_sift.extract.failures import ExtractField, FetchFailure, FetchFailureReason
 from quiz_sift.extract.udemy import (
-    CORRECT_CLASS,
     ExtractedOption,
     ExtractedQuestion,
     FetchedPage,
@@ -51,22 +50,19 @@ def test_element_and_fetch_failures_are_separate() -> None:
     ("block", "field"),
     [
         (question_html(1), ExtractField.ANSWER),
-        (
-            question_html(1, correct=0).replace(
-                'class="answer" data-purpose', f'class="answer {CORRECT_CLASS}" data-purpose', 1
-            ),
-            ExtractField.ANSWER,
-        ),
+        (question_html(1, correct=(0, 2)), ExtractField.ANSWER),
         (question_html(1, correct=0, option_texts=["a", "b", "c"]), ExtractField.OPTIONS),
+        # 実物の複数選択問題: 選択肢5件・正解マーク2つ。
+        (question_html(1, correct=(1, 3), option_texts=["a", "b", "c", "d", "e"]), ExtractField.OPTIONS),
     ],
-    ids=["no-mark", "two-correct-marks", "three-options"],
+    ids=["no-mark", "two-correct-marks", "three-options", "multi-select"],
 )
 def test_element_failures_name_the_field(block: str, field: ExtractField) -> None:
     result = extract([FetchedPage("https://example.invalid/quiz/1", page_html(block))])
 
     assert result.questions == ()
     assert [f.missing_field for f in result.report.extraction_failures] == [field]
-    assert result.report.extraction_failures[0].element_path.startswith("/html[1]/body[1]/main[1]/div[1]")
+    assert result.report.extraction_failures[0].element_path.startswith("/html[1]/body[1]/main[1]/div[2]/div[1]")
 
 
 def test_empty_text_cannot_be_constructed() -> None:

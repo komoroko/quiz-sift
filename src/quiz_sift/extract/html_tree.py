@@ -37,6 +37,14 @@ class Element:
         """自分より下で属性 `attr` が `value` の要素を文書順に返す。自分自身は含めない。"""
         return [element for element in self.iter() if element is not self and element.attrs.get(attr) == value]
 
+    def has_class_prefix(self, prefix: str) -> bool:
+        """クラスのどれかが `prefix` で始まるか。CSS Modules のハッシュ付きクラスを接頭辞で照合する。"""
+        return any(name.startswith(prefix) for name in self.classes)
+
+    def find_by_class_prefix(self, prefix: str) -> list["Element"]:
+        """自分より下で、クラスのどれかが `prefix` で始まる要素を文書順に返す。自分自身は含めない。"""
+        return [element for element in self.iter() if element is not self and element.has_class_prefix(prefix)]
+
     def text(self) -> str:
         """子孫のテキストを連結し、空白を1つに畳んだもの。"""
         return " ".join("".join(self._texts()).split())

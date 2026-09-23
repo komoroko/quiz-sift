@@ -40,9 +40,10 @@ def test_evidence_points_at_the_matched_option_element() -> None:
 
     first, second = extract([FetchedPage(URL, html)]).evidences
 
-    assert first.element_path.endswith("/div[1]/ul[1]/li[2]")
-    assert second.element_path.endswith("/div[2]/ul[1]/li[3]")
-    assert first.element_path.startswith("/html[1]/body[1]/main[1]/")
+    # main 直下: div[1] は折りたたみボタン、div[2] 以降が問題ブロックのラッパー。
+    # ラッパー / 問題ブロック / 展開部 / 選択肢ごとの枠 / 選択肢(`data-purpose="answer"`)。
+    assert first.element_path == "/html[1]/body[1]/main[1]/div[2]/div[1]/div[2]/div[2]/div[1]"
+    assert second.element_path == "/html[1]/body[1]/main[1]/div[3]/div[1]/div[2]/div[3]/div[1]"
 
 
 def test_no_evidence_is_not_uniform() -> None:
