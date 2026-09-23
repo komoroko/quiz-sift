@@ -713,9 +713,8 @@ def _cell(text: str) -> str:
     return text.replace("|", "/").replace("\n", " ")
 
 
-def render_ui_e2e_log(run: E2eRun, node_modules: Path, argv: list[str], root: Path = ROOT) -> str:
+def render_ui_e2e_log(run: E2eRun, node_modules: Path, argv: list[str], commit: str, root: Path = ROOT) -> str:
     next_version = json.loads((node_modules / "next" / "package.json").read_text(encoding="utf-8"))["version"]
-    commit = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=ROOT, capture_output=True, text=True)
     step_rows = "\n".join(
         f"| {i} | {s.name} | {s.result} | {_cell(s.detail)} |" for i, s in enumerate(run.steps, start=1)
     )
@@ -743,7 +742,7 @@ R-12(C-012)の「ローカル起動した Web UI からテストを実施し、�
 |---|---|
 | コマンド | `{" ".join(argv)}` |
 | 実行日時 | {datetime.now().astimezone().isoformat(timespec="seconds")} |
-| コミット | `{commit.stdout.strip()}` |
+| コミット | `{commit}` |
 | ブラウザ | {run.browser} |
 | Next.js | {next_version}(この木の `web/` を写して `next build`、BUILD_ID `{run.next_build}`) |
 | 実行環境 | ホスト({platform.system()} {platform.release()}) |
@@ -811,7 +810,7 @@ def _good_e2e_log(root: Path) -> str:
     node_modules = root / "node_modules"
     (node_modules / "next").mkdir(parents=True)
     (node_modules / "next" / "package.json").write_text('{"version": "0"}', encoding="utf-8")
-    return render_ui_e2e_log(run, node_modules, ["e2e"], root)
+    return render_ui_e2e_log(run, node_modules, ["e2e"], "-", root)
 
 
 @pytest.mark.parametrize("breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot"])
@@ -857,7 +856,8 @@ def _main(argv: list[str]) -> int:
         return 2
     run = run_ui_e2e(node_modules, args.chrome, ROOT / SCREENSHOT_DIR)
     command = ["PYTHONPATH=src", "python", "tests/measurements/test_host_check_logs.py", *argv]
-    UI_E2E_LOG.write_text(render_ui_e2e_log(run, node_modules, command), encoding="utf-8")
+    commit = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+    UI_E2E_LOG.write_text(render_ui_e2e_log(run, node_modules, command, commit.stdout.strip()), encoding="utf-8")
     return run.exit_code
 
 
