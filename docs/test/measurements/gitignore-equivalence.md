@@ -17,14 +17,14 @@ git に聞く。リポジトリ自身の `.git/info/exclude`・追跡状態・�
 | 項目 | 値 |
 |---|---|
 | コマンド | `PYTHONPATH=src python tests/measurements/test_host_check_logs.py gitignore` |
-| 実行日時 | 2026-09-23T18:03:09+09:00 |
-| コミット | `46d58a3e4445` |
+| 実行日時 | 2026-09-24T05:54:55+09:00 |
+| コミット | `f1a17a991b70` |
 | git | git version 2.53.0 |
 | 実行環境 | ホスト(Linux 6.6.87.2-microsoft-standard-WSL2) |
 
 ## 結果
 
-判定の不一致: 0 件 / 56 件
+判定の不一致: 0 件 / 57 件
 
 ## 突き合わせ: リポジトリの .gitignore
 
@@ -47,6 +47,7 @@ git に聞く。リポジトリ自身の `.git/info/exclude`・追跡状態・�
 | `"src/quiz_sift/cli.py"` | file | not-ignored | `-` | not-ignored | 一致 |
 | `"tests/fixtures/data/synthetic.jsonl"` | file | ignored | `.gitignore:13:data/` | ignored | 一致 |
 | `"docs/test/measurements/gitignore-equivalence.md"` | file | not-ignored | `-` | not-ignored | 一致 |
+| `"docs/test/measurements/ui-e2e/01-decks.png"` | file | not-ignored | `-` | not-ignored | 一致 |
 | `"web/app/page.tsx"` | file | not-ignored | `-` | not-ignored | 一致 |
 | `"web/lib/data"` | file | not-ignored | `-` | not-ignored | 一致 |
 | `"web/out"` | file | not-ignored | `-` | not-ignored | 一致 |
