@@ -891,6 +891,33 @@ decisions:
   requirement_ids:
   - NFR-5
   - NFR-6
+- id: D-080
+  subject: T-021 の受入基準 A-2 が要求するスクリーンショットをどの scope のどのパスに置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-021 の scope.include に docs/test/measurements/ui-e2e/ を足し、PNG をそこへコミットする。当初
+    out/ui-e2e/ に置いたが、これは T-021 自身(kind が integration で、リポジトリルートで走る)でしか緑にならない。parallel
+    タスクは git worktree add の追跡ファイルだけのチェックアウトで走るので out/ が存在せず、DoD の test ステップ(pytest -q
+    で全スイート)が tests/measurements/test_host_check_logs.py::test_ui_e2e_passed_and_screenshots_exist
+    で以降の全タスク分赤くなる。T-018 が実際にこれで blocked になった。品質プロファイルが worktree を bind マウントするため
+    gitignore 対象もサンドボックスから見えること自体は実測で確かめてあるが、見えるかどうかはそのタスクがどの木で走るかに依存し、判定の緑が環境に依存するのは証拠として弱い。判定方法も基準の文言も変えず、抜けていた1パスを足すだけに留める。同じ形の欠落は
+    D-079(T-007 の pre-commit.md)に続いて2件目。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-081
+  subject: T-021 の E2E をどのデータに対して走らせるか(コミットされるスクリーンショットに教材本文が写る経路)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 架空のデッキに対してのみ走らせる。実教材から取り込んだデッキに対して走らせてはならない。D-080
+    でスクリーンショットが追跡対象になるため、実データに対する E2E は NFR-2(実教材の本文を Git
+    追跡対象のファイルに入れない)を画像として破る経路になる。初回の実測は架空の4問のデッキで走っており偶然この制約を満たしていたが、T-019
+    / T-020 が out/ に実データを置いた後に E2E を回し直すと次は破れる。制約として plan に書き、偶然に頼らない。
+  requirement_ids:
+  - NFR-2
+  - R-12
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
@@ -2238,6 +2265,7 @@ tasks:
     include:
     - docs/test/measurements/gitignore-equivalence.md
     - docs/test/measurements/ui-e2e.md
+    - docs/test/measurements/ui-e2e/
     - tests/measurements/test_host_check_logs.py
   acceptance:
   - id: A-1

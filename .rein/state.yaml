@@ -1,80 +1,21 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T18:50:31+09:00'
+updated_at: '2026-09-23T23:42:22+09:00'
 gates:
   mandate:
-    status: approved
-    receipt:
-      approval_id: GA-MANDATE-CDE2EA27
-      confirmed_at: '2026-09-22T22:27:54+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:53dc3bff5c8e5dc0982914f8e8e5f26076779dee4f1064200d6338812c6417b8
-      plan_digest: sha256:a943d2757372335e2fdc06699eda0ba8c4be0e5de3be026720975219f43bc1b5
-      config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
-      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
-      artifact_digest: sha256:fed74694a1fa5308789bdfcdc3f34ef46e04a592fe4b6a8e45bd6f493e270f75
-      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
-      attested_chain_root: sha256:3bbdfd2ba77ad64d0d84a56a750d07910bb1890ef159e5a22b37d9800f016f8f
+    status: pending
+    receipt: null
   acceptance:
     status: pending
     receipt: null
   T-019:
-    status: approved
-    receipt:
-      approval_id: GA-T-019-5AFCAD6C
-      confirmed_at: '2026-09-22T22:28:20+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:e75f5138c5ea0678e8c0173bb6dad3cc670a0a839947174aac80ee0b8b366483
-      plan_digest: sha256:a943d2757372335e2fdc06699eda0ba8c4be0e5de3be026720975219f43bc1b5
-      config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
-      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
-      validation_digest: sha256:25dc37ea4af01e0b59e206258b43c42b24639a704e8f4c2d624500642312a56c
-      attested_chain_root: sha256:c81274c4a6281d0eec405b54afe6b35a4eecbd50128416bcdd22ad09630590ef
+    status: pending
+    receipt: null
   T-020:
-    status: approved
-    receipt:
-      approval_id: GA-T-020-529D43BA
-      confirmed_at: '2026-09-22T22:28:23+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:45247aeee5e40c12d7c746c15df8ee9c8ce76ec95b81adb9cb40c6ca58bd9fd9
-      plan_digest: sha256:a943d2757372335e2fdc06699eda0ba8c4be0e5de3be026720975219f43bc1b5
-      config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
-      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
-      validation_digest: sha256:46ed54048a19729608236c01773eb1ace7d0a9fb26bb3848b8cf73d4fc720805
-      attested_chain_root: sha256:e75f5138c5ea0678e8c0173bb6dad3cc670a0a839947174aac80ee0b8b366483
+    status: pending
+    receipt: null
 plan:
-  status: frozen
-  digest: sha256:a943d2757372335e2fdc06699eda0ba8c4be0e5de3be026720975219f43bc1b5
-  config_digest: sha256:25ad2e5ea9a9a0ff16eab4920e984fc266d62bab471ed2289473af1f02525de7
-  environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
-  sources:
-    docs/05-current-state.md: sha256:9d2cb5da07ade1cf2ef6c98d93ec23142e4cedbae4e7b5e8128cfdb0e9b04886
-    docs/10-requirements.md: sha256:1dc2496c1f229e0261f62522fffe6931089231c52da9a93af32a31ad6b2ee0a0
-    docs/20-design.md: sha256:739818644a37d800913ffad5d296c9d0fd1cd1956c5813f046341dfcd28caab9
-    docs/tasks/T-001.md: sha256:f9c7c4c094d7c5cbe782772b195a8b677a6803893940db716afd9fdd309ef55b
-    docs/tasks/T-002.md: sha256:4623cb0e6a5cb6eab3a5170eedb4a4aa8410e7df00ac502938dfc13520a9246d
-    docs/tasks/T-003.md: sha256:633da66b589951234e3fb726eeba2d53c74685ff73887c4a94be065d68c1f5f7
-    docs/tasks/T-004.md: sha256:aaa6df9dd48dc5414ae2275d9611b2d8b304033c2b4c7a32d53623e30942eed8
-    docs/tasks/T-005.md: sha256:cecc243b8183518261588b74f136d58995d361403ef66b0b44da8b246a165e90
-    docs/tasks/T-006.md: sha256:49282bfd5c07d425cfbca52f4689d7178c706b582928fd5fc8e833819fdf2822
-    docs/tasks/T-007.md: sha256:7c0e284f3ece4b6d875ac953be33c3df6bb9601dfee5734d8e5e14d167c8d7ef
-    docs/tasks/T-008.md: sha256:f8c44ccd811cc8f95a3d688f11720957ff3f9ad42e262ab73b5d676813f388eb
-    docs/tasks/T-009.md: sha256:bb894469986a5056d18ef9d015329c06e24db6a98fdb7a1ac53fe63be6d7ea04
-    docs/tasks/T-010.md: sha256:ff92dc4f71208de580bf720660b656a8fdacac6af4643b9fcd76a9b19ccc9258
-    docs/tasks/T-011.md: sha256:8f5274a386b03985a04104a8f5721ca794d172b24fa535e75b3a88421fe0f6e0
-    docs/tasks/T-012.md: sha256:30549fa7652a6915734f026b429feebfe8c9347fd58c7041459ee91fc9a1227c
-    docs/tasks/T-013.md: sha256:6befdfc53421e19cc15d5019b255091ef434fabac83a8b954918dcab88822b52
-    docs/tasks/T-014.md: sha256:6bb8b829a76820cd17d86e3fdbc4d47711dddd76622bf89cec7e40b14456d5fe
-    docs/tasks/T-015.md: sha256:d9f0014298410ecef83c0f8f5c4a2d1db9a106d1501080fa672cf9eee4822ca7
-    docs/tasks/T-016.md: sha256:54cd8c2d9bc34c7e6bb032bbcfae87e85125378ce6ea3fc4e440dce331e4059e
-    docs/tasks/T-017.md: sha256:43c9b0a6ace57b71ef18f4a0c834dcb7cb5222870cc6c387314ac3830a62ce11
-    docs/tasks/T-018.md: sha256:18d61047a7f93c54b31209f24168ff39518981258a969e0dc49f60e671b6f533
-    docs/tasks/T-019.md: sha256:0938e7a0b5beb74fa3fbdbad990f109d5878160d51355bac6dab83d2b3b18a68
-    docs/tasks/T-020.md: sha256:0c789413878115e39c85e1b903f0f4f1434242c244d6e9cbe9e1e3ccd887713a
-    docs/tasks/T-021.md: sha256:bb004a5cce7b346ebbc6e5830b416f3396e5d4e0f2b9656fec366e9fc6bc1132
-    docs/tasks/T-022.md: sha256:973a33f4e8496d99138b459faa7b2e595a002b06a1f4892a1527d16ff9114b31
-    docs/tasks/T-023.md: sha256:796925cc5ee2272b5f7f12ef693845f586f9b0dfcff9f233c97811a941b47feb
-  frozen_at: '2026-09-22T22:27:54+09:00'
+  status: draft
 execution:
   status: idle
 tasks:
@@ -782,8 +723,73 @@ tasks:
       tree: sha256:c2d87fe485a8f438b33170ef27736f3d327df277d39436163803a3c5f97d35c8
       updated_at: '2026-09-23T08:34:38+09:00'
   T-009:
-    status: todo
-    attempts: 2
+    status: done
+    attempts: 18
+    completed_commit: e068d761998db85310ad87ed773b5fcfd98835d2
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 0d74a3f3ea51026fe0e3c630e6af86514494d296
+        step: test
+      tree: sha256:cefd1c3577e782143f716e4385246daa102feb29edbcb693a303374479849c01
+      updated_at: '2026-09-23T23:08:41+09:00'
   T-012:
     status: done
     attempts: 1
@@ -1097,7 +1103,47 @@ tasks:
       updated_at: '2026-09-23T18:11:57+09:00'
   T-021:
     status: todo
-    attempts: 1
+    attempts: 17
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 0d74a3f3ea51026fe0e3c630e6af86514494d296
+        step: test
+      tree: sha256:38ced09c1095eebad50c94ab4365f1152708414f47cab74173c8c213ebff927d
+      updated_at: '2026-09-23T23:08:41+09:00'
   T-016:
     status: done
     attempts: 1
@@ -1192,6 +1238,9 @@ tasks:
         step: lint
       tree: sha256:3acfca47120e63327fb184c919259c0f73ae1f33f2afafac57e3598f43c4f861
       updated_at: '2026-09-23T18:38:26+09:00'
+  T-018:
+    status: todo
+    attempts: 1
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
