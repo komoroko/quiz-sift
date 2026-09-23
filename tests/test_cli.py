@@ -144,17 +144,18 @@ class Runner:
         self.capsys = capsys
         self.llm = llm
         self.tts = tts
+        self.tts_model = "model-dir"
 
     def _llm(self, recorder: UsageRecorder) -> StubLlm:
         return self.llm
 
     def _tts(self, model_dir: str) -> Tts:
-        assert model_dir == "model-dir"
+        assert model_dir == self.tts_model
         return self.tts
 
     def __call__(self, *argv: str) -> str:
         self.capsys.readouterr()
-        extra = ["--tts-model", "model-dir"] if argv[0] == "audio" else []
+        extra = ["--tts-model", self.tts_model] if argv[0] == "audio" else []
         code = cli.main(["--root", str(self.root), *argv, *extra], llm_factory=self._llm, tts_factory=self._tts)
         assert code == 0
         return self.capsys.readouterr().out.strip().splitlines()[-1]
@@ -238,6 +239,13 @@ def test_every_stage_has_an_entry_point(
     assert len(list((out / "audio").glob("*.mp3"))) == 3
     assert (out / "glossary" / "glossary.m3u").is_file()
     assert (len(llm.calls), tts.calls) == (llm_calls, tts_calls)
+
+    # TTS のモデルを差し替えたら、台本もグロッサリも前のモデルの音声を返さず合成し直す(NFR-4)。
+    run.tts_model = "other-model-dir"
+    run("audio", DECK)
+    assert tts.calls > tts_calls
+    for stage in ("tracks", "glossary-audio"):
+        assert len([p for p in (out / stage).iterdir() if not p.name.startswith(".")]) == 2
 
     servers: list[FakeServer] = []
 

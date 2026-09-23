@@ -383,8 +383,11 @@ class Pipeline:
 
         return self._cache.run(SCRIPT, self._recall_upstream() + b"\0" + recall_path.read_bytes(), produce)
 
-    def audio(self, tts: Callable[[], Tts], voice_id: str | None) -> Path:
-        """台本とグロッサリを音声にし、`out/<deck>/audio/` と `out/<deck>/glossary/` を作り直す。"""
+    def audio(self, tts: Callable[[], Tts], tts_model: str, voice_id: str | None) -> Path:
+        """台本とグロッサリを音声にし、`out/<deck>/audio/` と `out/<deck>/glossary/` を作り直す。
+
+        `tts_model`(`--tts-model` の値)は digest に入れる。モデルを差し替えたら合成し直す(NFR-4)。
+        """
         deck = self.deck()
         voice = voice_id or DEFAULT_VOICES[deck.language]
         script_path, glossary_path = self.script(), self.glossary()
@@ -395,7 +398,7 @@ class Pipeline:
                 synthesize_tracks(tts(), tracks, language=deck.language, voice_id=voice, out_dir=Path(tmp))
                 _pack(Path(tmp), out)
 
-        stage = Stage("tracks", params={"voice_id": voice})
+        stage = Stage("tracks", model=tts_model, params={"voice_id": voice})
         audio_dir = _deliver(
             self._cache.run(stage, script_path.read_bytes(), produce_tracks), self.out_dir / AUDIO_DIRNAME
         )
@@ -413,7 +416,7 @@ class Pipeline:
                 )
                 _pack(written.playlist.parent, out)
 
-        stage = Stage("glossary-audio", params={"voice_id": voice})
+        stage = Stage("glossary-audio", model=tts_model, params={"voice_id": voice})
         _deliver(self._cache.run(stage, glossary_path.read_bytes(), produce_glossary), self.out_dir / GLOSSARY_DIRNAME)
         return audio_dir
 
@@ -492,7 +495,7 @@ def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFac
                         built.append(tts_factory(model_dir))
                     return built[0]
 
-                result = pipeline.audio(tts, args.voice)
+                result = pipeline.audio(tts, model_dir, args.voice)
             case "review":
                 result = pipeline.review()
             case _:
