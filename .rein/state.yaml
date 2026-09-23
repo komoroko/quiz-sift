@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T23:42:22+09:00'
+updated_at: '2026-09-23T23:47:04+09:00'
 gates:
   mandate:
     status: pending
@@ -971,56 +971,8 @@ tasks:
       tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
       updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
-    status: blocked
+    status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: blocked
-        summary: '実取得の前提が揃っていない。(1) CDP 接続先が無い: curl http://127.0.0.1:9222/json/version → exit 7(接続拒否)、WSL2
-          の既定ゲートウェイ 172.25.240.1:9222 → exit 28(タイムアウト)。ログイン済み Chrome を --remote-debugging-port=9222 で起動し、WSL
-          から到達できる状態にする必要がある。(2) 対象コース/模試の URL が渡されていない。(3) ゴールデンセット10件の人手ラベル(受験者の選択≠正解を3件以上含む)が無い。加えて取得を実行する
-          CLI 入口が src/ に無く(pyproject に scripts 無し)、本タスクの scope は measurements の2ファイルとテストだけなので、取得スクリプトの置き場所も決める必要がある。extraction-run.md
-          / golden-set.md は実測値でしか書けない(作り話のログは不可)ため、何も書かずに止めた。必要な判断: 上記(1)〜(3)を用意すること、および取得実行の入口(既存 src
-          への CLI 追加か、ホストでの手動 python -c 実行か)を決めること。'
-        at: '2026-09-23T08:35:53+09:00'
-      updated_at: '2026-09-23T08:38:36+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-019: the implementer reported blocked — 実取得の前提が揃っていない。(1) CDP 接続先が無い: curl http://127.0.0.1:9222/json/version
-          → exit 7(接続拒否)、WSL2 の既定ゲートウェイ 172.25.240.1:9222 → exit 28(タイムアウト)。ログイン済み Chrome を --remote-debugging-port=9222
-          で起動し、WSL から到達できる状態にする必要がある。(2) 対象コース/模試の URL が渡されていない。(3) ゴールデンセット10件の人手ラベル(受験者の選択≠正解を3件以上含む)が無い。加えて取得を実行する
-          CLI 入口が src/ に無く(pyproject に scripts 無し)、本タスクの scope は measurements の2ファイルとテストだけなので、取得スクリプトの置き場所も決める必要がある。extraction-run.md
-          / golden-set.md は実測値でしか書けない(作り話のログは不可)ため、何も書かずに止めた。必要な判断: 上記(1)〜(3)を用意すること、および取得実行の入口(既存 src
-          への CLI 追加か、ホストでの手動 python -c 実行か)を決めること。'
-        tree: sha256:7012a9fefeea39d7dd7a5362072de95013ab4e4f4ec220c02b8ca5632f0d2604
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: bc9a9a2a-7e3b-43a0-be89-e280075842ff
-        output_tail: 'T-019 は `blocked` で止めました。実取得の前提が揃っておらず、コードもログも書いていません。`rein report` は blocked を記録しました(終了コード
-          2 と「recorded in the central audit chain」の表示)。
-
-
-          止めた理由:
-
-          1. **CDP の接続先がありません。** `127.0.0.1:9222` は接続拒否、WSL2 のゲートウェイ `172.25.240.1:9222` はタイムアウトでした。ログイン済みの
-          Chrome を `--remote-debugging-port=9222` で起動し、WSL から届く状態にしてください。
-
-          2. **取得対象のコースまたは模試の URL を受け取っていません。**
-
-          3. **ゴールデンセット10件の人手ラベルがありません。** 受験者の選択と正解が異なる問題を3件以上含める必要があります。
-
-          4. **取得を実行するコマンドがまだありません。** `pyproject.toml` に scripts の定義がなく、このタスクの scope は計測ログ2本とテストだけです。実行方法を決めてください。既存の
-          `src/` に CLI を足すなら `/revise` で scope を広げる必要があります。もう一つの手は、ホストで `browser_cdp.fetch` と `extract`
-          を手で呼ぶ方法です。
-
-
-          `extraction-run.md` と `golden-set.md` は実測した値でしか書けないので、雛形も置いていません。
-
-
-          上の4点が揃えば、次の試行で取得を実行し、ログ2本とテスト3本を書けます。'
-        at: '2026-09-23T08:36:04+09:00'
   T-014:
     status: done
     attempts: 1
