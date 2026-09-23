@@ -48,7 +48,8 @@ Durable ones are promoted the same way as §6 (`upstream` included) — record w
 
 | Lesson | Promote? | Promoted to (file) |
 |--------|----------|--------------------|
-| | | |
+| **実データの 7.9% は N-of-M の複数選択問題で、R-1 の「4択・正解1件」が実物と合っていない。** T-019 の実取得(演習テスト4、190問)の内訳は 4択・正解1つが175問、5択・正解2つが13問、6択・正解3つが2問。15問は要件どおり `OPTION_COUNT_NOT_4` として件数付きで除外されており、これはバグではなく仕様の限界。次サイクルの `/req` で「N-of-M をどう採点し、どう音声化するか」を正面から扱う。影響範囲は実測済み: `Question.correct_option_id: OptionId` は `__post_init__` が強制するドメイン不変条件で、参照は src 10本 / tests 12本 / web 2本、`OPTION_COUNT` の参照が src 4本、`RejectionReason.OPTION_COUNT_NOT_4` は ingest レポートの公開 enum 値。要件側では R-8 の部分点の定義、R-6 の「ラベル列挙禁止」判定(4件前提)、R-4 の「誤答選択肢」の定義がいずれも開く。このサイクルで `/revise --to mandate` して押し込むと done 済み20タスクのほぼ全部が impacted closure に入るため、デルタサイクルとして次に回す(2026-09-24、人の判断) | next cycle | |
+| **実ページの DOM はタスク着手前には誰も見ておらず、T-009 の抽出規則は合成フィクスチャに対してだけ緑だった。** 7つのセレクタ定数のうち5つが実物と不一致で、実取得のタスク(T-019)まで誰も気づけなかった。Udemy の結果ページは CSS Modules のハッシュ付きクラス(`result-pane--question-result-pane--sIcOh` 等)で、`data-purpose` を持つのは `answer` と `answer-body` の2つだけ。次に外部ページのスクレイピングを含む要件を切るときは、**抽出規則を決める前に実ページの構造を1回読む**タスクを DAG の先頭に置く(読み取り専用なので不可逆点にはならない)。接頭辞照合にしたのは再デプロイでハッシュが変わるため | next cycle | |
 
 ## 6. Process / template improvement proposals
 Improvement ideas for how this loop is run, the gates, self-assessment, and deterministic orchestration
