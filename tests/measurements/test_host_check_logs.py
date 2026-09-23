@@ -14,25 +14,50 @@
 - 記録された自前評価器の判定が、今の `gitignore_guard` を同じ入力で走らせた結果と違う
   (評価器を直したのに測り直していない記録、表だけ書き換えた記録)。
 - git が使える環境では、記録された git の判定が今 git に聞き直した結果と違う(作り話の記録)。
+
+**A-2(C-012 / R-12 / ADR-012)**: ブラウザからテストを実施し結果を閲覧した E2E の記録
+`docs/test/measurements/ui-e2e.md` を読む。node と Next.js はサンドボックスイメージに無いので、
+E2E はホストで1回走らせる(`run_ui_e2e`)。記録は
+`PYTHONPATH=src python tests/measurements/test_host_check_logs.py ui-e2e --node-modules <npm ci した node_modules>`
+で作り直す。ブラウザは Playwright が置いた chromium を、既存の `adapters/browser_cdp.CdpSession`
+で CDP 越しに操作する(Playwright の Node パッケージを依存に足さないため)。スクリーンショットは
+gitignore 対象の `out/ui-e2e/` に書く。品質ゲートは作業ツリーの bind マウントなので、そこも見える。
+テストは次のどれかで赤になる:
+
+- 記録された終了コードが 0 でない、または手順のどれかが ok でない(A-2 の本体)。
+- 記録の手順・スクリーンショットの並びが、このファイルが宣言する E2E と違う(古い記録)。
+- 記録されたスクリーンショットのパスが実在しない、PNG でない、記録した digest と中身が違う。
 """
 
+import argparse
+import base64
 import hashlib
 import json
+import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.request
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from quiz_sift.adapters.browser_cdp import CdpError, CdpSession
 from quiz_sift.safety.gitignore_guard import is_ignored, parse_gitignore
+from quiz_sift.store.location import store_path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 GITIGNORE_LOG = ROOT / "docs" / "test" / "measurements" / "gitignore-equivalence.md"
+UI_E2E_LOG = ROOT / "docs" / "test" / "measurements" / "ui-e2e.md"
+SCREENSHOT_DIR = Path("out") / "ui-e2e"
 
 #: リポジトリの `.gitignore` に対する代表パス集合。書き出し先(data/・out/)の深い階層、
 #: 無視されないはずの追跡対象、拡張子パターン、ディレクトリ形式の規則に同名のファイルが
@@ -352,13 +377,488 @@ def test_the_git_side_of_the_harness_reads_verdicts(gitignore: str, path: str, i
     assert _git_check_ignore(git, gitignore, ((path, is_dir),))[path][0] is ignored
 
 
+E2E_DECK = "e2e-deck"
+#: 架空の問題(NFR-2 の対象外)。値は正解の選択肢ラベル。
+E2E_QUESTIONS = {"q1": "A", "q2": "B", "q3": "C", "q4": "D"}
+E2E_STEM_PREFIX = "架空の問題 "
+
+#: 事前は全問「選択肢 A」で答えて 1/4、事後は全問正解で 4/4 になる。レポートにはその差が出る。
+E2E_STEPS = (
+    "デッキ一覧を開く",
+    "デッキを開いて事前テストを始める",
+    "事前テストの全問に「選択肢 A」で答える",
+    "デッキへ戻って事後テストを始める",
+    "事後テストの全問に正解で答える",
+    "事前・事後を選んでレポートを開く",
+    "回答がブラウザ内ストレージでなくサーバ側のストアにある",
+)
+E2E_SCREENSHOTS = ("01-decks.png", "02-graded.png", "03-session-done.png", "04-report.png")
+E2E_REPORT_TEXTS = ("25.0% (1/4)", "100.0% (4/4)", "+75.0pt")
+
+UI_E2E_HEADINGS = ("## 実行条件", "## 終了コード", "## 手順", "## スクリーンショット")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+OK = "ok"
+FAILED = "failed"
+NOT_RUN = "not-run"
+
+
+class E2eFailure(Exception):
+    """E2E の手順が期待どおりに進まなかった。"""
+
+
+@dataclass(frozen=True, slots=True)
+class E2eStep:
+    name: str
+    result: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class E2eRun:
+    exit_code: int
+    steps: tuple[E2eStep, ...]
+    screenshots: tuple[Path, ...]
+    browser: str
+    next_build: str
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port: int = sock.getsockname()[1]
+        return port
+
+
+def _wait_http(url: str, timeout: float = 60.0) -> bytes:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                body: bytes = response.read()
+                return body
+        except OSError:
+            if time.monotonic() > deadline:
+                raise E2eFailure(f"{url} が {timeout:.0f} 秒以内に応答しない") from None
+            time.sleep(0.3)
+
+
+@contextmanager
+def _spawn(argv: list[str], *, cwd: Path, env: dict[str, str], log: Path) -> Iterator[None]:
+    with log.open("wb") as out:
+        proc = subprocess.Popen(argv, cwd=cwd, env={**os.environ, **env}, stdout=out, stderr=subprocess.STDOUT)
+        try:
+            yield
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+
+def _write_e2e_root(root: Path) -> None:
+    """`data/` に架空のデッキ1つを持つ作業ルート(tests/server/conftest.py の write_root と同じ形)。"""
+    (root / ".gitignore").write_text("data/\nout/\n", encoding="utf-8")
+    deck_dir = root / "data" / E2E_DECK
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "deck.yaml").write_text(f"deck_id: {E2E_DECK}\ntitle: 架空デッキ\nlanguage: ja\n", encoding="utf-8")
+    rows = [
+        {
+            "id": qid,
+            "stem": f"{E2E_STEM_PREFIX}{qid}",
+            "options": [{"id": label, "text": f"選択肢 {label}"} for label in "ABCD"],
+            "answer": answer,
+            "explanation": f"解説 {qid}",
+        }
+        for qid, answer in E2E_QUESTIONS.items()
+    ]
+    (deck_dir / "q.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", "utf-8")
+
+
+class _Page:
+    """1タブを DOM の問い合わせとクリックで操作する。"""
+
+    def __init__(self, session: CdpSession, origin: str) -> None:
+        self._session = session
+        self.origin = origin
+
+    def goto(self, path: str) -> None:
+        self._session.call("Page.navigate", {"url": self.origin + path})
+
+    def eval(self, expression: str) -> object:
+        return self._session.evaluate(expression)
+
+    def wait(self, expression: str, what: str, timeout: float = 30.0) -> object:
+        deadline = time.monotonic() + timeout
+        while True:
+            value = self.eval(expression)
+            if value:
+                return value
+            if time.monotonic() > deadline:
+                raise E2eFailure(f"{what}が {timeout:.0f} 秒以内に現れない(画面: {self.text()[:200]!r})")
+            time.sleep(0.2)
+
+    def text(self) -> str:
+        return str(self.eval("document.body ? document.body.innerText : ''"))
+
+    def click(self, tag: str, label: str) -> None:
+        """`label` を表示している `tag` 要素が現れるのを待ってクリックする。"""
+        found = (
+            f"[...document.querySelectorAll({json.dumps(tag)})]"
+            f".find((el) => el.textContent.trim() === {json.dumps(label)} && !el.disabled)"
+        )
+        self.wait(
+            f"(() => {{ const el = {found}; if (!el) return false; el.click(); return true; }})()", f"「{label}」"
+        )
+
+    def path(self) -> str:
+        return str(self.eval("location.pathname"))
+
+    def screenshot(self, target: Path) -> Path:
+        data = self._session.call("Page.captureScreenshot", {"format": "png"}).get("data")
+        if not isinstance(data, str):
+            raise E2eFailure("Page.captureScreenshot が画像を返さない")
+        target.write_bytes(base64.b64decode(data))
+        return target
+
+
+def _answer_all(page: _Page, choose: Callable[[str], str], graded_shot: Path | None) -> list[str]:
+    """セッション画面で全問に答え、各問の採点表示(正解 / 不正解)を問題の順に返す。"""
+    verdicts = []
+    for _ in E2E_QUESTIONS:
+        stem = str(page.wait("document.querySelector('h2')?.textContent", "問題文"))
+        qid = stem.removeprefix(E2E_STEM_PREFIX)
+        if qid not in E2E_QUESTIONS:
+            raise E2eFailure(f"知らない問題が出た: {stem!r}")
+        page.click("button", f"選択肢 {choose(qid)}")
+        verdict = str(page.wait("document.querySelector('[role=status]')?.textContent", "採点結果"))
+        expected = "正解" if choose(qid) == E2E_QUESTIONS[qid] else "不正解"
+        if verdict != expected:
+            raise E2eFailure(f"{qid} の採点表示が {verdict!r}(期待は {expected!r})")
+        verdicts.append(f"{qid}:{verdict}")
+        if graded_shot is not None:
+            page.screenshot(graded_shot)
+            graded_shot = None
+        page.click("button", "次へ")
+        page.wait(
+            f"(() => {{ const h = document.querySelector('h2');"
+            f" return !document.querySelector('[role=status]') && (!h || h.textContent !== {json.dumps(stem)}); }})()",
+            "次の問題",
+        )
+    page.wait("document.body.innerText.includes('すべて回答済み')", "全問回答済みの表示")
+    return verdicts
+
+
+def _start_session(page: _Page) -> str:
+    page.click("button", "テストを始める")
+    path = str(page.wait("location.pathname.includes('/sessions/') && location.pathname", "セッション画面"))
+    return path.rsplit("/", 1)[1]
+
+
+def _select_sessions(page: _Page, pre: str, post: str) -> None:
+    """React が制御する select に値を入れる。value を直に書くだけでは React が変更を拾わない。"""
+    page.wait("document.querySelectorAll('select option').length >= 6", "セッションの選択肢")
+    script = (
+        "(() => { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;"
+        " const [pre, post] = document.querySelectorAll('select');"
+        f" for (const [el, v] of [[pre, {json.dumps(pre)}], [post, {json.dumps(post)}]]) {{"
+        " set.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()"
+    )
+    page.eval(script)
+
+
+def _find_chrome() -> Path | None:
+    candidates = sorted(Path.home().glob(".cache/ms-playwright/chromium-*/chrome-linux64/chrome"))
+    return candidates[-1] if candidates else None
+
+
+def _build_web(node_modules: Path, target: Path, api: str) -> str:
+    """この木の `web/` を `target` に写し、`api` へ転送する設定で `next build` して BUILD_ID を返す。
+
+    `next.config.mjs` の rewrites は `next build` の時点で routes-manifest に焼き込まれ、
+    `next start` 時の `QUIZ_SIFT_API` は効かない。既定の 8765 は `rein ui` と衝突しうるので、
+    E2E ごとに空きポートの API へ向けて建て直す。Turbopack はプロジェクト外を指す
+    node_modules のシンボリックリンクを拒むので、node_modules も実体で写す。
+    """
+    shutil.copytree(ROOT / "web", target, ignore=shutil.ignore_patterns("node_modules", ".next"))
+    shutil.copytree(node_modules, target / "node_modules", symlinks=True)
+    done = subprocess.run(
+        ["node", str(target / "node_modules" / "next" / "dist" / "bin" / "next"), "build"],
+        cwd=target,
+        env={**os.environ, "QUIZ_SIFT_API": api},
+        capture_output=True,
+        text=True,
+    )
+    if done.returncode != 0:
+        raise E2eFailure(f"next build が {done.returncode} で終わった: {done.stdout[-500:]}{done.stderr[-500:]}")
+    return (target / ".next" / "BUILD_ID").read_text(encoding="utf-8").strip()
+
+
+def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
+    """API・Next.js・chromium を立て、ブラウザからテストの実施とレポートの閲覧を通しで行う。
+
+    どこかの手順で止まったら、その手順を failed、残りを not-run として終了コード 1 を返す。
+    """
+    shots.mkdir(parents=True, exist_ok=True)
+    for stale in shots.glob("*.png"):
+        stale.unlink()
+    steps: list[E2eStep] = []
+    taken: list[Path] = []
+    browser = next_build = "-"
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        root = work / "root"
+        root.mkdir()
+        _write_e2e_root(root)
+        api_port, web_port, cdp_port = _free_port(), _free_port(), _free_port()
+        api = f"http://127.0.0.1:{api_port}"
+        pending = list(E2E_STEPS)
+        web = work / "web"
+        try:
+            next_build = _build_web(node_modules, web, api)
+            with (
+                _spawn(
+                    [sys.executable, "-m", "quiz_sift.server", "--root", str(root), "--port", str(api_port)],
+                    cwd=root,
+                    env={"PYTHONPATH": str(ROOT / "src")},
+                    log=work / "api.log",
+                ),
+                _spawn(
+                    ["node", str(web / "node_modules" / "next" / "dist" / "bin" / "next"), "start"]
+                    + ["--port", str(web_port), "--hostname", "127.0.0.1"],
+                    cwd=web,
+                    env={"QUIZ_SIFT_API": api},
+                    log=work / "next.log",
+                ),
+                _spawn(
+                    [str(chrome), "--headless=new", f"--remote-debugging-port={cdp_port}"]
+                    + [f"--user-data-dir={work / 'chrome'}", "--no-first-run", "--no-default-browser-check"]
+                    + ["--window-size=1280,900", "about:blank"],
+                    cwd=work,
+                    env={},
+                    log=work / "chrome.log",
+                ),
+            ):
+                _wait_http(f"{api}/api/decks")
+                _wait_http(f"http://127.0.0.1:{web_port}/")
+                cdp = f"http://127.0.0.1:{cdp_port}"
+                browser = str(json.loads(_wait_http(f"{cdp}/json/version"))["Browser"])
+                request = urllib.request.Request(f"{cdp}/json/new?about:blank", method="PUT")
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    ws_url = str(json.loads(response.read())["webSocketDebuggerUrl"])
+                with CdpSession(ws_url, timeout=60) as session:
+                    page = _Page(session, f"http://127.0.0.1:{web_port}")
+
+                    def step(detail: str) -> None:
+                        steps.append(E2eStep(pending.pop(0), OK, detail))
+
+                    page.goto("/")
+                    page.wait("document.body.innerText.includes('架空デッキ')", "デッキ一覧")
+                    taken.append(page.screenshot(shots / E2E_SCREENSHOTS[0]))
+                    step("一覧に「架空デッキ」が出た")
+
+                    page.click("a", "架空デッキ")
+                    page.wait(f"document.body.innerText.includes('{len(E2E_QUESTIONS)} 問')", "デッキ画面")
+                    pre = _start_session(page)
+                    step(f"セッション {pre} の画面へ遷移した")
+
+                    graded = shots / E2E_SCREENSHOTS[1]
+                    verdicts = _answer_all(page, lambda _qid: "A", graded)
+                    taken.append(graded)
+                    taken.append(page.screenshot(shots / E2E_SCREENSHOTS[2]))
+                    step("採点表示 " + ", ".join(verdicts))
+
+                    page.click("a", "デッキへ戻る")
+                    page.wait("location.pathname.endsWith('/decks/" + E2E_DECK + "')", "デッキ画面")
+                    post = _start_session(page)
+                    step(f"セッション {post} の画面へ遷移した")
+
+                    verdicts = _answer_all(page, lambda qid: E2E_QUESTIONS[qid], None)
+                    step("採点表示 " + ", ".join(verdicts))
+
+                    page.click("a", "デッキへ戻る")
+                    _select_sessions(page, pre, post)
+                    page.click("a", "レポートを見る")
+                    page.wait("document.querySelector('table') !== null", "レポートの表")
+                    missing = [t for t in E2E_REPORT_TEXTS if t not in page.text()]
+                    if missing:
+                        raise E2eFailure(f"レポートに {missing} が無い(画面: {page.text()[:300]!r})")
+                    taken.append(page.screenshot(shots / E2E_SCREENSHOTS[3]))
+                    step("レポートに " + ", ".join(E2E_REPORT_TEXTS) + " が出た")
+
+                    in_browser = page.eval("localStorage.length + sessionStorage.length")
+                    if in_browser != 0:
+                        raise E2eFailure(f"ブラウザ内ストレージに {in_browser} 件ある")
+                    answered = {
+                        str(s["session_id"]): int(s["answered"])
+                        for s in json.loads(_wait_http(f"{api}/api/decks/{E2E_DECK}/sessions"))
+                    }
+                    if answered != {pre: len(E2E_QUESTIONS), post: len(E2E_QUESTIONS)}:
+                        raise E2eFailure(f"API が返す回答数が {answered}")
+                    if not store_path(root).is_file():
+                        raise E2eFailure(f"学習記録ストア {store_path(root).relative_to(root)} が無い")
+                    step(
+                        f"localStorage + sessionStorage = 0 件、API の回答数 {answered}、"
+                        f"ストア {store_path(root).relative_to(root)} が存在"
+                    )
+        except (E2eFailure, CdpError, OSError, ValueError, KeyError) as failure:
+            steps.append(E2eStep(pending.pop(0), FAILED, f"{type(failure).__name__}: {failure}"))
+            steps.extend(E2eStep(name, NOT_RUN, "-") for name in pending)
+    exit_code = 0 if all(s.result == OK for s in steps) and len(steps) == len(E2E_STEPS) else 1
+    return E2eRun(exit_code, tuple(steps), tuple(taken), browser, next_build)
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "/").replace("\n", " ")
+
+
+def render_ui_e2e_log(run: E2eRun, node_modules: Path, argv: list[str], root: Path = ROOT) -> str:
+    next_version = json.loads((node_modules / "next" / "package.json").read_text(encoding="utf-8"))["version"]
+    commit = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+    step_rows = "\n".join(
+        f"| {i} | {s.name} | {s.result} | {_cell(s.detail)} |" for i, s in enumerate(run.steps, start=1)
+    )
+    shot_rows = "\n".join(
+        f"| `{p.relative_to(root).as_posix()}` | `sha256:{hashlib.sha256(p.read_bytes()).hexdigest()}` |"
+        for p in run.screenshots
+    )
+    return f"""# 実測ログ: ブラウザからのテスト実施と結果閲覧(E2E)
+
+R-12(C-012)の「ローカル起動した Web UI からテストを実施し、結果を閲覧できる」ことを、実際の
+ブラウザで通しで操作して確かめた記録(ADR-012、受入基準 A-2)。node と Next.js はサンドボックス
+イメージに無いので、ホストで1回走らせた。`tests/measurements/test_host_check_logs.py` がこの記録を
+機械判定する。
+
+ローカル API(`python -m quiz_sift.server`)は使い捨ての作業ルートに空きポートで立て、架空の4問の
+デッキ(NFR-2 の対象外)を出題させた。Next.js はこの木の `web/` を一時ディレクトリへ写し、
+`QUIZ_SIFT_API` をその API に向けて `next build` してから `next start` で立てた(rewrites は
+ビルド時に固定されるため)。
+ブラウザは Playwright が置いた chromium をヘッドレスで起動し、`adapters/browser_cdp.CdpSession`
+で CDP 越しにクリックした。スクリーンショットは gitignore 対象の `{SCREENSHOT_DIR.as_posix()}/` にある。
+
+## 実行条件
+
+| 項目 | 値 |
+|---|---|
+| コマンド | `{" ".join(argv)}` |
+| 実行日時 | {datetime.now().astimezone().isoformat(timespec="seconds")} |
+| コミット | `{commit.stdout.strip()}` |
+| ブラウザ | {run.browser} |
+| Next.js | {next_version}(この木の `web/` を写して `next build`、BUILD_ID `{run.next_build}`) |
+| 実行環境 | ホスト({platform.system()} {platform.release()}) |
+
+## 終了コード
+
+`{run.exit_code}`
+
+## 手順
+
+| # | 手順 | 結果 | 確認したこと |
+|---|---|---|---|
+{step_rows}
+
+## スクリーンショット
+
+| パス | digest |
+|---|---|
+{shot_rows}
+"""
+
+
+def _table_body(section: str) -> list[list[str]]:
+    rows = [line for line in section.splitlines() if line.startswith("|")]
+    return [[c.strip().strip("`") for c in line.strip().strip("|").split("|")] for line in rows[2:]]
+
+
+def check_ui_e2e_log(text: str, root: Path) -> None:
+    """A-2 の判定。記録が終了コード 0・全手順 ok で、スクリーンショットが実在して記録と一致すること。"""
+    for heading in UI_E2E_HEADINGS:
+        assert heading in text, f"規定の見出しが無い: {heading}"
+    exit_code = _section(text, "## 終了コード").strip().strip("`")
+    assert exit_code == "0", f"記録された E2E の終了コードが 0 でない: {exit_code}"
+
+    steps = _table_body(_section(text, "## 手順"))
+    assert [row[1] for row in steps] == list(E2E_STEPS), "記録の手順が宣言した E2E と違う — 測り直すこと"
+    failed = [row[1] for row in steps if row[2] != OK]
+    assert not failed, f"ok でない手順がある: {failed}"
+
+    shots = _table_body(_section(text, "## スクリーンショット"))
+    names = [Path(row[0]).name for row in shots]
+    assert names == list(E2E_SCREENSHOTS), f"記録のスクリーンショットが宣言と違う: {names}"
+    for relative, digest in shots:
+        path = root / relative
+        assert path.is_file(), f"スクリーンショットのパスが実在しない: {relative}"
+        data = path.read_bytes()
+        assert data.startswith(PNG_MAGIC), f"PNG ではない: {relative}"
+        assert digest == f"sha256:{hashlib.sha256(data).hexdigest()}", f"記録後に差し替わっている: {relative}"
+
+
+def test_ui_e2e_passed_and_screenshots_exist() -> None:
+    """A-2: 記録された E2E の終了コードが 0 で、スクリーンショットのパスが実在すること。"""
+    assert UI_E2E_LOG.is_file(), f"実測ログが無い: {UI_E2E_LOG.relative_to(ROOT)}"
+    check_ui_e2e_log(UI_E2E_LOG.read_text(encoding="utf-8"), ROOT)
+
+
+def _good_e2e_log(root: Path) -> str:
+    shots_dir = root / SCREENSHOT_DIR
+    shots_dir.mkdir(parents=True)
+    shots = []
+    for name in E2E_SCREENSHOTS:
+        (shots_dir / name).write_bytes(PNG_MAGIC + name.encode())
+        shots.append(shots_dir / name)
+    run = E2eRun(0, tuple(E2eStep(name, OK, "-") for name in E2E_STEPS), tuple(shots), "-", "-")
+    node_modules = root / "node_modules"
+    (node_modules / "next").mkdir(parents=True)
+    (node_modules / "next" / "package.json").write_text('{"version": "0"}', encoding="utf-8")
+    return render_ui_e2e_log(run, node_modules, ["e2e"], root)
+
+
+@pytest.mark.parametrize("breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot"])
+def test_ui_e2e_check_goes_red(tmp_path: Path, breaks: str) -> None:
+    """A-2 の判定が、非0終了・失敗した / 欠けた手順・実在しない / 差し替わったスクリーンショットで赤になること。"""
+    text = _good_e2e_log(tmp_path)
+    check_ui_e2e_log(text, tmp_path)
+    shots = tmp_path / SCREENSHOT_DIR
+    if breaks == "exit":
+        text = text.replace("\n`0`\n", "\n`1`\n")
+    elif breaks == "failed-step":
+        text = text.replace(f" | {OK} |", f" | {FAILED} |", 1)
+    elif breaks == "missing-step":
+        text = text.replace(f"| 1 | {E2E_STEPS[0]} | {OK} | - |\n", "")
+    elif breaks == "missing-shot":
+        (shots / E2E_SCREENSHOTS[0]).unlink()
+    else:
+        (shots / E2E_SCREENSHOTS[1]).write_bytes(PNG_MAGIC)
+    with pytest.raises(AssertionError):
+        check_ui_e2e_log(text, tmp_path)
+
+
 def _main(argv: list[str]) -> int:
-    git = _git()
-    if argv != ["gitignore"] or git is None:
-        print("usage: PYTHONPATH=src python tests/measurements/test_host_check_logs.py gitignore", file=sys.stderr)
+    parser = argparse.ArgumentParser(prog="tests/measurements/test_host_check_logs.py")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("gitignore", help="gitignore 等価性を測り直す(A-1)")
+    e2e = commands.add_parser("ui-e2e", help="ブラウザの E2E を走らせて記録する(A-2)")
+    e2e.add_argument(
+        "--node-modules", type=Path, default=ROOT / "web" / "node_modules", help="web/ で npm ci した node_modules"
+    )
+    e2e.add_argument("--chrome", type=Path, default=_find_chrome(), help="chromium の実行ファイル")
+    args = parser.parse_args(argv)
+    if args.command == "gitignore":
+        git = _git()
+        if git is None:
+            print("git が見つからない", file=sys.stderr)
+            return 2
+        GITIGNORE_LOG.write_text(render_gitignore_log(git), encoding="utf-8")
+        return 0
+    node_modules: Path = args.node_modules.resolve()
+    if args.chrome is None or not (node_modules / "next").is_dir():
+        print("chromium と、npm ci 済みの --node-modules が要る", file=sys.stderr)
         return 2
-    GITIGNORE_LOG.write_text(render_gitignore_log(git), encoding="utf-8")
-    return 0
+    run = run_ui_e2e(node_modules, args.chrome, ROOT / SCREENSHOT_DIR)
+    command = ["PYTHONPATH=src", "python", "tests/measurements/test_host_check_logs.py", *argv]
+    UI_E2E_LOG.write_text(render_ui_e2e_log(run, node_modules, command), encoding="utf-8")
+    return run.exit_code
 
 
 if __name__ == "__main__":
