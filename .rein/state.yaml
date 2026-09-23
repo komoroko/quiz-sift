@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-24T05:52:53+09:00'
+updated_at: '2026-09-24T06:30:36+09:00'
 gates:
   mandate:
     status: approved
@@ -1028,8 +1028,56 @@ tasks:
       tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
       updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
-    status: todo
-    attempts: 1
+    status: blocked
+    attempts: 3
+    handoff:
+      salvage_branch: build/quiz-sift-T-019-salvage-20260923-212712
+      salvage_state: restored
+      updated_at: '2026-09-24T06:30:36+09:00'
+      report:
+        outcome: blocked
+        summary: A-1 は前回試行で済んでいる(extraction-run.md、extracted=175、終了コード 0。salvage から merge 済み)。残りは A-2/A-3
+          の docs/test/measurements/golden-set.md だけで、これは人手ラベルがないと書けない(設計 R-2『What this requires of a person』(3))。ラベルを抽出結果から埋めると一致率の判定が循環して恒真になるため、このエージェントは埋めていない。Udemy
+          への再アクセスもしていない。保存済みの生 HTML(out/udemy/aip-c01/raw/page-001.html)に golden-candidates を走らせると exit
+          0 で 175 問が出て、selector_kind は全問 correct-mark、受験者の選択≠抽出正解が 137 問ある(受験者の選択は A48/B36/C51/D40)。誤答率
+          78% は高いので、_is_user_selected の誤検出がないかも人の確認で分かる。必要な操作は次のとおり。(1) 結果ページで10問の正解を人が確かめる(受験者の誤答を3問以上含める。候補は
+          golden-candidates の出力から選ぶ)。(2) ホストで PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python
+          tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label
+          p001-qNNN=X を10回指定して実行する。これで golden-set.md が書かれ、A-2/A-3 と同一ページ検査のテストが判定される。現状は lint/format/types/docs/smoke
+          が exit 0、test はこの3本だけが golden-set.md の欠落で赤。このエージェントの変更はない。
+        at: '2026-09-24T06:30:24+09:00'
+      escalation:
+        kind: agent_blocked
+        message: 'T-019: the implementer reported blocked — A-1 は前回試行で済んでいる(extraction-run.md、extracted=175、終了コード
+          0。salvage から merge 済み)。残りは A-2/A-3 の docs/test/measurements/golden-set.md だけで、これは人手ラベルがないと書けない(設計
+          R-2『What this requires of a person』(3))。ラベルを抽出結果から埋めると一致率の判定が循環して恒真になるため、このエージェントは埋めていない。Udemy
+          への再アクセスもしていない。保存済みの生 HTML(out/udemy/aip-c01/raw/page-001.html)に golden-candidates を走らせると exit
+          0 で 175 問が出て、selector_kind は全問 correct-mark、受験者の選択≠抽出正解が 137 問ある(受験者の選択は A48/B36/C51/D40)。誤答率
+          78% は高いので、_is_user_selected の誤検出がないかも人の確認で分かる。必要な操作は次のとおり。(1) 結果ページで10問の正解を人が確かめる(受験者の誤答を3問以上含める。候補は
+          golden-candidates の出力から選ぶ)。(2) ホストで PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python
+          tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label
+          p001-qNNN=X を10回指定して実行する。これで golden-set.md が書かれ、A-2/A-3 と同一ページ検査のテストが判定される。現状は lint/format/types/docs/smoke
+          が exit 0、test はこの3本だけが golden-set.md の欠落で赤。このエージェントの変更はない。'
+        tree: sha256:bb4154181b3e4a0c6b5d0f4a8f7e71a51fbe0893745015d3d69a262bced02320
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: df05d7da-b5ae-4f25-8b60-bdd99971a165
+        output_tail: "T-019 は `blocked` のまま止まっています。残る成果物 `docs/test/measurements/golden-set.md` は、人が正解ラベルを付けない限り書けません。報告は監査チェーンに記録されました(`rein\
+          \ report` は exit code 2 を返しましたが、出力は「recorded」です)。\n\n- **A-1(件数)**: 前回の試行で Udemy の結果ページを1回取得済みで、`extraction-run.md`\
+          \ に 190 問中 175 問の抽出が記録されています。対応するテストは緑です。Udemy には再アクセスしていません。\n- **A-2 / A-3(ゴールデンセット)**: `golden-set.md`\
+          \ が無いため、テスト3本が赤です。その他のゲート(lint / format / types / docs / smoke)は exit 0 です。\n- **候補一覧**: 保存済みの\
+          \ HTML から 175 問分の候補を出せました。`selector_kind` は全問 `correct-mark` で、受験者の選択が抽出した正解と異なる問題は 137 問あります。\n\
+          - **ラベルを埋めなかった理由**: 抽出結果からラベルを埋めると、一致率 100% は判定として意味を持ちません。設計でもラベル付けは人の担当と明記されています。\n- **確認が要る点**:\
+          \ 誤答率が 78% と高く、受験者の選択を読み取る処理(`_is_user_selected`)が誤っている可能性があります。人がラベルを付ければ、それも確かめられます。\n\nこのエージェントはコードに変更を加えておらず、コミットもしていません。\n\
+          \n**次に必要な作業(人手):**\n1. 結果ページで10問の正解を確かめます。受験者が誤答した問題を3問以上含めてください。\n   ```\n   PYTHONPATH=src\
+          \ /mnt/d/prog_works/quiz-sift/.venv/bin/python tests/measurements/test_extraction_logs.py golden-candidates\
+          \ --out-root /mnt/d/prog_works/quiz-sift\n   ```\n   このコマンドで問題ごとに受験者の選択と抽出した正解が一覧できるので、ここから選べます。\n\
+          2. ホストで次を実行します(`--label` を10個並べます)。\n   ```\n   PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python\
+          \ tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label\
+          \ p001-qNNN=X ...\n   ```\n   これで `golden-set.md` が書かれ、A-2 と A-3 が判定できる状態になります。"
+        at: '2026-09-24T06:30:34+09:00'
   T-014:
     status: done
     attempts: 1
@@ -1111,8 +1159,9 @@ tasks:
       tree: sha256:7263d9673b05ca1aa9da8d5dad5f7345f3f42e8506b56e4a44669617de3d22db
       updated_at: '2026-09-23T18:11:57+09:00'
   T-021:
-    status: todo
-    attempts: 17
+    status: done
+    attempts: 18
+    completed_commit: 58a715179fee0d4701a955ddbead301870d09fbf
     evidence:
       steps:
       - name: lint
@@ -1147,12 +1196,24 @@ tasks:
       - id: A-2
         kind: command
         reused: false
+      - id: A-3
+        kind: artifact
+        reused: false
       negative_control:
-        result: discriminating
-        base: 0d74a3f3ea51026fe0e3c630e6af86514494d296
-        step: test
-      tree: sha256:38ced09c1095eebad50c94ab4365f1152708414f47cab74173c8c213ebff927d
-      updated_at: '2026-09-23T23:08:41+09:00'
+        result: undetermined
+        detail: 'the test half did not apply onto f1a17a991b70: session-done.png'' without full index
+          line
+
+          error: docs/test/measurements/ui-e2e/03-session-done.png: patch does not apply
+
+          error: cannot apply binary patch to ''docs/test/measurements/ui-e2e/04-report.png'' without
+          full index line
+
+          error: docs/test/measurements/ui-e2e/04-report.png: patch does not apply
+
+          '
+      tree: sha256:e58ce93f8d2a6c314c95dae2ceb49a7df8de9b5aaf1e86b2a88e1fbb0f202e06
+      updated_at: '2026-09-24T06:04:50+09:00'
   T-016:
     status: done
     attempts: 1
@@ -1248,8 +1309,49 @@ tasks:
       tree: sha256:3acfca47120e63327fb184c919259c0f73ae1f33f2afafac57e3598f43c4f861
       updated_at: '2026-09-23T18:38:26+09:00'
   T-018:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 3
+    completed_commit: beb7c169b31046fb323ad0d1021872cd5fe88d50
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 58a715179fee0d4701a955ddbead301870d09fbf
+        step: test
+      tree: sha256:4de2f76e2c9351c631ac4bb07170397cc3a729b8fc2adc4ba8558b04b71c24bf
+      updated_at: '2026-09-24T06:27:08+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
