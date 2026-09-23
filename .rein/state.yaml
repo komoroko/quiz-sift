@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T18:11:57+09:00'
+updated_at: '2026-09-23T18:14:05+09:00'
 gates:
   mandate:
     status: approved
@@ -782,9 +782,8 @@ tasks:
       tree: sha256:c2d87fe485a8f438b33170ef27736f3d327df277d39436163803a3c5f97d35c8
       updated_at: '2026-09-23T08:34:38+09:00'
   T-009:
-    status: done
+    status: todo
     attempts: 1
-    completed_commit: 6f979a43606343ae85e98fa6e1eea83ab3554c1a
     evidence:
       steps:
       - name: lint
