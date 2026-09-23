@@ -10,6 +10,7 @@
 """
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -50,18 +51,40 @@ def store_path(root: Path) -> Path:
     return root / "out" / STORE_FILENAME
 
 
+_initialized: set[Path] = set()
+_initialize_lock = threading.Lock()
+
+
+def _initialize(path: Path) -> None:
+    """WAL への切り替えとスキーマ作成を、このプロセスで所在ごとに1度だけ直列に行う。
+
+    `PRAGMA journal_mode = WAL` は排他ロックを要し、他の接続と競合すると busy handler を待たずに
+    `database is locked` を返しうる。空のファイルへ複数のハンドラスレッドが同時に初回接続すると
+    この競合が起きるので、操作ごとの接続ではなくここで1本の接続から済ませる。
+    """
+    with _initialize_lock:
+        if path in _initialized:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.executescript(SCHEMA)
+        finally:
+            conn.close()
+        _initialized.add(path)
+
+
 @contextmanager
 def connect(root: Path) -> Iterator[sqlite3.Connection]:
     """1操作分の接続を開き、正常終了なら commit、例外なら rollback して必ず閉じる。
 
     store/ の内部専用。store/ の外へ接続を渡す API は置かない。
     """
-    path = store_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = store_path(root).resolve()
+    _initialize(path)
     conn = sqlite3.connect(path)
     try:
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.executescript(SCHEMA)
         with conn:
             yield conn
     finally:
