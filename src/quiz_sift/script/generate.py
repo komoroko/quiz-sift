@@ -92,7 +92,7 @@ def _reference(question: Question) -> str:
 
 
 def _claims(track: Track, questions: dict[str, Question]) -> list[Claim]:
-    claims = []
+    claims: list[Claim] = []
     for q in track.questions:
         reference = _reference(questions[q.question_id.local_id])
         statements = [q.answer.text] + ([] if q.discrimination is None else [q.discrimination.text])
