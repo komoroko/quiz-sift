@@ -84,3 +84,27 @@ def test_ids_are_numbered_per_page() -> None:
     assert [q.local_id for q in result.questions] == ["p001-q001", "p002-q001", "p002-q002"]
     assert result.report.question_blocks == 3
     assert result.report.extracted == 3
+
+
+def test_rules_ignore_css_module_hashes() -> None:
+    # CSS Modules のハッシュはデプロイごとに変わりうる。接頭辞で照合していれば同じ結果になる。
+    html = page_html(question_html(1, correct=1, selected=2), question_html(2, correct=3, selected=3))
+    rehashed = html.replace("--sIcOh", "--Xy_9z").replace("--PLOEU", "--a1B2c")
+
+    result = extract([FetchedPage("https://example.invalid/quiz/1", rehashed)])
+
+    assert result.report.question_blocks == 2
+    assert [q.answer_label for q in result.questions] == ["B", "D"]
+    assert {q.evidence.selector_kind for q in result.questions} == {SelectorKind.CORRECT_MARK}
+
+
+def test_wrapper_and_expanded_content_are_not_question_blocks() -> None:
+    # `...question-result-pane-wrapper--` と `...question-result-pane-expanded-content--` は同じ語で始まる。
+    html = page_html(question_html(1, correct=0))
+    assert "result-pane--question-result-pane-wrapper--" in html
+    assert "result-pane--question-result-pane-expanded-content--" in html
+
+    result = extract([FetchedPage("https://example.invalid/quiz/1", html)])
+
+    assert result.report.question_blocks == 1
+    assert result.report.extracted == 1
