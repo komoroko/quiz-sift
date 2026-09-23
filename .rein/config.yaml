@@ -192,6 +192,10 @@ quality_gate:
     executor_profile: quality
     retries: 2
     required: true
+    # The negative control re-establishes only the steps that run the tests (0.9.5 / #81). A linter
+    # goes red over the base for every new test file that imports a module the base lacks — an
+    # empty body included — so a `lint` red is not evidence that any assertion exercises the change.
+    runs_tests: true
   - name: docs
     kind: command
     command: [bash, gate.sh, docs]

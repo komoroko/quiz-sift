@@ -918,6 +918,19 @@ decisions:
   requirement_ids:
   - NFR-2
   - R-12
+- id: D-082
+  subject: コミットするスクリーンショットを、レビューの coverage 上どう扱わせるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-021 に受入基準 A-3 を足し、evidence.kind を artifact にして PNG 4枚のパスを1本ずつ正確に名指す。rein
+    0.9.5 では、artifact 基準がパスを正確に名指したバイナリは review.yaml の evidence_files に記録され、coverage
+    を insufficient にしない。宣言の無いバイナリは従来どおりブロックし、ディレクトリの artifact は配下を免除しない(ディレクトリの実在を主張しているだけで、そこに落ちた何かが証跡であるとは言っていない)ため、ファイル名を1本ずつ書く必要がある。0.9.4
+    ではこの逃げ道が無く、バイナリ1つで coverage が insufficient になり、critical な変更では受入がブロックされ、その処方箋(scope
+    から切り出す)は実行不可能だった。upstream に issue 79 として起票し 0.9.5 で修正された。A-2(終了コード 0・手順・パスの実在をログから判定する
+    command 基準)はそのまま残す — A-3 が引き受けるのは「バイナリが証跡である」という宣言だけ。
+  requirement_ids:
+  - R-12
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
@@ -2286,6 +2299,15 @@ tasks:
       - -q
       - tests/measurements/test_host_check_logs.py::test_ui_e2e_passed_and_screenshots_exist
       executor_profile: quality
+  - id: A-3
+    statement: A-2 の E2E が撮ったスクリーンショット4枚が、docs/test/measurements/ui-e2e/ に実在する証跡として存在する。これは読み取り不能なバイナリを「読めなかったコード」ではなく mandate が宣言した証跡として記録させるための宣言で、判定は paths の実在そのもの。
+    evidence:
+      kind: artifact
+      paths:
+      - docs/test/measurements/ui-e2e/01-decks.png
+      - docs/test/measurements/ui-e2e/02-graded.png
+      - docs/test/measurements/ui-e2e/03-session-done.png
+      - docs/test/measurements/ui-e2e/04-report.png
   operator_surface:
   - kind: observability
     name: artifact 実測の記録 (docs/test/measurements/)
