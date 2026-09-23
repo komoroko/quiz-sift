@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T18:14:05+09:00'
+updated_at: '2026-09-23T18:38:26+09:00'
 gates:
   mandate:
     status: approved
@@ -782,72 +782,77 @@ tasks:
       tree: sha256:c2d87fe485a8f438b33170ef27736f3d327df277d39436163803a3c5f97d35c8
       updated_at: '2026-09-23T08:34:38+09:00'
   T-009:
-    status: todo
-    attempts: 1
-    evidence:
-      steps:
-      - name: lint
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: format
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: types
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: test
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: docs
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: smoke
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-1
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-2
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-3
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-4
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-5
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      - name: acceptance:A-6
-        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
-        reused: false
-      reported: implemented
-      acceptance:
-      - id: A-1
-        kind: command
-        reused: false
-      - id: A-2
-        kind: command
-        reused: false
-      - id: A-3
-        kind: command
-        reused: false
-      - id: A-4
-        kind: command
-        reused: false
-      - id: A-5
-        kind: command
-        reused: false
-      - id: A-6
-        kind: command
-        reused: false
-      negative_control:
-        result: discriminating
-        base: 7ff46702949725e64cbcda276f8ef3c3535dff87
-        step: lint
-      tree: sha256:73e77811a1e2da36ffedf9df7a65d4d49a24af8ebcc483258d3acde6bcbccffb
-      updated_at: '2026-09-23T08:34:38+09:00'
+    status: blocked
+    attempts: 2
+    handoff:
+      report:
+        outcome: blocked
+        summary: '前回の DoD 赤は T-009 の差分と無関係な tests/store/test_concurrency.py::test_wal_and_per_request_connections
+          の断続的失敗(sqlite3.OperationalError: database is locked)。T-009 の差分は src/quiz_sift/extract/ と tests/extract/
+          だけで store/ に触れていない。ホストでは同テスト単体を15回、gate.sh test 全体を3回実行してすべて緑(193 passed)で再現しない。原因の見立て: src/quiz_sift/store/location.py
+          の connect() が操作ごとに新しい接続で ''PRAGMA journal_mode = WAL'' と executescript(SCHEMA) を実行しており、8スレッドが空の
+          DB に同時に初回接続すると WAL への切り替え/スキーマ作成が SQLITE_BUSY を返しうる(journal_mode の変更には busy handler が効かない場合がある)。サンドボックスのように遅い環境で競合が表に出る。store/
+          は T-005 の scope で、T-009 の scope 外なので直していない。必要な判断: T-005 側の修正(例: WAL 切り替えとスキーマ作成を初回に1度だけ直列に行う、または
+          busy 時の再試行)を誰がどのタスクで行うか。T-009 の実装(前回コミット 214e258)は変更なしでそのまま有効。'
+        at: '2026-09-23T18:34:27+09:00'
+      updated_at: '2026-09-23T18:34:42+09:00'
+      failed_step: test
+      failure_summary: '$ bash gate.sh test (rc=1)
+
+        … (46 line(s) omitted; kept salient lines only)
+
+        E           sqlite3.OperationalError: database is locked
+
+        FAILED tests/store/test_concurrency.py::test_wal_and_per_request_connections
+
+        1 failed, 191 passed, 1 skipped in 15.20s'
+      retries_left:
+        lint: 2
+        format: 2
+        types: 2
+        test: 1
+        docs: 1
+        smoke: 1
+        negative-control: 1
+        acceptance:A-1: 1
+        acceptance:A-2: 1
+        acceptance:A-3: 1
+        acceptance:A-4: 1
+        acceptance:A-5: 1
+        acceptance:A-6: 1
+      escalation:
+        kind: agent_blocked
+        message: 'T-009: the implementer reported blocked — 前回の DoD 赤は T-009 の差分と無関係な tests/store/test_concurrency.py::test_wal_and_per_request_connections
+          の断続的失敗(sqlite3.OperationalError: database is locked)。T-009 の差分は src/quiz_sift/extract/ と tests/extract/
+          だけで store/ に触れていない。ホストでは同テスト単体を15回、gate.sh test 全体を3回実行してすべて緑(193 passed)で再現しない。原因の見立て: src/quiz_sift/store/location.py
+          の connect() が操作ごとに新しい接続で ''PRAGMA journal_mode = WAL'' と executescript(SCHEMA) を実行しており、8スレッドが空の
+          DB に同時に初回接続すると WAL への切り替え/スキーマ作成が SQLITE_BUSY を返しうる(journal_mode の変更には busy handler が効かない場合がある)。サンドボックスのように遅い環境で競合が表に出る。store/
+          は T-005 の scope で、T-009 の scope 外なので直していない。必要な判断: T-005 側の修正(例: WAL 切り替えとスキーマ作成を初回に1度だけ直列に行う、または
+          busy 時の再試行)を誰がどのタスクで行うか。T-009 の実装(前回コミット 214e258)は変更なしでそのまま有効。'
+        tree: sha256:2b7254b803d5b914bffe53aac51c4f5f9ab0822c757dbbcbcbd270fc08459d4a
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 09b927bb-66be-416c-8a44-c19ccf38e82a
+        output_tail: 'T-009 は `blocked` で報告しました。前回ゲートを赤にしたテストは T-009 の担当範囲外にあり、今回は何も変更していません。`rein report`
+          は終了コード 2 を返しましたが、「recorded in the central audit chain」と出ているので報告自体は記録されています。
+
+
+          - **失敗したテスト**: `tests/store/test_concurrency.py::test_wal_and_per_request_connections` が `database
+          is locked` で落ちました。T-009 の差分は `extract/` 配下だけで、`store/` には触れていません。
+
+          - **手元での再実行**: このテスト単体を 15 回、`gate.sh test` 全体を 3 回走らせ、すべて緑(193 passed)でした。失敗は再現していません。ゲートの出力は「1
+          skipped」で合計 193 件と、手元とは内訳が違います。別の環境で走っていて、そちらでだけ出る失敗だと見ています。
+
+          - **原因の見立て(未確認)**: `src/quiz_sift/store/location.py` の `connect()` は、操作のたびに新しい接続で `PRAGMA journal_mode
+          = WAL` と `executescript(SCHEMA)` を実行します。空の DB に 8 スレッドが同時に初めて接続すると、WAL への切り替えかスキーマ作成が競合して `database
+          is locked` になりえます。遅い環境ほど表に出やすいはずです。
+
+          - **判断が必要な点**: `store/` は T-005 の担当範囲です。WAL 切り替えとスキーマ作成を最初の 1 回だけ順番に行うか、ロック時に再試行する修正を、どのタスクで誰が入れるかを決めてください。
+
+          - **T-009 の実装**: 前回のコミット `214e258` のまま使えます。'
+        at: '2026-09-23T18:34:40+09:00'
   T-012:
     status: done
     attempts: 1
@@ -1216,6 +1221,100 @@ tasks:
           \ `.next/` が入っていないため、`npm ci` を実行すると大量の未追跡ファイルがコミット対象になります。\n\n`tests/fixtures/data/` 配下のファイルは\
           \ `data/` の規則で無視されます。git と評価器の判定は一致しているので等価性の問題ではありませんが、この下に置いた合成フィクスチャはコミットされません。"
         at: '2026-09-23T18:05:55+09:00'
+  T-016:
+    status: done
+    attempts: 1
+    completed_commit: cc22ee444031c2e78bc81ddf66aea95da5859bbe
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: ddcb52215a55056b9a3ee12b82726b6534bdd142
+        step: lint
+      tree: sha256:2fb772a0027a791276c18fac6ca8461f91b3609b7465fd458f0b471f3fe546d2
+      updated_at: '2026-09-23T18:38:26+09:00'
+  T-023:
+    status: done
+    attempts: 1
+    completed_commit: 8a66279db23efaca07a9aecfb9f5767bfb447bc3
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: ddcb52215a55056b9a3ee12b82726b6534bdd142
+        step: lint
+      tree: sha256:3acfca47120e63327fb184c919259c0f73ae1f33f2afafac57e3598f43c4f861
+      updated_at: '2026-09-23T18:38:26+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
