@@ -273,7 +273,12 @@ review_policy:
   # nothing. 0 turns it off, and `rein build` then takes no reading at all.
   repair_rounds: 2
   budgets:
-    max_diff_bytes: 524288
+    # 1 MiB。既定の 512 KiB から引き上げた(D-083)。段ごとの実測では blind extractor が
+    # 受け取る source 半分は 417,852 バイトで既定に収まり、超えるのは source + tests を
+    # 受け取る security reviewer の 840,373 バイトだけ。これは水増しではなく1回の launch に
+    # 実際に渡る量なので、余裕を 1 MiB に置く。これはこのアダプタのコンテキスト窓についての
+    # 主張であって、人が一度に読める量についての主張ではない。
+    max_diff_bytes: 1048576
 
 guard:
   # true while this repo IS the Loose Rein template (its scaffold originals share paths with

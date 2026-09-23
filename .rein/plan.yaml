@@ -931,6 +931,22 @@ decisions:
     command 基準)はそのまま残す — A-3 が引き受けるのは「バイナリが証跡である」という宣言だけ。
   requirement_ids:
   - R-12
+- id: D-083
+  subject: レビュー予算 review_policy.budgets.max_diff_bytes を既定の 512 KiB のままにするか引き上げるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 1 MiB(1048576)へ引き上げる。この変更は 23 タスク分で source 417.5 KB + test 422.5
+    KB になり、T-003 / T-006 / T-019 / T-020 が critical なので composition の設定によらず丸ごと1回読まれる。段ごとの実測では、blind
+    extractor が受け取る source 半分は 417,852 バイトで既定に収まり、超えるのは source と tests の両方を受け取る
+    security reviewer の 840,373 バイトだけ。rein 0.9.4 ではロックファイルの本文が畳まれる前に測られていて 0.99
+    MB と出ていたが(upstream に issue 78 として起票、0.9.5 で修正)、畳んだ後の 0.84 MB は水増しではなく1回の
+    launch に実際に渡る量なので、実体のある超過として引き上げで応じる。もう一方の出口である「claim
+    を削ってサイクルを分割する」は、20 タスクが既に done でマージ済みの時点では cycle-close
+    して切り直す作業になり、割に合わない。これはこのアダプタのコンテキスト窓についての主張であって、人が一度に読める量についての主張ではない
+    — 受入側に上限は無いままで、そこは変えていない。
+  requirement_ids:
+  - NFR-5
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
