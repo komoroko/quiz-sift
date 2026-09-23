@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-23T18:40:19+09:00'
+updated_at: '2026-09-23T18:50:31+09:00'
 gates:
   mandate:
     status: approved
@@ -442,8 +442,9 @@ tasks:
       base: 2f3a54f47a8cfb5e1c2af973483fe07726776893
       updated_at: '2026-09-23T03:48:52+09:00'
   T-005:
-    status: todo
-    attempts: 17
+    status: done
+    attempts: 18
+    completed_commit: 9596649eb98e1c670085dc87b91a8e8197e964bb
     evidence:
       steps:
       - name: lint
@@ -492,11 +493,11 @@ tasks:
         reused: false
       negative_control:
         result: discriminating
-        base: 2a1d9cd3298a22b512335b8111466419d300e44a
-        step: lint
-      tree: sha256:b5c2f0fa09605b784c80f82a918ba80f7a7249a514ec1ded37d64663a2fde31f
-      base: 2a1d9cd3298a22b512335b8111466419d300e44a
-      updated_at: '2026-09-23T07:59:15+09:00'
+        base: 2b207ac9ea2a097df9c3180fa31f82a065e53200
+        step: test
+      tree: sha256:a2f3227830fbf2d6c7da279845d56c0a716fff413a7b259ee9a380ca546519c7
+      base: 2b207ac9ea2a097df9c3180fa31f82a065e53200
+      updated_at: '2026-09-23T18:49:03+09:00'
   T-010:
     status: done
     attempts: 1
@@ -781,77 +782,8 @@ tasks:
       tree: sha256:c2d87fe485a8f438b33170ef27736f3d327df277d39436163803a3c5f97d35c8
       updated_at: '2026-09-23T08:34:38+09:00'
   T-009:
-    status: blocked
+    status: todo
     attempts: 2
-    handoff:
-      report:
-        outcome: blocked
-        summary: '前回の DoD 赤は T-009 の差分と無関係な tests/store/test_concurrency.py::test_wal_and_per_request_connections
-          の断続的失敗(sqlite3.OperationalError: database is locked)。T-009 の差分は src/quiz_sift/extract/ と tests/extract/
-          だけで store/ に触れていない。ホストでは同テスト単体を15回、gate.sh test 全体を3回実行してすべて緑(193 passed)で再現しない。原因の見立て: src/quiz_sift/store/location.py
-          の connect() が操作ごとに新しい接続で ''PRAGMA journal_mode = WAL'' と executescript(SCHEMA) を実行しており、8スレッドが空の
-          DB に同時に初回接続すると WAL への切り替え/スキーマ作成が SQLITE_BUSY を返しうる(journal_mode の変更には busy handler が効かない場合がある)。サンドボックスのように遅い環境で競合が表に出る。store/
-          は T-005 の scope で、T-009 の scope 外なので直していない。必要な判断: T-005 側の修正(例: WAL 切り替えとスキーマ作成を初回に1度だけ直列に行う、または
-          busy 時の再試行)を誰がどのタスクで行うか。T-009 の実装(前回コミット 214e258)は変更なしでそのまま有効。'
-        at: '2026-09-23T18:34:27+09:00'
-      updated_at: '2026-09-23T18:34:42+09:00'
-      failed_step: test
-      failure_summary: '$ bash gate.sh test (rc=1)
-
-        … (46 line(s) omitted; kept salient lines only)
-
-        E           sqlite3.OperationalError: database is locked
-
-        FAILED tests/store/test_concurrency.py::test_wal_and_per_request_connections
-
-        1 failed, 191 passed, 1 skipped in 15.20s'
-      retries_left:
-        lint: 2
-        format: 2
-        types: 2
-        test: 1
-        docs: 1
-        smoke: 1
-        negative-control: 1
-        acceptance:A-1: 1
-        acceptance:A-2: 1
-        acceptance:A-3: 1
-        acceptance:A-4: 1
-        acceptance:A-5: 1
-        acceptance:A-6: 1
-      escalation:
-        kind: agent_blocked
-        message: 'T-009: the implementer reported blocked — 前回の DoD 赤は T-009 の差分と無関係な tests/store/test_concurrency.py::test_wal_and_per_request_connections
-          の断続的失敗(sqlite3.OperationalError: database is locked)。T-009 の差分は src/quiz_sift/extract/ と tests/extract/
-          だけで store/ に触れていない。ホストでは同テスト単体を15回、gate.sh test 全体を3回実行してすべて緑(193 passed)で再現しない。原因の見立て: src/quiz_sift/store/location.py
-          の connect() が操作ごとに新しい接続で ''PRAGMA journal_mode = WAL'' と executescript(SCHEMA) を実行しており、8スレッドが空の
-          DB に同時に初回接続すると WAL への切り替え/スキーマ作成が SQLITE_BUSY を返しうる(journal_mode の変更には busy handler が効かない場合がある)。サンドボックスのように遅い環境で競合が表に出る。store/
-          は T-005 の scope で、T-009 の scope 外なので直していない。必要な判断: T-005 側の修正(例: WAL 切り替えとスキーマ作成を初回に1度だけ直列に行う、または
-          busy 時の再試行)を誰がどのタスクで行うか。T-009 の実装(前回コミット 214e258)は変更なしでそのまま有効。'
-        tree: sha256:2b7254b803d5b914bffe53aac51c4f5f9ab0822c757dbbcbcbd270fc08459d4a
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 09b927bb-66be-416c-8a44-c19ccf38e82a
-        output_tail: 'T-009 は `blocked` で報告しました。前回ゲートを赤にしたテストは T-009 の担当範囲外にあり、今回は何も変更していません。`rein report`
-          は終了コード 2 を返しましたが、「recorded in the central audit chain」と出ているので報告自体は記録されています。
-
-
-          - **失敗したテスト**: `tests/store/test_concurrency.py::test_wal_and_per_request_connections` が `database
-          is locked` で落ちました。T-009 の差分は `extract/` 配下だけで、`store/` には触れていません。
-
-          - **手元での再実行**: このテスト単体を 15 回、`gate.sh test` 全体を 3 回走らせ、すべて緑(193 passed)でした。失敗は再現していません。ゲートの出力は「1
-          skipped」で合計 193 件と、手元とは内訳が違います。別の環境で走っていて、そちらでだけ出る失敗だと見ています。
-
-          - **原因の見立て(未確認)**: `src/quiz_sift/store/location.py` の `connect()` は、操作のたびに新しい接続で `PRAGMA journal_mode
-          = WAL` と `executescript(SCHEMA)` を実行します。空の DB に 8 スレッドが同時に初めて接続すると、WAL への切り替えかスキーマ作成が競合して `database
-          is locked` になりえます。遅い環境ほど表に出やすいはずです。
-
-          - **判断が必要な点**: `store/` は T-005 の担当範囲です。WAL 切り替えとスキーマ作成を最初の 1 回だけ順番に行うか、ロック時に再試行する修正を、どのタスクで誰が入れるかを決めてください。
-
-          - **T-009 の実装**: 前回のコミット `214e258` のまま使えます。'
-        at: '2026-09-23T18:34:40+09:00'
   T-012:
     status: done
     attempts: 1
@@ -1164,62 +1096,8 @@ tasks:
       tree: sha256:7263d9673b05ca1aa9da8d5dad5f7345f3f42e8506b56e4a44669617de3d22db
       updated_at: '2026-09-23T18:11:57+09:00'
   T-021:
-    status: needs-revision
+    status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: needs-revision
-        summary: 'A-1 は実装済み・コミット済み(fc6ca70): tests/measurements/test_host_check_logs.py が使い捨てリポジトリで git
-          check-ignore -v -n --no-index(core.excludesFile=/dev/null)と自前評価器を突き合わせ、リポジトリの .gitignore 25パス+否定・**・文字クラス・エスケープを踏む合成
-          .gitignore 31パスの計56件で不一致0件を docs/test/measurements/gitignore-equivalence.md に記録。テストは不一致・.gitignore
-          の digest 変化・代表集合の変化・評価器の再計算との食い違い・git への再照会との食い違いのいずれでも赤(改ざん1行で赤を確認)。lint/format/types/test/docs/smoke
-          は緑。A-2 は計画の欠陥で着手していない: A-2 は『スクリーンショットのパスが実在する』ことを要求し、判定は worktree だけをマウントする OCI サンドボックスで走るので、スクリーンショット(PNG)はコミットされたリポジトリ内に無ければならないが、T-021
-          の scope は docs/test/measurements/ui-e2e.md・gitignore-equivalence.md・tests/measurements/test_host_check_logs.py
-          の3ファイルだけで画像を置けるパスが無い(out/ 等の gitignore 先はサンドボックスから見えず赤、scope 外に置けば scope_violation)。必要な判断: scope
-          に例えば docs/test/measurements/ui-e2e/*.png を加える /revise。併せて前提未充足の報告: (1) N-2/ADR-012 が人に求める web/
-          の npm ci と next build が未実施(web/node_modules・web/.next 無し)、(2) web/package.json に Playwright
-          依存が無く E2E スクリプトの置き場も scope に無い(ホストの ~/.cache/ms-playwright に chromium-1228 はある)、(3) ルート .gitignore
-          に node_modules/ と .next/ が無く、web/ で npm ci すると大量の未追跡ファイルが git add -A の対象になる。副次所見: tests/fixtures/data/
-          配下は data/ 規則で無視される(git と評価器で一致しており等価性の問題ではない)。'
-        at: '2026-09-23T18:05:45+09:00'
-        touched:
-        - docs/test/measurements/gitignore-equivalence.md
-        - tests/measurements/test_host_check_logs.py
-      updated_at: '2026-09-23T18:11:55+09:00'
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-021: the implementer reported needs-revision — A-1 は実装済み・コミット済み(fc6ca70): tests/measurements/test_host_check_logs.py
-          が使い捨てリポジトリで git check-ignore -v -n --no-index(core.excludesFile=/dev/null)と自前評価器を突き合わせ、リポジトリの
-          .gitignore 25パス+否定・**・文字クラス・エスケープを踏む合成 .gitignore 31パスの計56件で不一致0件を docs/test/measurements/gitignore-equivalence.md
-          に記録。テストは不一致・.gitignore の digest 変化・代表集合の変化・評価器の再計算との食い違い・git への再照会との食い違いのいずれでも赤(改ざん1行で赤を確認)。lint/format/types/test/docs/smoke
-          は緑。A-2 は計画の欠陥で着手していない: A-2 は『スクリーンショットのパスが実在する』ことを要求し、判定は worktree だけをマウントする OCI サンドボックスで走るので、スクリーンショット(PNG)はコミットされたリポジトリ内に無ければならないが、T-021
-          の scope は docs/test/measurements/ui-e2e.md・gitignore-equivalence.md・tests/measurements/test_host_check_logs.py
-          の3ファイルだけで画像を置けるパスが無い(out/ 等の gitignore 先はサンドボックスから見えず赤、scope 外に置けば scope_violation)。必要な判断: scope
-          に例えば docs/test/measurements/ui-e2e/*.png を加える /revise。併せて前提未充足の報告: (1) N-2/ADR-012 が人に求める web/
-          の npm ci と next build が未実施(web/node_modules・web/.next 無し)、(2) web/package.json に Playwright
-          依存が無く E2E スクリプトの置き場も scope に無い(ホストの ~/.cache/ms-playwright に chromium-1228 はある)、(3) ルート .gitignore
-          に node_modules/ と .next/ が無く、web/ で npm ci すると大量の未追跡ファイルが git add -A の対象になる。副次所見: tests/fixtures/data/
-          配下は data/ 規則で無視される(git と評価器で一致しており等価性の問題ではない)。'
-        tree: sha256:74eaaf3c457fddaad108cbe54da1b5a3288b8d0fa5847770f912824545ed0433
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 83fecea1-6d44-4920-b391-5b5d65a873c9
-        output_tail: "`needs-revision` で報告しました。A-1 は完了していますが、A-2 は計画の欠陥があるため着手していません。\n\n**A-1(完了、コミット\
-          \ `fc6ca70`)**\n- `tests/measurements/test_host_check_logs.py` で、自前評価器と `git check-ignore -v\
-          \ -n --no-index` の判定を突き合わせます。git 側は使い捨てのリポジトリで動かすので、実リポジトリの設定が混ざりません。\n- 対象はリポジトリの `.gitignore`\
-          \ の 25 パスと、合成 `.gitignore` の 31 パスです。合成側は否定・`**`・文字クラス・エスケープを一通り含みます。結果は計 56 件中の不一致 0 件で、`docs/test/measurements/gitignore-equivalence.md`\
-          \ に記録しました。\n- テストが赤になる条件は次のとおりです。記録を 1 行改ざんすると実際に赤になることも確かめました。\n  - 1 件でも判定が食い違う\n  - `.gitignore`\
-          \ の digest や代表パス集合が変わった\n  - 今の評価器で計算し直した判定が記録と違う\n  - git に聞き直した判定が記録と違う\n- lint / format /\
-          \ types / test / docs / smoke はすべて緑です。\n\n**A-2(未着手、計画の欠陥)**\n- A-2 はスクリーンショットのファイルが実在することを求めていますが、T-021\
-          \ の scope は md 2 つとテストファイルだけで、画像を置けるパスがありません。\n- 判定は worktree だけを見るサンドボックスで走るため、gitignore された\
-          \ `out/` に置くとファイルが見えずに赤になります。scope 外に置けば scope 違反です。\n- `/revise` で scope に画像の置き場(例: `docs/test/measurements/ui-e2e/*.png`)を加える必要があります。\n\
-          \n**A-2 に入る前に片づけておくこと**\n- 人が済ませる前提の `web/` の `npm ci` と `next build` が、まだ行われていません。\n- `web/`\
-          \ に Playwright の依存がなく、E2E スクリプトを置く場所も scope にありません。\n- ルートの `.gitignore` に `node_modules/` と\
-          \ `.next/` が入っていないため、`npm ci` を実行すると大量の未追跡ファイルがコミット対象になります。\n\n`tests/fixtures/data/` 配下のファイルは\
-          \ `data/` の規則で無視されます。git と評価器の判定は一致しているので等価性の問題ではありませんが、この下に置いた合成フィクスチャはコミットされません。"
-        at: '2026-09-23T18:05:55+09:00'
   T-016:
     status: done
     attempts: 1
