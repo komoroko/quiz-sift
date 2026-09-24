@@ -21,6 +21,8 @@ that decision is a human's: `rein next` / `/status` names the rows still blank, 
 | mandate | `.gitignore` に `data/` `out/` を追加(NFR-2: 取り込んだ実教材の本文を追跡対象に入れない) | nothing | |
 | mandate | **読み取り専用の実現性調査**(`/design` step 6 の `run_experiment`): プローブイメージを 2 本組み、`--network none` で fugashi + unidic-lite の形態素解析、ffmpeg `silencedetect` による mp3 の無音検出、Playwright chromium の起動とページ操作が動くことを実測した。イメージは削除済みで、リポジトリには何も書いていない。結果は `docs/20-design.md` の NFR-6 節に記録 | nothing — どの要件が残っても、ネットワーク遮断のゲートで何が動くかは知る必要がある | |
 
+| mandate | **読み取り専用の実現性調査**(従量課金の禁止を受けた LLM 呼び出し経路の検討): `claude -p --output-format json` を実測した。`--json-schema` が存在し、スキーマ適合 JSON が フェンス無しで返ること、`usage` が `input_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` / `output_tokens` + `thinking_tokens` を返し `TokenUsage` の4値を 満たすこと、`total_cost_usd` が付くこと、1回あたりの製品外オーバーヘッドが Opus 5 で 14,603 tok / Haiku 4.5 で 8,506 tok であることを確認した。`claude setup-token`(サブスクリプション前提の長期トークン発行)の存在も確認。合成データのみを使い、教材本文は一切通していない(NFR-2)。成果物はスクラッチ領域のみで、リポジトリには何も書いていない | nothing — 呼び出し経路として CLI を採るか否かにかかわらず、「サブスク認証で構造化出力とトークン内訳が取れるか」は知る必要がある。取れないなら NFR-7 / C-019 ごと作り直しになる | |
+
 - **Phase** — the gate that was pending: `mandate`, `acceptance`, or the `T-NNN` of an
   irreversible point this cycle is stopped in front of.
 - **Premised on** — what the work would be wasted by. If nothing, say "nothing"; that is what

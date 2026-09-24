@@ -125,10 +125,18 @@ claims:
 - id: C-019
   requirement_ids:
   - NFR-7
-  statement: 100〜200問のフル処理1回について、経過時間・外部 API 呼び出し回数・推定コストが記録され、推定コストはモデル別の単価と入出力トークン数を根拠としてログから追跡できる。
+  statement: 100〜200問のフル処理1回について、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数、再試行を含む)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限への到達回数・最初の到達までの経過時間・累積待機時間が、1つのログへ実行ごとに記録される。notional コストは4値トークンと出所を持つ単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドは、実測した定数の減算として教材由来の入力トークンと区別して記録され、その定数は測定日・CLI バージョン・計上先のトークンバケツを出所として持ち、overhead + material が報告された入力トークン合計に一致する。累積待機時間は実経過時間に対する、1つも子プロセスが走っていない区間の合計として定義される。出力には notional の語が含まれ、実課金額を主張しない。
   risk: medium
   domains:
   - observability
+- id: C-020
+  requirement_ids:
+  - NFR-8
+  statement: 本プロダクトの製品コードの実行が従量課金される外部サービス経路を取らない(ハーネス自身の LLM 利用は対象外)。新規インタプリタで、親環境に metered 認証変数が入っており anthropic が import 可能な状態で既定構成を1回走らせた後に anthropic が sys.modules に現れず(import 不能な場合は skip せず失敗)、子プロセスへ渡す環境が HOME / PATH / LANG / TZ の4つと一致し HOME は資格情報1ファイルだけを置いた専用の最小ホームを指し、既定 Llm の選択点が composition.build_default_llm() ただ1つでその本体が return 文1つかつ右辺がクラス名の直接呼び出しで分岐も動的解決も環境変数参照も含まず、コンソールスクリプトが1つだけでその全入口から到達可能な import グラフに metered API へ HTTP を発行しうるモジュールが存在せず、子プロセスの argv が有効ツール0件かつ権限バイパス指定を含まずかつ外部 MCP 設定を読まない指定を含みかつ作業ディレクトリがその実行のために作った空ディレクトリであり、列挙した 13 個の metered 認証変数をいずれも持たない状態でフル処理が完走する。
+  risk: high
+  domains:
+  - pipeline
+  - infra
 decisions:
 - id: D-001
   subject: サイクル1で実装する範囲
@@ -199,8 +207,8 @@ decisions:
   reach: local
   status: settled
   settled_by: loop
-  answer: クラウド API を利用し、差し替え可能なインタフェースの背後に置く。
-  rationale: クラウド API を差し替え可能なインタフェース越しに使う限り、提供元の変更は実装1箇所の差し替えで済み、claim も受入基準も動かない。ローカル実行へ切り替える場合のみ NFR-7 の基準値が動くが、それは次サイクルの判断。
+  answer: 差し替え可能なインタフェースの背後に置く。LLM はサブスクリプション認証の Claude Code CLI(claude -p)経由、TTS はローカル OSS(ADR-004)。2026-09-25 に、従量課金の禁止(D-084)を受けて「クラウド API を利用し」から書き換えた。
+  rationale: 差し替え可能なインタフェース越しに使う限り、提供元や呼び出し経路の変更は adapters 1箇所の差し替えで済み、claim も受入基準も動かない。実際、2026-09-25 の経路変更で ports/llm.py の Protocol と TokenUsage の4値はどちらも変わっていない。
   requirement_ids:
   - R-3
   - R-4
@@ -320,8 +328,8 @@ decisions:
   reach: local
   status: settled
   settled_by: loop
-  answer: 初回のフル処理を実測するまで上限を置かない。次サイクルで設定する。推定コストは単価と入出力トークン数を根拠として記録する(AR-24)。
-  rationale: 本サイクルでは記録だけを要件としており、上限を後から加えるのは受入基準の追加であって既存の基準を動かさない。
+  answer: 初回のフル処理を実測するまで上限を置かない。次サイクルで設定する。2026-09-25 に、上限の対象を金額からサブスクリプションのレート枠へ書き換えた(D-084 により notional コストには課金上の意味が無く、実際に処理を止めるのはレート枠であるため)。notional コストは自算値と申告値の両方を根拠として記録する(AR-24、D-089)。
+  rationale: 本サイクルでは記録だけを要件としており、上限を後から加えるのは受入基準の追加であって既存の基準を動かさない。上限の対象を金額からレート枠へ移すのも、置く上限が無い本サイクルでは記録項目の変更にとどまる。
   requirement_ids:
   - NFR-7
 - id: D-022
@@ -947,6 +955,80 @@ decisions:
     — 受入側に上限は無いままで、そこは変えていない。
   requirement_ids:
   - NFR-5
+- id: D-084
+  subject: LLM の利用が従量課金(metered API billing)を伴ってよいか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 伴ってはならない。既定の呼び出し経路を Claude Code CLI(claude -p、サブスクリプション認証)へ移す。Anthropic SDK アダプタはコードに残し、既定の組み立てから外すだけとする。実測(2026-09-24)で --json-schema による構造化出力、usage の4値トークン返却、total_cost_usd の取得がいずれも成立することを確認済み。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-085
+  subject: Claude Pro のレート枠がフル処理1回(LLM 呼び出し 500〜1000 回)を賄えるかを mandate 凍結前に実測するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 実測しない。未検証のまま Open questions と Self-assessment に記録して凍結し、T-020 を走らせた時点で判明させる。賄えなかった場合の処置(上位プランへの移行 / 複数ウィンドウへの分割 / 呼び出し回数の削減)はいずれも NFR-7 の「1回のフル処理」の定義か NFR-1 の照合対象か R-3 の受入基準を動かすため、その時点で /revise へ戻ることを承知のうえで凍結する。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-086
+  subject: 教材本文が Claude Code のセッション記録(~/.claude/projects/**/*.jsonl)にホスト上へ平文で残ることを許容するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: そのまま許容する。保持期間の設定(cleanupPeriodDays、バイナリに実在することを確認済み)も触らない。NFR-2 の criterion(リポジトリと本プロダクトが書き出すファイル)は破らないが、教材本文の第三の平文コピーがホームディレクトリに蓄積されることを保護境界の定義として NFR-2 に明記する。
+  requirement_ids:
+  - NFR-2
+  - NFR-8
+- id: D-087
+  subject: NFR-8(従量課金を伴わない)の証拠をどこまで要求するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 静的検査と環境変数遮断のみ((a)〜(d))。実行時に stream-json の init イベントが返す apiKeySource を毎回検証すれば肯定的証拠になる(2026-09-24 に実測、値は none)が、本サイクルでは課さない。結果として NFR-8 は「metered 経路を取らなかった」の否定的証拠にとどまり、ホスト側設定(apiKeyHelper、~/.claude.json)経由で metered 経路に入る可能性は製品コードでは塞げない。実際に課金が発生しなかったことの確認は課金画面の目視であり Out of scope(D-003 により external evidence の待ちは作れない)。
+  requirement_ids:
+  - NFR-8
+- id: D-088
+  subject: T-020 の不可逆ゲートの根拠が、LLM API の課金の消滅によって失われることへの対応
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 根拠を「教材本文がホストの Claude Code セッション記録に書かれること(D-086)」と「サブスクリプションのレート枠の消費」に差し替え、operator_surface の reversible=false と rein approve T-020 を残す。人間承認の回数は変えない。
+  requirement_ids:
+  - NFR-2
+  - NFR-7
+  - NFR-8
+- id: D-089
+  subject: notional コストを自算値と申告値のどちらで記録するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 両方を記録し、両者の差分をログから追跡できるようにする。
+  rationale: 覆しても pipeline/meter.py 1タスクぶんで、claim も受入基準も動かない。両方を要求するのは、片方だけだと AR-24 の「常に 0.0 を返す実装」と、新たに生じる「申告値をそのまま転記する実装」のどちらかが必ず通るため。JSON のフィールド名や差分の出し方といった実装細部はループが決める。
+  requirement_ids:
+  - NFR-7
+- id: D-090
+  subject: Anthropic SDK アダプタを依存としてどう残すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: pyproject.toml の optional extra として残す(通常依存にも、依存から外してデッドコードにもしない)。
+  rationale: 覆しても pyproject.toml・adapters/llm_anthropic.py・サンドボックスイメージの requirements.txt の1タスクぶんで、claim も受入基準も動かない。依存から完全に外すと llm_anthropic.py が未解決 import になって NFR-5 (b) の ruff・mypy strict が赤くなり、通常依存のまま残すと NFR-8 (a) の「実行時に import されない」を保証するコードが要るうえ security.dependency_audit の対象であり続ける。extra なら mypy の overrides で ignore_missing_imports を当該モジュールにだけ限定でき、その経路は既に設計にある。
+  requirement_ids:
+  - NFR-5
+  - NFR-8
+- id: D-091
+  subject: CLI 経路のレート制限到達を「失敗」として扱うか「待機」として扱うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 待機して継続する。R-3 の失敗件数には含めず、到達回数と累積待機時間を NFR-7 が記録する。
+  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。NFR-4 が既に段階ごとの中間成果物の永続化を要求しているので「中断して後から再開」は既存の claim だけで成立し、NFR-7 に所要時間の合格ラインが無いので「待って継続」が破る基準も無い。ただし D-085 の未実測が解けてレート枠がフル処理を賄えないと判明した場合、分割実行が NFR-7 の「1回のフル処理」の定義を動かすため、この判断は mandate へ格上げされる。
+  requirement_ids:
+  - R-3
+  - NFR-7
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
