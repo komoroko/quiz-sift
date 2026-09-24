@@ -1124,7 +1124,7 @@ decisions:
   status: settled
   settled_by: loop
   answer: TRUNCATED として数える。応答の切り詰めと同じ箱に入れる。
-  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。処置が同じ(バッチサイズか --max-turns を見直す)ものを同じ箱に入れるほうが、失敗件数の内訳が次サイクルの判断材料になる。識別材料は subtype の値 error_max_turns と stop_reason で、どちらも実測済み。
+  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。処置が同じ(バッチサイズか --max-turns を見直す)ものを同じ箱に入れるほうが、失敗件数の内訳が次サイクルの判断材料になる。識別材料は subtype の値 error_max_turns と stop_reason。error_max_turns は要件作成時に観測したが、claude 2.1.282 では --max-turns 1 でも再現しない(T-029 実測。D-118)。
   requirement_ids:
   - R-3
 - id: D-103
@@ -1270,6 +1270,35 @@ decisions:
   requirement_ids:
   - R-3
   - NFR-7
+- id: D-118
+  subject: claude 2.1.282 で採れない error_max_turns の実物フィクスチャに代えて、TRUNCATED を何で証拠立てるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 実物フィクスチャは成功と不正スキーマ(PARSE)の2件にする。TRUNCATED の判定枝(subtype error_max_turns / stop_reason)は残し、成功フィクスチャの骨格から subtype・is_error・stop_reason・structured_output だけを差し替えた単一ファクトリの fake で検証する。実物の形は unknown として Open questions に置く。
+  rationale: T-029 の実測(2026-09-25、claude 2.1.282)で、--max-turns 1 は haiku でも claude-opus-5-5 でも、stream-json でも json でも subtype success / num_turns 2 で完了した。StructuredOutput での完了はターン上限に掛からないらしく、採取手段が無い。受入基準が要求する証拠の種類(実物 → fake)が変わるので mandate に属する。実物が別の形で来た場合は PROVIDER_ERROR に数えられ、失敗には倒れるので下流は壊れないが内訳が1種ずれる。
+  requirement_ids:
+  - R-3
+  - NFR-6
+- id: D-119
+  subject: 不正な --json-schema の出力(stdout 空・stderr に Error:・exit 1)をどう分類するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: PARSE の定義を「stdout が result イベントをちょうど1つ含む JSON のイベント列にならない(空と、result の無い列を含む)」とし、終了コードと stderr は判定に使わない。stderr はマスクして stderr_masked に残す。フィクスチャの meta には終了コードと stderr を記録する。
+  rationale: 覆しても T-026 の判定表1本ぶんで claim は動かない。期待する FailureKind は PARSE のまま変わらず、変わるのは入力の実物の形(stdout ではなく stderr に Error が出る)だけ。R-3 の PARSE は「stdout が JSON にならない」で、空の stdout と result の無いイベント列(途中のクラッシュ)はこれに当たる(AR-100)。代償として、OAuth 失効・node の破損・argv の拒否・クラッシュもすべて PARSE に吸収され、内訳では区別できない(AR-101)。区別の材料は exit_code と stderr_masked としてログに残し、Open questions に列挙した。別の種別を立てるのは R-3 の改訂になるので今サイクルでは行わない。
+  requirement_ids:
+  - R-3
+  - NFR-6
+- id: D-120
+  subject: TRUNCATED の判定で「stop_reason が切り詰めを示す」とする値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: max_tokens と model_context_window_exceeded の2値に限る。それ以外(end_turn / tool_use / stop_sequence / pause_turn / refusal / 未知の値)は TRUNCATED にしない。
+  rationale: 覆しても T-026 の判定表1本ぶんで claim は動かない。値を列挙しないと、fake を書く実装者が切り詰めの値を自分で決め、判定器と検証が同じ仮定を共有する(AR-102)。「end_turn 以外」とすると、実測済みの成功(stop_reason tool_use)が TRUNCATED に落ちる。値は Messages API の定義から取った。CLI 経由での観測は無いので、Open questions に置く。
+  requirement_ids:
+  - R-3
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ

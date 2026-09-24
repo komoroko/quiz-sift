@@ -196,8 +196,10 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   成立条件の無い基準を凍結することになる。**判定順序の並べ替えも効かなかった** — `rate_limit_event`
   を読むには stdout を JSON として解釈する必要があり、枠切れで JSON でない出力が返るなら順序に
   関係なく `PARSE` に落ちる。**失敗に倒せば、判定表も待機も再試行も要らなくなる。**
-  判定順序: 起動失敗 → タイムアウト → stdout が JSON にならない(`PARSE`)→ `subtype` が
-  `error_max_turns`、または `stop_reason` が切り詰めを示す(`TRUNCATED`。D-102)→ `is_error` が真
+  判定順序: 起動失敗 → タイムアウト → stdout が **`result` イベントをちょうど1つ含む JSON のイベント列**に
+  ならない(`PARSE`。**空の stdout、途中で切れて `result` の無い列を含む** — D-119、AR-100)→ `subtype` が
+  `error_max_turns`、または `stop_reason` が `max_tokens` / `model_context_window_exceeded` のどちらか
+  (`TRUNCATED`。D-102、D-120。値は Messages API の定義から取った。CLI 経由での実測は無い)→ `is_error` が真
   (`PROVIDER_ERROR`)→ スキーマ不適合(`SCHEMA`)→ ID 完全性(`INCOMPLETE_IDS`)。
   **再試行しない**(D-101 を改訂)。レート制限を失敗に倒した結果、再試行する対象が1つも残らない。
   これにより `provider_invocations` が `llm_calls` を超える要因は**チャンク分割だけ**になり、
@@ -545,12 +547,21 @@ lock を直接 COPY できないのは `rein oci build` のビルドコンテキ
 **実 CLI の出力契約をフィクスチャで固定する**(AR-43)。`tests/fixtures/claude_cli/` に実 CLI から
 採取した生の stdout を1件置き、`.meta.yaml` に採取日・`claude --version` の出力・モデル・
 **採取に使った argv 全体**・合成プロンプト全文・sha256 を記録する。**失敗の形も採る**(AR-63)。成功1件だけでは、新設した `FailureKind` 7種と判定順序が**同じ実装者が
-書いた fake に対してしか検証されない**。採取コストがほぼゼロの形を2件足す(2026-09-25 に採取済み):
-`error_max_turns`(`--max-turns 1` で再現。`is_error: true` / `result: null` / `num_turns: 2`)と、
-**不正な `--json-schema` に対する JSON ですらない `Error: ...` の標準出力**(`PARSE` の実物)。
-それぞれが期待する `FailureKind` へ落ちることをゲート内の `command` 証拠にする。
-**期待する `FailureKind` を明記する**(AR-77): `error_max_turns` → **`TRUNCATED`**(D-102)、
-不正な `--json-schema` の `Error: ...` → **`PARSE`**。期待値を書かずに「それぞれが期待する
+書いた fake に対してしか検証されない**。採取コストがほぼゼロの形を1件足す:
+**不正な `--json-schema` に対する出力**(`PARSE` の実物)。**2026-09-25 の T-029 実測(claude 2.1.282)で、
+`Error: --json-schema is not valid JSON: ...` は標準出力ではなく標準エラーに出て、標準出力は空、終了コードは 1**
+だった。当初この節は「JSON ですらない `Error: ...` の標準出力」と書いていたが誤り。`PARSE` の定義は
+「stdout が JSON のイベント列にならない(空を含む)」で、終了コードも stderr も判定に使わない(D-119)。
+stderr はマスクして `stderr_masked` に残すだけ。フィクスチャの `.meta.yaml` には終了コードと stderr を記録する。
+**`error_max_turns` の実物は採らない**(D-118 / ADR-016、人間が判断)。T-029 の実測では `--max-turns 1` が
+haiku でも `claude-opus-5-5` でも、stream-json でも json でも `subtype: success` / `num_turns: 2` で完了した。
+StructuredOutput で完了する呼び出しはターン上限に掛からないらしい。要件作成時の「`--max-turns 1` で
+`error_max_turns`」という観測は 2.1.282 では再現しない。`TRUNCATED` の判定枝(`subtype: error_max_turns` /
+`stop_reason`)は R-3 のとおり残す。検証は単一ファクトリの fake で行い、その骨格は成功フィクスチャから作って
+`subtype` / `is_error` / `stop_reason` / `structured_output` だけを差し替える。実物の形は **`unknown`**
+(Open questions)。
+**期待する `FailureKind` を明記する**(AR-77): 不正な `--json-schema`(stdout 空)→ **`PARSE`**、
+ファクトリの `error_max_turns` 形 → **`TRUNCATED`**(D-102)。期待値を書かずに「それぞれが期待する
 `FailureKind` へ落ちる」を証拠にすることはできない。`FailureKind` は `TRUNCATED` を含む**7種**。
 ゲート内の判定は4本:
 (1) 実パーサがフィクスチャを食えること、(2) fake の出力がフィクスチャと同一のキー骨格を持つこと、
@@ -883,6 +894,24 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
 - **単価表の取得元 URL がまだ空**。NFR-7 が出所を要求しており、`claude-opus-5-5` と
   `claude-haiku-4-5` の両方について埋めないと **C-019 が判定不能**になる。`/tasks` の作業項目。
 
+- **`TRUNCATED` の実物の形は未観測(`unknown`、D-118)**。claude 2.1.282 では `--max-turns 1` でも
+  StructuredOutput で完了する。`error_max_turns` が返る条件も、そのときのイベント列の形も分からない。
+  `stop_reason` の切り詰め値(`max_tokens` / `model_context_window_exceeded`、D-120)も CLI 経由では
+  一度も観測していない。`TRUNCATED` の判定枝は成功フィクスチャから作った fake でしか検証されず、
+  **判定器と fake が同じ仮定を共有する**(自己確認)。実物が別の形で来た場合の行き先は2つある:
+  `is_error` が真なら `PROVIDER_ERROR`、偽で `structured_output` が無ければ **`SCHEMA`**(モデルの不適合と
+  区別できない)(AR-103)。どちらも失敗に倒れて非 0 終了するので下流は壊れないが、内訳がずれる。
+  **T-020 の実測で `SPAWN` / `INCOMPLETE_IDS` 以外の失敗が1件でも出たら**、その `stderr_masked` と
+  `stdout_masked` の骨格(キーと `subtype` / `stop_reason` / `is_error` の値)を次サイクルで読む。
+  `stdout_masked` は教材本文をマスクしてあるので、**それをそのままフィクスチャにはしない** —
+  形が分かったら合成プロンプトで取り直す(NFR-2)。
+- **`PARSE` はプロセス水準の失敗をまとめて吸収する**(D-119、AR-101)。stdout が空で非 0 終了する形は
+  不正スキーマに限らない: 最小ホームの OAuth 失効、`claude` はあるが node が壊れている(exit 127)、
+  CLI 更新による argv の拒否(`unknown option`)、クラッシュ。どれも `PARSE` に数えられ、**内訳からは
+  区別できない**。区別の材料は実行ログの `exit_code` と `stderr_masked` にだけ残る。特に argv の拒否は
+  「CLI の更新でゲートは緑のまま本番が壊れる」契約ずれそのもので、R-3 の7種の内訳では見えない。
+  `PARSE` が出たら人が `stderr_masked` を読む、が今サイクルの運用。種別を足すなら R-3 の改訂になる。
+
 ## Adversarial review
 
 > Findings from the independent `adversarial-reviewer` round before the mandate (procedure: design.md step 6),
@@ -972,7 +1001,7 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
 | AR-60 | major | INFEASIBILITY / UNSTATED-ASSETS | argv の「実測で確定」に5項目の裏付けが無い。とくに **`--settings` がファイルパスしか受けないなら、書き先が最小ホームなら (b) が赤、空 cwd なら (e)4 が二読みになり逃げ場がない** | **fixed(実測で解消)** — (e) の argv 全体を1回通し、`--exclude-dynamic-system-prompt-sections` / `--strict-mcp-config` / `--mcp-config`(インライン)/ `--settings`(インライン)/ `--permission-mode` がすべて受け付けられ、`stream-json` の `result` が4値 `usage` と `total_cost_usd` を返すことを確認した |
 | AR-61 | major | NFR-HOLES / FAILURE-WALK | (e)1 の判定対象 `init.tools` は**ターン 0 の宣言**だが、脅威(第三者テキストの注入)が働くのはターン 1 以降。残る `Skill` / `ToolSearch` は実行中に能力を増やせる | **fixed** — 実測で**ツールを `StructuredOutput` の1本まで削れる**ことが分かったので、増える余地そのものが消えた。加えて `stream-json` の全イベントを通して許容集合外のツール**使用**が現れたら失敗にする、時間軸に沿った判定を追加 |
 | AR-62 | major | INFEASIBILITY | CLI 経路には `max_tokens` 相当が無い。ID 完全性で `unassigned` を必須にした結果 50 問なら最低 50 個のキーが必ず出力され応答は純増するのに、切り詰めは再試行禁止(D-101)のまま実行全体を非 0 終了させる | **fixed** — 切り詰めは `stop_reason` で識別できる(実測: 成功時 `tool_use`)ので `TRUNCATED` として別に数え、`CLASSIFY_BATCH_SIZE` を 50 → **25** に下げた。`inputs_digest` の生成パラメータには `max_tokens` の代わりに `--max-turns` とバッチサイズを入れる |
-| AR-63 | major | FAILURE-WALK | 契約フィクスチャが成功1件のみで、**`FailureKind` 6種と判定順序はすべて同じ実装者の fake だけで検証される**。失敗の形の一部はただで採れる | **fixed(実測で採取)** — `error_max_turns`(`--max-turns 1` で再現)と、不正な `--json-schema` に対する **JSON ですらない `Error: ...` の標準出力**(`PARSE` の実物)を採取。フィクスチャを3件に増やし、それぞれが期待する `FailureKind` へ落ちることをゲート内の `command` 証拠にする |
+| AR-63 | major | FAILURE-WALK | 契約フィクスチャが成功1件のみで、**`FailureKind` 6種と判定順序はすべて同じ実装者の fake だけで検証される**。失敗の形の一部はただで採れる | **fixed(実測で採取)** — `error_max_turns`(`--max-turns 1` で再現)と、不正な `--json-schema` に対する **JSON ですらない `Error: ...` の標準出力**(`PARSE` の実物)を採取。フィクスチャを3件に増やし、それぞれが期待する `FailureKind` へ落ちることをゲート内の `command` 証拠にする **2026-09-25 追記(T-029 実測)**: `error_max_turns` は 2.1.282 で再現せず、不正スキーマの `Error:` は stderr に出た。D-118 / D-119 / ADR-016 で置き換えた |
 | AR-64 | major | FAILURE-WALK | **並行度 1 は1実行の中でしか効かない。** 最小ホームは固定パスのプロセス間共有資源で、R-3 が要求する2回の実行を並行に走らせれば `.claude.json` を同時に書く。**(b) の判定も壊れる**(別プロセスの書き込みが「製品が作ったファイル」に数えられる) | **fixed** — 最小ホームの使用をプロセス間ロックで直列化し、取得できなければ起動時にエラー終了する規定を追加 |
 | AR-65 | major | NFR-HOLES | **失敗・レート制限で終わった呼び出しの usage の扱いが未定義**(枠を消費した呼び出しだけが会計から抜ける)。`Meter.record` はモデル ID が一字違うだけで例外を投げフル処理が計測器で死ぬ。**ログのフィールド一覧が設計のどこにも無い** | **fixed** — 「成否の判定より先に `usage` を記録する」を要件と設計の両方に明記。モデル ID の照合失敗は `{"status":"unavailable","reason":"unknown_model"}` へ倒し例外にしない。`Meter.finish` が出す JSON Lines のフィールドを設計に**名前で列挙**した |
 | AR-66 | minor | YAGNI | 並行度 1 を凍結したのに、ロック付きの並行アイドル区間計算を作っている(設計自身が「次サイクルのため」と書いている) | **fixed(reduce_scope)** — 直列前提にし、累積待機時間は `実経過 − 稼働時間の総和` で求める。並列化する次サイクルで区間計算へ置き換える |
@@ -1022,6 +1051,26 @@ mandate の承認時に人間が読む前提で記録する。
 statement が改訂されていない」— AR-54(C-019 / C-020)と AR-71(C-003)で**同一サイクル内に2度**
 起きた。ライブラリへ足す判断は acceptance で人間が行う。
 
+### 2026-09-25 T-029 実測デルタ(D-118 / D-119 / D-120 / ADR-016)に対するラウンド
+
+T-029 のホスト実測で崩れた2つの前提(`--max-turns 1` で `error_max_turns` にならない / 不正スキーマの
+`Error:` は stderr に出る)を受けた差分に対して、新しいコンテキストのレビュアーが1巡行った。レンズは
+凍結済みの設計レンズ7本(`rein lens --select` は再実行していない)。**blocker 0 / major 5 / minor 3**。
+
+| ID | 重大度 | 内容 | 処置 |
+|---|---|---|---|
+| AR-100 | major | JSON として読めるが `result` の無いイベント列(途中のクラッシュ)の行き先が未定義 | **revise_design**: `PARSE` を「`result` をちょうど1つ含むイベント列にならない」と定義(D-119) |
+| AR-101 | major | stdout 空・非 0 終了の形は OAuth 失効、node の破損、argv の拒否、クラッシュにも共通し、すべて `PARSE` に黙って吸収される | **revise_design**: 吸収することを明記し、Open questions に列挙。区別の材料は `exit_code` / `stderr_masked`。種別を足すのは R-3 の改訂なので今サイクルでは行わない |
+| AR-102 | major | 「`stop_reason` が切り詰めを示す」値が列挙されておらず、fake と判定器が同じ仮定を共有する | **revise_design**: `max_tokens` / `model_context_window_exceeded` の2値に限定(D-120)。CLI 経由では未観測なので Open questions に置く |
+| AR-103 | major | 残るリスクの記述が不正確(`is_error` が偽なら `SCHEMA` に落ちる)。マスク済みの stdout をフィクスチャにする前提が書かれていない | **revise_design**: 行き先を2つとも記述。T-020 では `SPAWN` / `INCOMPLETE_IDS` 以外の失敗をすべて読む対象にする。採取は合成プロンプトで取り直す |
+| AR-104 | major | T-026 A-2、T-027 A-5、T-029 A-1(artifact、operator_surface を含む)がデルタと矛盾。`error_max_turns.*` の採取物が名前だけ残る | **/tasks で処置**: 受入基準の書き換え、採取物の削除、meta に終了コードと stderr を記録する基準の追加 |
+| AR-105 | minor | ADR-013 の「3件」、AR-63 の処置、自己評価の件数が古い | **revise_design**: 注記と数字を直した。`claude-cli-contract.md` は T-029 の未コミット出力なので /tasks で扱う |
+| AR-106 | minor | R-3 の「`stop_reason` および `subtype`」と設計の「または」が食い違う | **revise_design**: R-3 を「どちらか」に揃えた(意味の明確化で、基準の緩和ではない) |
+| AR-107 | minor | 自己評価の「反証不能な枝が消えた」が、`TRUNCATED` 枝については今は偽 | **revise_design**: 文面を直した |
+
+**再レビューはしていない**。blocker が無いので、規定の「blocker 修正のみを1回再レビュー」は発動しない。
+処置の文面はリードが適用したまま、誰にも読まれていない。
+
 ## Self-assessment (assumptions, confidence)
 
 - **Assumptions made**:
@@ -1052,12 +1101,14 @@ statement が改訂されていない」— AR-54(C-019 / C-020)と AR-71(C-003)
   - **低**: NFR-1 の判定能力。上の Open questions の1点目。
   - **低**: NFR-8 と NFR-7 の CLI 経路まわり。**2巡のレビューで blocker が2巡とも全件 still-open**
     と判定され、しかも「判定器が実装側を読みに行く」「検査の無い場所へ問題が移る」という同じ形の
-    欠陥が繰り返し出た。実測が4件を直接解消した(ツールを1本まで削れる / `Glob`・`Grep` の存在 /
-    argv の受理 / 失敗形の採取)一方、**最終的な文面は誰にも読まれていない**。
-  - **中**: R-3 の失敗分類。D-091 の撤回で反証不能な枝が消え、7種の分類はすべて `command` で
-    判定できる形になった。実物の契約フィクスチャを3件(成功 / `error_max_turns` / `PARSE`)置く。
+    欠陥が繰り返し出た。実測が3件を直接解消した(ツールを1本まで削れる / `Glob`・`Grep` の存在 /
+    argv の受理)。失敗形の採取は T-029 の実測で半分崩れた(D-118 / D-119)。その一方で、**最終的な文面は誰にも読まれていない**。
+  - **中**: R-3 の失敗分類。D-091 の撤回で「待機して継続」の枝は消えた。ただし `TRUNCATED` の枝も、
+    2.1.282 では到達する実入力が見つかっていない(AR-107)。R-3 が要求するので残すが、判定は
+    fake に対する `command` だけになる。実物の契約フィクスチャは2件(成功 / `PARSE`)。`TRUNCATED` の実物は
+    2.1.282 で採れず、fake だけで検証する(D-118)。
 - **Open questions / points for the human to decide**:
-  - 上の Open questions 4点。
+  - 上の Open questions(9点)。
   - `/tasks` で分解した結果が現実的な規模に収まらない場合の、スコープ縮小の判断。
   - **2巡目の修正が独立に検証されていない**: 再招集枠は使い切った。AR-5 / AR-6 / AR-8 / N-1 / N-2 /
     N-3 の最終修正はリードが適用したままレビューを受けていない(N-1 と S-2 のテストが赤くなることは
