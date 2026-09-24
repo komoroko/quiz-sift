@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-24T21:22:41+09:00'
+updated_at: '2026-09-24T21:45:10+09:00'
 gates:
   mandate:
     status: approved
@@ -1028,86 +1028,55 @@ tasks:
       tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
       updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
-    status: blocked
-    attempts: 5
-    handoff:
-      salvage_branch: build/quiz-sift-T-019-salvage-20260924-120445
-      salvage_state: restored
-      updated_at: '2026-09-24T21:22:41+09:00'
-      report:
-        outcome: needs-revision
-        summary: '指摘1(出所の記述が事実と違う)は修正済み(78465eb): render_golden_log の定型文「人が結果ページで正解を確かめて付けた」を削除。golden
-          に必須の --label-source を追加し、実行条件の「ラベルの出所」に逐語で記録するようにした。recorded_golden_rows は出所が空だと赤になる。golden-set.md
-          は保存済みの生 HTML から同じ10ラベルで再生成した(Udemy への再アクセスなし、10/10、correct-mark で統一)。出所には、エージェントが CDP で answer-result-pane--answer-correct--*
-          を読んだこと、人は読み取っていないこと、10/10 はパーサ間の一致であって信号の選び方の独立検証ではないことを明記した。指摘2は正しいが実装では解決できない判断事項: 今のラベルは抽出器と同じ
-          correct-mark 信号から取っているため、A-2 は design R-2 (3) が求める人手ラベルによる独立検証になっていない。人が結果ページで目視した10件のラベルを取り直して
-          --label-source に人の目視と書き再実行するか、/revise で基準側を変えるかを人が決める必要がある。gate の format/lint/types/test/docs/smoke
-          はすべて green。'
-        at: '2026-09-24T21:20:54+09:00'
-        touched:
-        - tests/measurements/test_extraction_logs.py
-        - docs/test/measurements/golden-set.md
-      last_agent:
-        role: code_reviewer
-        adapter: claude
-        rc: 0
-        session: ''
-        output_tail: "findings を `.rein/work/T-019.findings.json` に書きました。must_fix 1件、consider 3件です。\n\n\
-          **must_fix**\n- **A-2 は、うまくいっていなくても赤にならない。** 正解ラベルを読んだのは人ではなくエージェントで、抽出器と同じ正解マーク(`correct-mark`)のクラスを読んでいます。設計\
-          \ R-2 (3) が求めているのは人手ラベルです。この作り方では、抽出器が正解の根拠に間違った要素を選んでいても、ラベルも同じように間違うので 10/10 のままです。記録の表の列見出しも「人手ラベル」のままで、実際の出所と合っていません。\n\
-          \  - 実装側では直せず、人が決める必要があります。選択肢は二つです。\n    - 人が結果ページで10件を目視してラベルを取り直し、再実行する。\n    - `/revise`\
-          \ で基準の側を変える。\n\n**consider**\n- A-2 の判定は「ラベルの出所」が空でないことしか見ていません。中身がどうであっても緑になるので、上の問題は機械判定には表れません。\n\
-          - `--label` に `=` を付け忘れると、使い方のメッセージではなく `ValueError` のトレースバックで落ちます。\n- ホストで走らせるスクリプトが、抽出器の非公開関数\
-          \ `_is_user_selected` に依存しています。ゲートのテストはこの経路を通らないので、リネームで壊れても気づけません。\n\nA-1 と A-3 は、テストがそれぞれ何を壊すと赤になるかを確かめ、どちらも実際に赤になることを確認しました。ログに記録されたコミット\
-          \ `f1a17a9` と `4952646` はどちらもリポジトリに存在します。今回のタスクには CI の設定変更も依存の追加もないので、L-CODE-CI-AUTHORITY、L-CODE-DEP-SURFACE、L-CODE-CONCURRENCY\
-          \ の3つのレンズは当てはまりませんでした。`/code-review` と `/simplify` は起動せず、同じ観点を自分で読んで確認しました。"
-        at: '2026-09-24T21:22:41+09:00'
-      review:
-        findings:
-        - severity: must_fix
-          statement: golden-set.md のラベルの出所の記述が事実と違う。ログには「人手ラベルは人が結果ページで正解を確かめて付けたもの」とある。しかしコミット 4952646
-            の本文によれば、10件のラベルはエージェントが CDP の Runtime.evaluate で同じ結果ページを読み、answer-result-pane--answer-correct--*
-            クラスの付いた選択肢の位置を A〜D に対応づけたものである。人間はそのラベルを載せたコマンドを発行しただけで、正解を自分で読んではいない。受入が拠り所にする artifact に誤った出所が書かれている。記述は
-            render_golden_log の定型文から来ているので、実際の経路を書くように直す必要がある。そうしないと、受入時に人が 10/10 を『人手ラベルとの独立した照合』と読み違える。
-          anchor: tests/measurements/test_extraction_logs.py:218
-        - severity: must_fix
-          statement: 'ラベルが正解マーク(correct-mark)のクラスそのものから取られているため、A-2 の 10/10 は、同じ HTML の同じ信号を2つのパーサで読んで一致したことしか示さない。design
-            R-2 の「What this requires of a person (3) ゴールデンセット10件の人手ラベル付け」が求める、抽出器の信号の選び方が正しいかの独立検証になっていない。抽出器が正解ではなく別のマークを読むように誤っていれば、このラベル付けも同じように誤るので、A-2
-            は赤にならない。これがプランの要求(人手ラベル)を満たすかどうかは実装では決められない判断事項である(judgement: /revise で基準側を変えるか、人が結果ページで目視したラベルを取り直すか)。'
-          anchor: docs/test/measurements/golden-set.md:3
-        - severity: consider
-          statement: _saved_questions が quiz_sift.extract.udemy の非公開関数 _is_user_selected を import している。受験者の選択は計測ツール側で抽出器の内部に依存して再構成されており、抽出器が名前や挙動を変えると黙って壊れる。受験者の選択を
-            ExtractedQuestion または公開関数として出す案もあるが、src/ はこのタスクの scope 外なので、判断は人に委ねる。
-          anchor: tests/measurements/test_extraction_logs.py:409
-        - severity: consider
-          statement: golden-set.md の実行条件『コマンド』は `PYTHONPATH=src python tests/measurements/...` と書いているが、実際の実行は
-            .venv/bin/python で、場所は .worktrees/T-019-golden だった(コミット本文)。_main は argv を `python` 固定の接頭辞で再構成するので、記録されたコマンドが実際に走ったものと一致しない。sys.executable
-            を使えば逐語になる。
-          anchor: tests/measurements/test_extraction_logs.py:472
-        - severity: consider
-          statement: render_golden_log の `if rows else "0/0"` は到達しない。golden は --label がちょうど10件でなければ終了コード
-            2 で返るので、rows が空になることはない。YAGNI の分岐。
-          anchor: tests/measurements/test_extraction_logs.py:214
-        - severity: must_fix
-          statement: 'A-2 の証拠は、設計 R-2「What this requires of a person」(3) が求める『ゴールデンセット10件の人手ラベル付け』になっていない。golden-set.md
-            の「ラベルの出所」自体に、エージェントが CDP で answer-result-pane--answer-correct--* クラス(抽出器の _is_correct_mark
-            が読むのと同じ correct-mark 信号)を読んでラベルにしたこと、人は正解を読んでいないことが書いてある。そのため 10/10 はパーサ間の一致を示すにすぎない。抽出器が間違った信号を正解の根拠に選んでいた場合(たとえばクラス接頭辞が誤答側にも付いていた場合)、ラベルも同じように間違うので
-            test_golden_set_records_full_agreement は赤にならない。C-002 と A-2 が言う『正解ラベル一致率』の独立な検証として、この基準は構造上赤になれない。そのうえ表の列見出しは今も『人手ラベル』のままで(render_golden_log
-            の 241 行目)、記録が実際の出所と食い違っている。実装側では直せない(直すには人が結果ページで10件を目視してラベルを取り直し、--label-source にそう記録して再実行する必要がある)。基準の側を変えるなら
-            /revise で扱う。どちらにするかは人が判断する事項(route: judgement)。'
-          anchor: docs/test/measurements/golden-set.md:18
-        - severity: consider
-          statement: recorded_golden_rows が確かめているのは『ラベルの出所』が空でないことだけで、check_golden_agreement はその中身を一切見ていない。出所に『抽出器と同じ信号を読んだ』と書いてあっても
-            A-2 は緑になる。このため上の欠陥は機械判定からは見えない。記録が正直に書かれていても、判定はそれを反映しない。
-          anchor: tests/measurements/test_extraction_logs.py:252
-        - severity: consider
-          statement: golden サブコマンドは --label を dict(item.split("=", 1)) で読む。'=' を含まない --label を渡すと、使い方のメッセージと終了コード
-            2 ではなく、ValueError のトレースバックで落ちる。重複した ID は黙って上書きされ、そのあと件数不足という理由で弾かれる。ホストで人が叩くコマンドなので実害は小さい(L-CODE-ERROR-PATH)。
-          anchor: tests/measurements/test_extraction_logs.py:465
-        - severity: consider
-          statement: _saved_questions は quiz_sift.extract.udemy の非公開関数 _is_user_selected を import して受験者の選択を数え直している。抽出器の内部名に依存しているので、リネームすると
-            golden / golden-candidates が壊れる。ゲートのテストはこの経路を通らないため、壊れても気づけない。
-          anchor: tests/measurements/test_extraction_logs.py:413
+    status: done
+    attempts: 6
+    completed_commit: 8dc48c4d06d813b88858c728b97f2eb26ae08473
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:caed600b8912c3dc52595b6692c772dedb80a9d960c06841baebc6dd3ef8a3c5
+      updated_at: '2026-09-24T21:36:55+09:00'
   T-014:
     status: done
     attempts: 1
@@ -1382,6 +1351,56 @@ tasks:
         step: test
       tree: sha256:4de2f76e2c9351c631ac4bb07170397cc3a729b8fc2adc4ba8558b04b71c24bf
       updated_at: '2026-09-24T06:27:08+09:00'
+  T-020:
+    status: blocked
+    attempts: 1
+    handoff:
+      report:
+        outcome: blocked
+        summary: '実測をホストで走らせる前提が2つ欠けている。(1) CosyVoice がホストに無い: .venv に torch が無く(ModuleNotFoundError:
+          No module named ''torch'')、/mnt/d/prog_works と ~ の下に cosyvoice のチェックアウトも無い(D-076 で人が事前に導入する前提)。(2)
+          実装者の環境に ANTHROPIC_API_KEY が設定されていない。このため docs/test/measurements/{full-run,reproducibility,audio-silence}.md
+          は書けず、A-1〜A-4 のテストは『実測ログが無い』で赤。先に入れたもの: tests/measurements/test_full_run_logs.py に判定4本と負の対照(3項目の欠落・推定コストの不一致・2倍でない呼び出し回数・偽のトラック・音声の無いクラスタで赤、計23本が緑)と実行ハーネスを置いた。人がやること:
+          CosyVoice と重みを導入し、PYTHONPATH(src + CosyVoice + third_party/Matcha-TTS)と ANTHROPIC_API_KEY を通して、次のコマンドを順に1回ずつ走らせる。PYTHONPATH=src
+          python tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir> / repro
+          --out-root <repo> / silence --out-root <repo>。これで3つのログが書かれる。判断の記録: 再現性で2回呼ぶのは分類(classify_clusters)だけにした。要約と含意判定の呼び出し回数はクラスタ数で変わり、2倍の検査が応答キャッシュの有無を判定できなくなるため。一致率はラベル名に依存しない
+          Rand index で出す。'
+        at: '2026-09-24T21:44:56+09:00'
+        touched:
+        - tests/measurements/test_full_run_logs.py
+      updated_at: '2026-09-24T21:45:10+09:00'
+      escalation:
+        kind: agent_blocked
+        message: 'T-020: the implementer reported blocked — 実測をホストで走らせる前提が2つ欠けている。(1) CosyVoice がホストに無い:
+          .venv に torch が無く(ModuleNotFoundError: No module named ''torch'')、/mnt/d/prog_works と ~ の下に
+          cosyvoice のチェックアウトも無い(D-076 で人が事前に導入する前提)。(2) 実装者の環境に ANTHROPIC_API_KEY が設定されていない。このため docs/test/measurements/{full-run,reproducibility,audio-silence}.md
+          は書けず、A-1〜A-4 のテストは『実測ログが無い』で赤。先に入れたもの: tests/measurements/test_full_run_logs.py に判定4本と負の対照(3項目の欠落・推定コストの不一致・2倍でない呼び出し回数・偽のトラック・音声の無いクラスタで赤、計23本が緑)と実行ハーネスを置いた。人がやること:
+          CosyVoice と重みを導入し、PYTHONPATH(src + CosyVoice + third_party/Matcha-TTS)と ANTHROPIC_API_KEY を通して、次のコマンドを順に1回ずつ走らせる。PYTHONPATH=src
+          python tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir> / repro
+          --out-root <repo> / silence --out-root <repo>。これで3つのログが書かれる。判断の記録: 再現性で2回呼ぶのは分類(classify_clusters)だけにした。要約と含意判定の呼び出し回数はクラスタ数で変わり、2倍の検査が応答キャッシュの有無を判定できなくなるため。一致率はラベル名に依存しない
+          Rand index で出す。'
+        tree: sha256:8bc65f3c0c53331f42aad7c68f9911e50791281fb5de2803c087557b6d9b11da
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 5f725f15-c9b5-4f2a-bef8-7d402c2f334e
+        output_tail: "T-020 は **blocked** で止めました。実測を走らせる前提が2つホストに揃っていないため、3つの実測ログはまだ1本も書けていません。レポートは中央の監査チェーンに記録されています(`rein\
+          \ report` は終了コード 2 を返しましたが、記録自体はされています)。\n\n**欠けている前提**\n1. **CosyVoice がホストに無い**: `.venv` に\
+          \ torch が無く(`ModuleNotFoundError: No module named 'torch'`)、`/mnt/d/prog_works` と `~` の下にも CosyVoice\
+          \ のチェックアウトがありません。D-076 で事前に人が導入することになっている部分です。\n2. **`ANTHROPIC_API_KEY` がこの環境に無い**: 設定ファイルの中までキーを探しに行く操作は拒否されたので、そこは探していません。\n\
+          \n**このため赤のままのもの**\n- A-1〜A-4 の受入テスト4本は、どれも「実測ログが無い」で赤です。\n- `bash gate.sh test` もこの4本のせいで赤です。\n\
+          - `lint`・`format`・`types`・`docs`・`smoke` の5ステップは走らせていません(新しいテストファイルに ruff と mypy をかけたところ、指摘はありませんでした)。\n\
+          \n**入れたもの**(コミット `c3abfa7`)\n- `tests/measurements/test_full_run_logs.py` に次を置きました。\n  - 受入基準ごとの判定4本\n\
+          \  - 壊したログで赤くなることを確かめる負の対照\n  - 実測を行う実行ハーネス\n- 負の対照が赤にするのは、3項目の欠落、推定コストと内訳の不一致、呼び出し回数が2倍でないこと、偽のトラック、音声の無いクラスタです。\n\
+          - 負の対照を含むログ非依存の23本は緑です。\n\n**再開の手順**\nCosyVoice と重みを導入し、`PYTHONPATH`(src、CosyVoice、third_party/Matcha-TTS)と\
+          \ `ANTHROPIC_API_KEY` を通してから、次のコマンドを順に1回ずつ実行してください。3本のログはこれで書かれます。\n\n```\nPYTHONPATH=src python\
+          \ tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir>\nPYTHONPATH=src\
+          \ python tests/measurements/test_full_run_logs.py repro --out-root <repo>\nPYTHONPATH=src python\
+          \ tests/measurements/test_full_run_logs.py silence --out-root <repo>\n```\n\n`full` は `out/aip-c01/`\
+          \ が既にあると走りません。キャッシュが残っていると全段の呼び出しを数えられないためです。\n\n**ハーネスで決めたこと**\n- **再現性の測定で2回呼ぶのは分類だけ**: 要約と含意判定の呼び出し回数はクラスタ数によって変わります。それらを含めると、「呼び出しがちょうど2倍か」で応答キャッシュの有無を判定できなくなります。\n\
+          - **割当一致率は Rand index**: LLM が付けるラベル名は実行ごとに変わるので、ラベル名に依存しない指標にしました。"
+        at: '2026-09-24T21:45:08+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
