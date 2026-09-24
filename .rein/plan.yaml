@@ -104,7 +104,7 @@ claims:
 - id: C-016
   requirement_ids:
   - NFR-4
-  statement: 各段階の中間成果物が永続化され、途中段階から再実行したときそれより前の段階の外部 API 呼び出し回数が 0 になる。R-3 の再現性測定はこの対象外とし、ホスト上での実測ログを artifact として記録する。
+  statement: 各段階の中間成果物が永続化され、途中段階から再実行したときそれより前の段階の llm_calls と provider_invocations(NFR-7 の定義。HTTP API・CLI サブプロセスの別を問わない)がどちらも 0 になる。R-3 の再現性測定はこの対象外とし、ホスト上での実測ログを artifact として記録する。
   risk: high
   domains:
   - pipeline
@@ -125,7 +125,7 @@ claims:
 - id: C-019
   requirement_ids:
   - NFR-7
-  statement: 100〜200問のフル処理1回について、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数、再試行を含む)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限への到達回数・最初の到達までの経過時間・累積待機時間・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しとレート制限で終わった呼び出しのトークンも、成否の判定より先に記録される。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドは1ターンあたりの定数として持ち、overhead × num_turns + material が報告された入力トークン合計に一致する。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持つ。累積待機時間は実経過時間に対する、1つも子プロセスが走っていない区間の合計として定義される。出力には notional の語が含まれ、実課金額を主張しない。
+  statement: 100〜200問のフル処理1回について、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数。分割呼び出しを個別に数え、再試行はしない)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限で終了したか(終了した場合は resetsAt)・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しのトークンも成否の判定より先に記録され、usage が取れなかった呼び出しは件数を別に数える。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドはモデルごとに1ターンあたりの定数として持ち、既知長の合成プロンプトを k=1,2,3 回反復した較正表の上で Σ_model(overhead_model × turns_model) + material が報告された入力トークン合計に一致し、material は合計からの差し引きで求めない(フル処理の実行ログには material を置かない)。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持ち、現 argv のダイジェストと違えば unknown と報告する。出力には notional の語が含まれ、実課金額を主張しない。
   risk: medium
   domains:
   - observability
@@ -1014,7 +1014,7 @@ decisions:
   reach: local
   status: settled
   settled_by: loop
-  answer: pyproject.toml の optional extra として残す(通常依存にも、依存から外してデッドコードにもしない)。
+  answer: pyproject.toml の optional extra として残す(通常依存にも、依存から外してデッドコードにもしない)。2026-09-25 に D-103 がこれを今サイクルについて覆した — 本サイクルは通常依存のままとし、extra 化は次サイクルに回す。
   rationale: 覆しても pyproject.toml・adapters/llm_anthropic.py・サンドボックスイメージの requirements.txt の1タスクぶんで、claim も受入基準も動かない。依存から完全に外すと llm_anthropic.py が未解決 import になって NFR-5 (b) の ruff・mypy strict が赤くなり、通常依存のまま残すと NFR-8 (a) の「実行時に import されない」を保証するコードが要るうえ security.dependency_audit の対象であり続ける。extra なら mypy の overrides で ignore_missing_imports を当該モジュールにだけ限定でき、その経路は既に設計にある。
   requirement_ids:
   - NFR-5
@@ -1059,7 +1059,7 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: 混成(ADR-015)。classify_clusters と summarize_cluster は claude-opus-5、generate_recall / describe_term / check_entailment は claude-haiku-4-5。呼び出し回数の 95% 以上を占める側を Haiku にすれば枠の消費は Haiku 全面にほぼ等しく、圧縮の質が効く分類・要約には Opus を残せる。Opus 5 が Pro プランで使えることは 2026-09-25 に実測で確認した。
+  answer: 混成(ADR-015)。classify_clusters と summarize_cluster は claude-opus-5-5(2026-09-25 に D-117 で 5 から引き上げ)、generate_recall / describe_term / check_entailment は claude-haiku-4-5。呼び出し回数の 95% 以上を占める側を Haiku にすれば枠の消費は Haiku 全面にほぼ等しく、圧縮の質が効く分類・要約には Opus を残せる。Opus 5 が Pro プランで使えることは 2026-09-25 に実測で確認した。
   requirement_ids:
   - NFR-7
   - R-3
@@ -1105,7 +1105,7 @@ decisions:
   status: settled
   settled_by: loop
   answer: 1(直列)で凍結し、MAX_CONCURRENCY を1箇所の定数として置く。
-  rationale: 覆してもアダプタとメーターの1タスクぶんで claim は動かない。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分は R-3 の全体上限 12 時間に収まり、並列化してもレート枠は増えないので枠が binding なら利得はゼロで枠に速く当たるだけ。加えて並列化は最小ホームの共有による同時書き込みと、累積待機時間の定義破壊(どれか1本が生きていれば待機区間が 0 になる)を同時に持ち込む。T-020 で枠に余裕があると分かった次サイクルで定数を上げるのは、証拠の追加であって基準の緩和ではない。
+  rationale: 覆してもアダプタとメーターの1タスクぶんで claim は動かない。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分は R-3 の全体上限 12 時間に収まり、並列化してもレート枠は増えないので枠が binding なら利得はゼロで枠に速く当たるだけ。加えて並列化は最小ホームの共有による同時書き込みを持ち込む(累積待機時間は D-091 撤回で無くなった)。T-020 で枠に余裕があると分かった次サイクルで定数を上げるのは、証拠の追加であって基準の緩和ではない。
   requirement_ids:
   - NFR-7
 - id: D-101
@@ -1127,6 +1127,149 @@ decisions:
   rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。処置が同じ(バッチサイズか --max-turns を見直す)ものを同じ箱に入れるほうが、失敗件数の内訳が次サイクルの判断材料になる。識別材料は subtype の値 error_max_turns と stop_reason で、どちらも実測済み。
   requirement_ids:
   - R-3
+- id: D-103
+  subject: anthropic の optional extra 化とサンドボックスイメージの再ビルドを、このサイクルでやるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: やらない。本サイクルは anthropic を通常依存のまま残し、pyproject.toml・uv.lock・requirements.txt・イメージのダイジェスト・config.yaml を動かさない。extra 化と再ビルドは次サイクルに回す。
+  rationale: mandate が凍結する環境(config.yaml のイメージダイジェスト)を動かす判断なので reach は mandate。承認前に extra 化するとイメージから anthropic が消え、現行の cli.py と、AnthropicLlm を import する tests/ports/test_protocols.py・tests/safety/test_entailment.py が import 時点で落ちる。全タスクの test ステップがベースラインから赤になり、切り替えタスクが入るまで build が1本も進まない。承認後に extra 化するとイメージの再ピンが凍結後の config.yaml 変更になる。承認前に製品側を先に直す案はゲート規則1に触れる。NFR-8 (a) は sys.path に置くスタブで import 可能性を満たすので、イメージに実 SDK があってもなくても判定は変わらず、(d) は静的走査なので依存宣言に左右されない。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+  - NFR-8
+- id: D-104
+  subject: FailureKind をどのモジュールに置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: ports/metering.py に置く。adapters/claude_failure.py は判定表と判定順序だけを持つ。
+  rationale: RunMeter.record_failure が FailureKind を引数に取るので、adapters に置くと ports が adapters を import する逆向きの依存になる。覆しても2ファイルの import 先が変わるだけで claim は動かない。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-105
+  subject: 最小ホームのプロセス間ロックをどう取るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 最小ホームのディレクトリ自身の fd に fcntl.flock を掛ける。ロックファイルは作らない。取得できなければ待たずにエラー終了する。
+  rationale: 設計は当初「HOME 配下のロックファイル」と書いていたが、それは NFR-8 (b) の「製品が HOME 配下に作成したファイルが 0 件」を製品自身が破る。ディレクトリ fd への flock は Linux で成立し、ファイルを作らない。覆してもアダプタ1ファイルぶん。
+  requirement_ids:
+  - NFR-8
+- id: D-106
+  subject: init.tools が StructuredOutput 以外を含む呼び出しと、許容外のツール使用が現れた呼び出しを、どの失敗種別に落とすか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: PROVIDER_ERROR として数える。種別は7種のまま増やさない。
+  rationale: R-3 が種別を7種に固定しているので新設できない。どちらも「呼び出し経路が契約の外で振る舞った」事実で、PARSE・SCHEMA・TRUNCATED・INCOMPLETE_IDS のどれの定義にも当たらない。逐語ログに理由を残すので、件数の内訳からは区別できなくても記録からは区別できる。覆しても判定表1行ぶん。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-107
+  subject: オーバーヘッド定数の argv_digest を、実行時の argv とどう突き合わせるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: アダプタが begin_invocation に現 argv のダイジェスト(プロンプト・スキーマ本文を除いた形)を渡し、Meter.finish がモデル別の定数の argv_digest と比べる。違えばそのモデルの overhead を unknown と報告する。
+  rationale: 設計の RunMeter は begin_invocation() を無引数で書いていたが、それでは meter が現 argv を知る経路が無く、AR-51 への答えである「argv が変われば定数が自動的に無効になる」が実装できない。pipeline が adapters を import しない向きを保てる唯一の渡し方。
+  requirement_ids:
+  - NFR-7
+- id: D-108
+  subject: T-029 / T-030(ホストでの実 CLI 実測)を不可逆ゲートにするか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'しない。reversible: true とする。'
+  rationale: 送るのは合成プロンプトだけで教材本文がセッション記録に残らない(D-088 が T-020 を不可逆にした理由 (i) に当たらない)。レート枠の消費は数回〜十数回で、T-020 の 500〜1000 回とは桁が違う。承認点を増やすと、同じ判断を2回訊くことになる。実行の時期を人が選ぶ仕組みはタスクには無い — T-029 は最初の rein build で着手されるので、人は最小ホームを用意し週次枠のリセット(2026-09-28 08:00 JST)を待ってから rein build を起動する。枠切れで落ちれば PROVIDER_ERROR として blocked になり、それ自体が枠切れ時の形の観測になる。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-109
+  subject: 計測(NFR-7)の作り直しを、T-002 を開き直して行うか新規タスクで行うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'T-002 は keep(done のまま、計画の記述も変えない)とし、作り直しは新規タスク T-031(blocked_by: T-002)で行う。T-002 の A-2 / A-3 が名指す estimated_cost と test_meter_records_run_fields / test_token_breakdown_and_price_provenance は T-031 が置き換える。'
+  rationale: rein task reset T-002 は、done の依存タスク11本が未完了タスクの下流に取り残されるとして拒否した。これは正当な拒否で、11本はいずれも Llm ポート越しにしか計測に触れず、作り直しで振る舞いが変わらない。T-002 の operator_surface が名指す ANTHROPIC_API_KEY は、残る SDK アダプタについては今も真で、製品経路から到達しないことは T-028 の operator_surface と NFR-8 (a)(d) が示す。
+  requirement_ids:
+  - NFR-7
+- id: D-110
+  subject: ended_by_rate_limit をどう判定するか(D-091 撤回後、レート制限を識別する既知の値が無い)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実行を止めた失敗が PROVIDER_ERROR で、その呼び出しの最後の rate_limit_event の status が allowed_warning 以外(イベントはあるが既知の許可状態でない)のとき真とする。status と resetsAt は真偽に関わらず生のまま記録する。
+  rationale: レート制限は特別扱いしない(D-091 撤回)ので、この値は処置を分けず、人が再実行の時期を読むための表示にしか使わない。誤判定しても挙動は変わらず、生の値が併記されるので人が読み直せる。枠切れ時の実際の形は未観測で、T-020 の最初の到達で分かる。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-111
+  subject: モデルごとのレート枠の重み(AR-59)をどこで測るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 独立のタスクにせず、T-030 のオーバーヘッド実測の呼び出し群の前後で utilization を読み、モデル別の差分を実測表に記録する。受入基準にはしない(AR-93。どの claim も要求していない)。
+  rationale: オーバーヘッドの実測は既に2モデルを数回ずつ叩くので、前後の rate_limit_event を読むだけで同じデータが取れる。別タスクにすれば枠を二重に使う。どの claim もこの値を要求していないので、記録だけにとどめる。
+  requirement_ids:
+  - NFR-7
+- id: D-112
+  subject: レビュー予算 max_diff_bytes を CLI 移行の8タスクに合わせて引き上げるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 1.5 MiB(1572864)へ引き上げる。
+  rationale: タスクを足す前の時点で変更は既に 1.02 MB あり、critical タスク(T-003 / T-006 / T-019 / T-020 / T-026 / T-027 / T-028)があるので、acceptance は変更全体を1回で読む。8タスクで src とテストが 150〜300 KB、契約フィクスチャが数十 KB 増える見込みで、1 MiB の超過はほぼ確実。予算は config.yaml にあり mandate で凍結されるので、承認前に決める(AR-80)。D-083 と同じく、これはアダプタのコンテキスト窓についての判断で、人が一度に読める量についての判断ではない。
+  requirement_ids:
+  - NFR-5
+- id: D-113
+  subject: 実行ログの estimated_cost を notional_cost に改名するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: '改名しない。estimated_cost のまま、その中に "notional": true を入れ、同じ行に免責の1行を書く。'
+  rationale: 改名すると、done のまま残す T-002 の A-2(estimated_cost が記録される)と A-3 の凍結基準が偽になり、その判定ノードが消える(AR-81)。T-002 は rein が開き直しを拒否した(D-109)。NFR-7 が求めるのは「出力に notional の語を含め、実課金額を主張しない」ことで、キー名ではない。覆しても meter 1ファイルぶん。
+  requirement_ids:
+  - NFR-7
+- id: D-114
+  subject: total_cost_usd とレート枠の使用率を、どの口で meter へ渡すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: end_invocation に cost_usd を足す。レート枠は rate_limit_event を読むアダプタが record_quota(info) で渡し、meter が最初の値を quota_at_start、最後の値を quota_at_end にする。
+  rationale: 設計の RunMeter には total_cost_usd を渡す口が無く、record_quota は cli が呼ぶ前提だったが、Llm Protocol を変えない方針では cli が RateLimitInfo を観測できない(AR-82)。アダプタだけが観測できるので、アダプタから渡す。覆しても meter とアダプタの2ファイルぶん。
+  requirement_ids:
+  - NFR-7
+- id: D-115
+  subject: claude の不在と最小ホームの不正を、いつ検査するか(R-3 の「起動時」)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: claude_process.preflight() を置き、cli の LLM を使う段が最初の LLM 呼び出しより前に呼ぶ。SubprocessRunner() と Workspace() の構築は副作用を持たない。
+  rationale: ClaudeCliLlm.__init__ は引数なしのクラス呼び出ししか許されず(NFR-8 (c) と同じ AST 制約)、構築時に検査すると、サンドボックス内のテストが fake を差す前に構築で死ぬ。「起動時」をどこと読むかが決まっていないと、最初の呼び出しまで検査しない実装が緑になる(AR-84)。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-116
+  subject: 実行ログの overhead に material を置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 置かない。恒等式 Σ overhead×turns + material = 合計 は、material が独立に分かる T-030 の較正表の上でだけ判定する。
+  rationale: フル処理で material を独立に得る手段は無く、出すなら「合計 − Σ overhead×turns」になり、AR-51 が禁じた恒等式に戻る(AR-87)。C-019 の恒等式の適用範囲を較正表と明記した。
+  requirement_ids:
+  - NFR-7
+- id: D-117
+  subject: 製品が分類と要約に使う Opus の版
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: claude-opus-5-5 に固定する(claude-opus-5 から引き上げ)。エイリアス opus にはしない。
+  rationale: ADR-015 の claude-opus-5 は旧 SDK アダプタの定数を引き継いだ値だった。単価は T-031 が料金ページから取り、オーバーヘッドは T-030 で取り直すので、Opus 5 で測った 14,603 tok(もともと暫定)を失っても困らない。エイリアスはモデル ID が実行ごとに変わりうるので、inputs_digest と単価表の照合が不安定になる。Pro で claude-opus-5-5 が呼べることは T-029 / T-030 の実測で初めて確かめられる。
+  requirement_ids:
+  - R-3
+  - NFR-7
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ
@@ -1236,7 +1379,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: ANTHROPIC_API_KEY(環境変数)。このタスクは実 API を呼ばない — 呼び出しはすべてスタブで、実課金は T-020 が受け持つ
+    name: ANTHROPIC_API_KEY(環境変数)。このタスクは実 API を呼ばない — 呼び出しはすべてスタブで、実呼び出しは T-020 が受け持つ
     paths:
     - src/quiz_sift/adapters/llm_anthropic.py
     reversible: true
@@ -1758,7 +1901,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: クラスタリングに使う LLM ポート。このタスクは実 API を呼ばない(スタブと録画フィクスチャ)。実課金は T-020
+    name: クラスタリングに使う LLM ポート。このタスクは実 API を呼ばない(スタブと録画フィクスチャ)。実呼び出しは T-020
     paths:
     - src/quiz_sift/cluster/
     reversible: true
@@ -1846,7 +1989,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: 想起素材生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    name: 想起素材生成に使う LLM ポート。このタスクは実 API を呼ばない。実呼び出しは T-020
     paths:
     - src/quiz_sift/recall/
     reversible: true
@@ -1898,7 +2041,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: グロッサリ生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    name: グロッサリ生成に使う LLM ポート。このタスクは実 API を呼ばない。実呼び出しは T-020
     paths:
     - src/quiz_sift/glossary/
     reversible: true
@@ -1976,7 +2119,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: 台本生成に使う LLM ポート。このタスクは実 API を呼ばない。実課金は T-020
+    name: 台本生成に使う LLM ポート。このタスクは実 API を呼ばない。実呼び出しは T-020
     paths:
     - src/quiz_sift/script/
     reversible: true
@@ -2400,10 +2543,13 @@ tasks:
   blocked_by:
   - T-018
   - T-019
+  - T-028
+  - T-030
   claim_ids:
   - C-003
   - C-007
   - C-019
+  - C-020
   domains:
   - measurement
   risk: critical
@@ -2415,25 +2561,25 @@ tasks:
     - tests/measurements/test_full_run_logs.py
   acceptance:
   - id: A-1
-    statement: 100〜200問のフル処理の記録が argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/full-run.md に残り、**経過時間・外部 API 呼び出し回数・推定コストの3項目がいずれも数値として記録されている**。
+    statement: 100〜200問のフル処理の記録が argv・逐語ログ・実行時刻・コミット ID とともに docs/test/measurements/full-run.md に残り、meter.jsonl のその実行の行が設計 NFR-7 節のフィールド一覧の全キーを持つ(判定はその一覧をテスト側に写した定数と比べる)。estimated_cost.status が記録済みで、computed と declared の相対差が数値である。1キーでも欠ければ赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_full_run_records_all_three_metrics
+      - tests/measurements/test_full_run_logs.py::test_full_run_records_every_nfr7_field
       executor_profile: quality
   - id: A-2
-    statement: キャッシュを迂回した再クラスタリング2回の記録が docs/test/measurements/reproducibility.md に残り、**記録された外部 API 呼び出し回数が1回分のちょうど2倍で、割当一致率が数値として記録されている**。2倍でなければ赤。
+    statement: キャッシュを迂回した再クラスタリング2回の記録が docs/test/measurements/reproducibility.md に残り、記録された llm_calls(Protocol 呼び出し数)が1回分のちょうど2倍で、割当一致率が数値として記録されている。2倍でなければ赤。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_reproducibility_records_doubled_calls
+      - tests/measurements/test_full_run_logs.py::test_reproducibility_records_doubled_llm_calls
       executor_profile: quality
   - id: A-3
-    statement: 生成した mp3 に対する無音構造判定の実行結果が docs/test/measurements/audio-silence.md に記録され、**全クラスタについて判定結果が真である**(3.0 秒以上の無音が前後を有音に挟まれて検出された)。1件でも偽なら赤。
+    statement: 生成した mp3 に対する無音構造判定の実行結果が docs/test/measurements/audio-silence.md に記録され、全クラスタについて判定結果が真である(3.0 秒以上の無音が前後を有音に挟まれて検出された)。1件でも偽なら赤。
     evidence:
       kind: command
       command:
@@ -2442,7 +2588,7 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_audio_silence_is_true_for_every_cluster
       executor_profile: quality
   - id: A-4
-    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md に数値として記録され、人が圧縮の質を判定できる。**3値のいずれかが欠ければ赤**(値そのものに合格ラインは設けない — D-004)。
+    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md に数値として記録され、人が圧縮の質を判定できる。3値のいずれかが欠ければ赤(値そのものに合格ラインは設けない — D-004)。
     evidence:
       kind: command
       command:
@@ -2450,13 +2596,29 @@ tasks:
       - -q
       - tests/measurements/test_full_run_logs.py::test_compression_metrics_are_present
       executor_profile: quality
+  - id: A-5
+    statement: full-run.md に実行時の環境変数名の一覧(値は伏せる)が記録され、NFR-8 が列挙した 13 個の metered 認証変数がいずれも含まれず、その状態でフル処理が完走した(終了コード 0、failures_by_kind がすべて 0)ことが機械判定される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_full_run_completed_without_metered_credentials
+      executor_profile: quality
   operator_surface:
+  - kind: security_boundary
+    name: 教材本文がホストの Claude Code セッション記録(最小ホーム配下の .claude/projects/**/*.jsonl)に平文で書かれる。リポジトリの外で、消しても取り消せない(D-086 が許容)
+    paths:
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - src/quiz_sift/adapters/claude_process.py
+    reversible: false
+    adr: ADR-014
   - kind: dependency
-    name: LLM API の課金(フル処理と再現性測定の2回分)
+    name: サブスクリプションのレート枠の消費(フル処理と再現性測定の2回分)。課金は発生しない(NFR-8)
     paths:
     - src/quiz_sift/pipeline/meter.py
     reversible: false
-    adr: ADR-002
+    adr: ADR-013
 - id: T-021
   title: 残る artifact 実測(gitignore 等価性とブラウザ動作)
   kind: integration
@@ -2584,6 +2746,657 @@ tasks:
     - src/quiz_sift/glossary/audio_series.py
     reversible: true
     adr: ADR-004
+- id: T-024
+  title: 子プロセス境界と最小ホーム(CommandRunner / Workspace)
+  kind: foundation
+  blocked_by:
+  - T-031
+  claim_ids:
+  - C-020
+  - C-003
+  domains:
+  - infra
+  - security
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/ports/process.py
+    - src/quiz_sift/adapters/claude_process.py
+    - tests/adapters/__init__.py
+    - tests/adapters/test_claude_process.py
+  acceptance:
+  - id: A-1
+    statement: 親環境に NFR-8 が列挙した 13 個の metered 認証変数すべてに値を入れた状態で、SubprocessRunner が子プロセスへ渡す環境の変数名の集合が {HOME, PATH, LANG, TZ} と一致し(部分集合ではない)、HOME が最小ホームを指す。期待集合はテスト側に要件から写した定数として置き、実装の定数を読まない。 PATH の値は親の PATH をそのまま写す。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_child_env_is_exactly_the_allowlist
+      executor_profile: quality
+  - id: A-2
+    statement: Workspace(home_root, cwd_root) を tmp_path を根にして実物のまま走らせ、new_cwd() がリポジトリの外に空ディレクトリを作り、呼び出しの後始末でそれを消す。HOME 配下のファイル一覧は new_cwd と後始末の前後で変わらない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_workspace_makes_an_empty_cwd_outside_the_repo_and_cleans_it
+      executor_profile: quality
+  - id: A-3
+    statement: 最小ホームのロックは最小ホームのディレクトリ自身の fd に対する fcntl.flock で取り、ファイルを作らない。別プロセスが保持している間の取得は待たずにエラー終了する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_second_holder_fails_fast_without_a_lock_file
+      executor_profile: quality
+  - id: A-4
+    statement: claude_process.preflight() が、最小ホームに .claude/.credentials.json が無い、または settings.json / CLAUDE.md / .mcp.json のいずれかがある場合にエラー終了する。資格情報ファイルは存在を確かめるだけで開かない。SubprocessRunner() と Workspace() の構築そのものは副作用を持たない(D-115)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_minimal_home_is_validated_without_reading_credentials
+      executor_profile: quality
+  - id: A-5
+    statement: PATH に claude が無いとき、claude_process.preflight() が非 0 のエラー終了になり、メッセージが claude の不在を名指す。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_missing_claude_binary_fails_at_startup
+      executor_profile: quality
+  - id: A-6
+    statement: SubprocessRunner は子プロセス1本ごとにタイムアウト(既定 10 分)を持ち、超過で子を終わらせて FailureKind.TIMEOUT を返す。プロンプトは stdin でだけ渡り、一時ファイルを作らない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_process.py::test_timeout_and_prompt_travels_only_on_stdin
+      executor_profile: quality
+  operator_surface:
+  - kind: security_boundary
+    name: 最小ホーム ~/.quiz-sift-claude-home(人が `HOME=~/.quiz-sift-claude-home claude /login` で1回用意する。資格情報1ファイルだけを置く)と、子プロセスへ渡す環境 HOME / PATH / LANG / TZ
+    paths:
+    - src/quiz_sift/adapters/claude_process.py
+    reversible: true
+    adr: ADR-014
+- id: T-025
+  title: プロンプト・スキーマと応答パーサの共有化(ID 完全性)
+  kind: foundation
+  blocked_by:
+  - T-031
+  claim_ids:
+  - C-003
+  domains:
+  - analysis
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/adapters/llm_contract.py
+    - src/quiz_sift/adapters/llm_anthropic.py
+    - tests/adapters/test_llm_contract.py
+    - tests/ports/test_protocols.py
+  acceptance:
+  - id: A-1
+    statement: 分類応答の flatten(groups[].question_ids) + unassigned が、渡した問題キーの集合と多重集合として一致しない呼び出し(欠落・重複・未知のキーの各1件)は INCOMPLETE_IDS の失敗になり、一致する応答だけが割当を返す。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_classification_requires_exact_id_multiset
+      executor_profile: quality
+  - id: A-2
+    statement: '分類スキーマが unassigned: string[] を必須に持ち、システムプロンプトが「どこにも当てはまらない問題は unassigned に入れ、すべてのキーがちょうど1回現れること」を指示する。分類のバッチサイズが 25 である。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_schema_requires_unassigned_and_batch_is_25
+      executor_profile: quality
+  - id: A-3
+    statement: llm_anthropic.py の旧パーサ(_proposals / _string / _schema)が llm_contract.py へ移り、AnthropicLlm がそれを使う。応答に欠けたキーがあっても黙って落とす旧挙動は無くなり、同じ入力で AnthropicLlm も INCOMPLETE_IDS の失敗を返す。 含意判定の判定語のパースも llm_contract に置き、未知の判定語は CONSISTENT にならない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ports/test_protocols.py::test_anthropic_adapter_shares_the_id_completeness_contract
+      executor_profile: quality
+  - id: A-4
+    statement: メソッドごとのモデルが classify_clusters と summarize_cluster で claude-opus-5-5、generate_recall・describe_term・check_entailment で claude-haiku-4-5 になっている(ADR-015)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_model_per_method_follows_adr_015
+      executor_profile: quality
+  - id: A-5
+    statement: llm_prompts.py と llm_contract.py が anthropic を import しない(AST で判定)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_shared_modules_do_not_import_the_sdk
+      executor_profile: quality
+  operator_surface:
+  - kind: default_value
+    name: メソッドごとのモデル割り当て(分類・要約 = claude-opus-5-5、他 = claude-haiku-4-5)と分類のバッチサイズ 25。変えると inputs_digest が動き全段のキャッシュが1回無効化される
+    paths:
+    - src/quiz_sift/adapters/llm_prompts.py
+    reversible: true
+    adr: ADR-015
+- id: T-026
+  title: 失敗分類と逐語ログ(FailureKind 判定表・InvocationRecord・マスク)
+  kind: foundation
+  blocked_by:
+  - T-031
+  - T-003
+  - T-029
+  claim_ids:
+  - C-003
+  - C-014
+  - C-015
+  domains:
+  - analysis
+  - security
+  risk: critical
+  scope:
+    include:
+    - src/quiz_sift/adapters/claude_failure.py
+    - src/quiz_sift/safety/invocation_log.py
+    - src/quiz_sift/safety/secret_mask.py
+    - tests/adapters/test_claude_failure.py
+    - tests/safety/test_invocation_log.py
+    - tests/safety/test_secret_mask.py
+    - tests/support/
+  acceptance:
+  - id: A-1
+    statement: '判定順序が 起動失敗 → タイムアウト → PARSE → TRUNCATED → PROVIDER_ERROR → SCHEMA → INCOMPLETE_IDS であり、2つの条件を同時に満たす入力(例: is_error が真かつ subtype が error_max_turns)がそれぞれ先の種別に落ちる。7種すべてに1件ずつ到達する入力がある。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_failure.py::test_classification_order_reaches_all_seven_kinds
+      executor_profile: quality
+  - id: A-2
+    statement: subtype が error_max_turns の結果は TRUNCATED、JSON でない stdout は PARSE、rate_limit_event を伴って is_error が真の結果は PROVIDER_ERROR に落ち、最後に観測した rate_limit_info の status と resetsAt が失敗の記録に残る。レート制限を再試行する経路が無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_failure.py::test_rate_limit_is_a_provider_error_with_resets_at
+      executor_profile: quality
+  - id: A-3
+    statement: init イベントの tools が {StructuredOutput} と一致しない呼び出し、および stream-json の途中に StructuredOutput 以外の tool_use が現れた呼び出しは失敗(PROVIDER_ERROR)になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_failure.py::test_tools_outside_the_allowlist_fail_the_call
+      executor_profile: quality
+  - id: A-4
+    statement: InvocationRecord が argv / exit_code / duration_sec / usage / failure_kind / rate_limited / rate_limit_evidence / stdin_sha256 / stdin_len / stdout_masked / stderr_masked を別フィールドで持ち、ログはそのレンダリングとして出る。stdin の本文はどのフィールドにも入らない。合成の教材本文を含む stdout は MaterialTextFilter でマスクされて出る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_invocation_log.py::test_record_fields_are_separate_and_stdin_body_never_appears
+      executor_profile: quality
+  - id: A-5
+    statement: secret_mask が OAuth トークンの形(sk-ant-oat で始まる文字列)と .credentials.json のパス文字列をマスクする。マスクを外した実装に対してこのテストが赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_secret_mask.py::test_oauth_token_and_credentials_path_are_masked
+      executor_profile: quality
+  - id: A-6
+    statement: 'T-026 のテストが使う stream-json のイベント列は、すべて tests/support/claude_fake.py の単一のファクトリから作られる。走査は tests/support/claude_fake.py の関数 assert_no_inline_stream_json(tests_root) の1本で行い、その定義は次のとおり: 対象は tests/ 配下の *.py のうち tests/support/ と tests/measurements/ を除いたもの。キー "type" の値が system / assistant / user / result / rate_limit_event のいずれかである dict リテラル、またはそれを含む文字列リテラルが1つでもあれば赤。tests/fixtures/ の .stdout は *.py ではないので対象外。 この関数は T-026 が置き、T-027 A-6 も同じ関数を呼ぶ。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_failure.py::test_event_streams_come_only_from_the_fake_factory
+      executor_profile: quality
+  operator_surface:
+  - kind: observability
+    name: 逐語ログ(argv・usage・失敗種別・レート制限の証拠・マスク済み stdout / stderr。stdin は sha256 と長さだけ)
+    paths:
+    - src/quiz_sift/safety/invocation_log.py
+    - src/quiz_sift/adapters/claude_failure.py
+    reversible: true
+    adr: ADR-013
+- id: T-027
+  title: Claude Code CLI アダプタ(ClaudeCliLlm)
+  kind: parallel
+  blocked_by:
+  - T-031
+  - T-024
+  - T-025
+  - T-026
+  - T-029
+  claim_ids:
+  - C-020
+  - C-003
+  - C-019
+  domains:
+  - analysis
+  - infra
+  risk: critical
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - tests/adapters/test_llm_claude_cli.py
+    - tests/adapters/test_claude_contract.py
+    - tests/support/
+  acceptance:
+  - id: A-1
+    statement: ClaudeCliLlm が組み立てる argv が、有効ツールを StructuredOutput に絞る --settings の deny 列挙・--strict-mcp-config と空の --mcp-config・--output-format stream-json と --verbose・3 以上の --max-turns を含み、--dangerously-skip-permissions を含まず --permission-mode が bypassPermissions / acceptEdits でない。システムプロンプトにも argv のどこにも教材本文が入らない。T-029 の成功フィクスチャの meta が記録した argv と、プロンプト・スキーマ・モデル以外で一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_argv_matches_the_frozen_shape_and_the_fixture
+      executor_profile: quality
+  - id: A-2
+    statement: ClaudeCliLlm.__init__ の本体が属性代入と引数なしのクラス呼び出しだけで、if / match / try / 添字 / os.environ / ファイル読み出し / importlib を含まず、キーワード既定値を持たない(AST で判定)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_init_body_is_assignments_and_bare_class_calls
+      executor_profile: quality
+  - id: A-3
+    statement: Workspace を tmp_path を根にした実物のまま使い spawn だけ fake に差し替えた呼び出しで、製品が HOME 配下に作成したファイルが 0 件であり、runner が観測した env のキーが {HOME, PATH, LANG, TZ} と一致し、CommandSpec.cwd がその呼び出しの new_cwd() であって spawn の時点で空である。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_a_call_creates_nothing_under_home
+      executor_profile: quality
+  - id: A-4
+    statement: usage は成否の判定より先に meter へ渡り、PARSE / SCHEMA / TRUNCATED / INCOMPLETE_IDS / PROVIDER_ERROR のどれで終わった呼び出しでもトークンが記録される。1回の classify_clusters が 25 問ごとに分割されて provider_invocations を増やし、llm_calls は 1 だけ増える。失敗があれば ClassificationResult.failures に入り、その reason は FailureKind の値で始まる。再試行しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_usage_is_recorded_before_judging_and_no_retry
+      executor_profile: quality
+  - id: A-5
+    statement: 実パーサが T-029 の3件のフィクスチャを読み、成功は割当を返し、error_max_turns は TRUNCATED、不正スキーマの Error 出力は PARSE に落ちる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_contract.py::test_real_fixtures_parse_to_the_expected_kinds
+      executor_profile: quality
+  - id: A-6
+    statement: tests/support/claude_fake.py の単一のファクトリだけが fake の出力を作り(T-026 が置いた assert_no_inline_stream_json(tests_root) で判定。定義は T-026 A-6 と同一)、その出力のキー骨格が成功フィクスチャと同一である。usage.cache_read_input_tokens を落とした fake に対してこの骨格判定が赤になる(negative control)。ファクトリは、任意の structured_output・7種それぞれの失敗の形・PATH に置ける実行ファイルとしての入口(stdin のプロンプトから問題キーを読んで同じ多重集合を返す)を提供する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_claude_contract.py::test_fake_output_has_the_fixture_skeleton_with_negative_control
+      executor_profile: quality
+  - id: A-7
+    statement: fake の1回の呼び出しで、meter に begin_invocation(argv_digest) の現 argv のダイジェスト、end_invocation の model・num_turns・usage・total_cost_usd、record_quota の rate_limit_info が実際に届く(記録用の meter で観測する)。どれか1つを渡さない実装は赤。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_every_nfr7_value_reaches_the_meter
+      executor_profile: quality
+  - id: A-8
+    statement: check_entailment が llm_contract の判定語パーサを通り、未知の判定語は CONSISTENT にならない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_entailment_uses_the_shared_parser
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: ホストの claude CLI(Claude Code、サブスクリプション認証、ログイン済み)。ゲート内では spawn だけが fake に差し替わる。CLI は自動更新され版を凍結できない
+    paths:
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    reversible: true
+    adr: ADR-013
+- id: T-028
+  title: 既定 LLM の切り替え(composition と CLI の結線、SDK 経路の撤去)
+  kind: integration
+  blocked_by:
+  - T-018
+  - T-027
+  claim_ids:
+  - C-020
+  - C-003
+  - C-016
+  - C-017
+  domains:
+  - infra
+  risk: critical
+  scope:
+    include:
+    - src/quiz_sift/composition.py
+    - src/quiz_sift/cli.py
+    - src/quiz_sift/adapters/llm_anthropic.py
+    - pyproject.toml
+    - uv.lock
+    - tests/nfr8/
+    - tests/test_cli.py
+    - tests/ports/test_protocols.py
+    - tests/safety/test_entailment.py
+    - tests/support/
+  acceptance:
+  - id: A-1
+    statement: 新規インタプリタで、親環境に 13 個の metered 認証変数を入れ sys.path にスタブの anthropic パッケージを置いた状態で、既定構成のクラスタリング段を1回走らせた後、sys.modules に anthropic が無く、同じ実行で build_default_llm() が呼ばれ llm_calls ≥ 1 である(positive control)。anthropic が import できなければ skip せず失敗する。claude は PATH に置いた fake 実行ファイル、最小ホームはテストが作った tmp の HOME で満たす。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/nfr8/test_no_metered_sdk.py::test_default_run_never_loads_the_sdk
+      executor_profile: quality
+  - id: A-2
+    statement: 選択点を SDK アダプタへ差し替えた版で同じ判定が赤になり、その差し替え版でも llm_calls ≥ 1 が緑である(negative control。import だけで赤になったのではないことを示す)。AnthropicLlm のコンストラクタは (meter) の1引数で、クライアントは本体で構築する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/nfr8/test_no_metered_sdk.py::test_swapping_in_the_sdk_adapter_goes_red
+      executor_profile: quality
+  - id: A-3
+    statement: composition.build_default_llm の本体が return 文1つで、右辺が inspect.isclass で確かめたクラス名の直接呼び出しであり、If / Match / Try / Subscript / IfExp / BoolOp / Lambda / Attribute / comprehension / Import を含まない。src/ 全体で Llm を実装するクラスを構築する式が composition.py の1箇所だけである。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/nfr8/test_composition.py::test_single_static_selection_point
+      executor_profile: quality
+  - id: A-4
+    statement: pyproject.toml のコンソールスクリプトがちょうど1つで、それと __main__ ガードを持つモジュール(python -m の入口)すべてから到達可能な import グラフに、anthropic など metered API へ HTTP を発行しうるモジュールが 0 件である。cli.py は llm_anthropic を import しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/nfr8/test_entry_points.py::test_no_entry_point_reaches_a_metered_client
+      executor_profile: quality
+  - id: A-5
+    statement: LlmFactory が Callable[[RunMeter], Llm] になり、LLM を使う段は最初の LLM 呼び出しより前に claude_process.preflight() を通し、PATH に claude が無い、または最小ホームが不正なら LLM を1回も呼ばずに非 0 で終わる。外部 LLM 呼び出しに失敗があった実行は下流へ進まず非 0 で終わり、サマリに未分類比率・最大クラスタ比率・失敗件数が出る。実経過時間が上限(既定 12 時間)を超えた実行も非 0 で終わる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_llm_stages_meter_quota_and_stop_on_failure
+      executor_profile: quality
+  - id: A-6
+    statement: 各段の inputs_digest に、その段で使うメソッドのモデル ID(ADR-015 の割り当て)が入る。ある段のモデルだけを変えるとその段の digest が変わり、キャッシュが無効化される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_stage_digest_carries_the_models_it_uses
+      executor_profile: quality
+  - id: A-7
+    statement: 途中の段から再実行したとき、それより前の段の llm_calls と provider_invocations がどちらも 0 である(fake runner の起動回数で数える)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_resume_makes_no_llm_calls_or_invocations_upstream
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: コンソールスクリプト quiz-sift(1本だけ)と、既定 LLM の唯一の選択点 composition.build_default_llm
+    paths:
+    - pyproject.toml
+    - src/quiz_sift/composition.py
+    reversible: true
+    adr: ADR-013
+  - kind: dependency
+    name: anthropic は本サイクルでは通常依存のまま残る(D-103)。製品の実行経路からは到達しない
+    paths:
+    - pyproject.toml
+    reversible: true
+    adr: ADR-013
+- id: T-029
+  title: 【ホスト】実 CLI の契約フィクスチャ採取と init.tools の実測
+  kind: foundation
+  blocked_by:
+  - T-007
+  claim_ids:
+  - C-020
+  - C-018
+  domains:
+  - infra
+  - measurement
+  risk: high
+  scope:
+    include:
+    - tests/fixtures/claude_cli/
+    - tests/measurements/collect_claude_cli.py
+    - tests/measurements/test_claude_cli_logs.py
+    - docs/test/measurements/claude-cli-contract.md
+  acceptance:
+  - id: A-1
+    statement: tests/fixtures/claude_cli/ に実 CLI から採取した生の stdout 3件(成功 / --max-turns 1 による error_max_turns / 不正な --json-schema による JSON でない Error 出力)と、それぞれの .meta.yaml(採取日・claude --version の出力・モデル・採取に使った argv 全体・合成プロンプト全文・stdout の sha256)がある。
+    evidence:
+      kind: artifact
+      paths:
+      - tests/fixtures/claude_cli/success.stdout
+      - tests/fixtures/claude_cli/success.meta.yaml
+      - tests/fixtures/claude_cli/error_max_turns.stdout
+      - tests/fixtures/claude_cli/error_max_turns.meta.yaml
+      - tests/fixtures/claude_cli/invalid_schema.stdout
+      - tests/fixtures/claude_cli/invalid_schema.meta.yaml
+  - id: A-2
+    statement: 各 .meta.yaml の sha256 が対応する stdout と一致し、成功フィクスチャの argv が設計 NFR-8 節の (e) の argv(stream-json・--verbose・--max-turns 3・インライン --json-schema・--exclude-dynamic-system-prompt-sections・--strict-mcp-config・空の --mcp-config・全ツール deny の --settings・--permission-mode default)と一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_claude_cli_logs.py::test_fixtures_match_their_meta_and_the_design_argv
+      executor_profile: quality
+  - id: A-3
+    statement: 成功フィクスチャの init イベントの tools が {StructuredOutput} と一致し、apiKeySource が none であることが docs/test/measurements/claude-cli-contract.md に記録され、その値がフィクスチャ本体から読んだ値と一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_claude_cli_logs.py::test_init_tools_is_exactly_structured_output
+      executor_profile: quality
+  - id: A-4
+    statement: 採取は HOME を最小ホームに向け、親環境に metered 認証変数を1つも持たない状態で行われたことが記録され(変数名の一覧のみ。値は書かない)、最小ホームのファイル一覧が採取の前後で記録されている。合成プロンプト以外の本文はフィクスチャに含まれない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_claude_cli_logs.py::test_collection_ran_in_the_minimal_home_without_metered_vars
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: 人が事前に最小ホームを用意すること(`HOME=~/.quiz-sift-claude-home claude /login`)と、合成プロンプトによる実 CLI 呼び出し3回ぶんのレート枠
+    paths:
+    - tests/measurements/collect_claude_cli.py
+    reversible: true
+    adr: ADR-014
+- id: T-030
+  title: 【ホスト】オーバーヘッド定数の実測(モデル別・3点)とモデル別の枠の重み
+  kind: integration
+  blocked_by:
+  - T-027
+  claim_ids:
+  - C-019
+  domains:
+  - measurement
+  - observability
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/pipeline/overhead.py
+    - tests/measurements/measure_overhead.py
+    - tests/measurements/test_overhead_logs.py
+    - docs/test/measurements/overhead-claude-opus-5-5.md
+    - docs/test/measurements/overhead-claude-haiku-4-5.md
+  acceptance:
+  - id: A-1
+    statement: 2モデルそれぞれについて、既知長の合成ブロックを k = 1, 2, 3 回反復した入力の総入力トークンと num_turns が、ClaudeCliLlm と同じ argv(そのダイジェストつき)で測られ、docs/test/measurements/overhead-<model>.md に数値表として記録されている。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_overhead_logs.py::test_three_point_tables_exist_for_both_models
+      executor_profile: quality
+  - id: A-2
+    statement: 表から最小二乗で求めた切片 c を num_turns で割った値が pipeline/overhead.py のモデル別 per_turn_tokens と一致し、定数が measured_at・cli_version・計上先のバケツ・argv_digest を持ち、argv_digest が現在の ClaudeCliLlm の argv のダイジェストと一致する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_overhead_logs.py::test_constants_are_recomputed_from_the_tables
+      executor_profile: quality
+  - id: A-3
+    statement: 3点の残差が線形性を反証しない(各点の予測誤差が記録した許容幅以内)ことと、Σ_model(overhead_model × turns_model) + material が各点の報告された入力トークン合計に一致することが判定される。material を合計からの差し引きで出した表に対して判定が赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_overhead_logs.py::test_linearity_and_identity_hold_without_subtraction
+      executor_profile: quality
+  operator_surface:
+  - kind: dependency
+    name: 最小ホームでの実 CLI 呼び出し(合成プロンプトのみ、2モデル × 3点)ぶんのレート枠
+    paths:
+    - tests/measurements/measure_overhead.py
+    reversible: true
+    adr: ADR-013
+- id: T-031
+  title: 計測の作り直し(RunMeter と notional コスト)
+  kind: foundation
+  blocked_by:
+  - T-002
+  claim_ids:
+  - C-019
+  domains:
+  - infra
+  - observability
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/ports/metering.py
+    - src/quiz_sift/ports/__init__.py
+    - src/quiz_sift/pipeline/meter.py
+    - src/quiz_sift/pipeline/overhead.py
+    - tests/ports/test_metering.py
+    - tests/pipeline/test_meter.py
+  acceptance:
+  - id: A-1
+    statement: ports/metering.py に RunMeter(UsageRecorder を継承し begin_call / begin_invocation / end_invocation / record_quota / record_failure を持つ)と、7種の FailureKind が定義され、Meter が RunMeter を満たす。ports/metering.py は adapters を import しない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ports/test_metering.py::test_run_meter_protocol_and_failure_kinds
+      executor_profile: quality
+  - id: A-2
+    statement: Meter.finish が書く JSON Lines の1行に、設計 NFR-7 節のフィールド一覧の全キー(run_id から quota_at_end まで)が現れ、llm_calls・provider_invocations・model_turns・turns_by_model が begin_call / begin_invocation / end_invocation の回数と num_turns の総和に一致する。quota_at_start / quota_at_end は record_quota が最初と最後に受けた値である。キーを1つでも欠く行は赤。T-002 の A-2 / A-3 のテストノード(test_meter_records_run_fields / test_token_breakdown_and_price_provenance)は緑のまま残る(D-113)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_meter_line_carries_every_nfr7_field
+      executor_profile: quality
+  - id: A-3
+    statement: 既知のトークンベクタと既知の単価表に対する estimated_cost.computed が手計算の期待値に一致し、declared(end_invocation に渡った cost_usd の総和)と relative_diff が記録される。単価が1つでも 0 なら status が unavailable / zero_price になり、単価表に無いモデル ID では例外を投げず unavailable / unknown_model になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_notional_cost_computed_declared_and_unavailable
+      executor_profile: quality
+  - id: A-4
+    statement: 既定の単価表が claude-opus-5-5 と claude-haiku-4-5 の2モデルを持ち、4値の単価がすべて 0 より大きく、各モデルが priced_at と取得元 URL(空でない)を持つ。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_price_table_has_two_models_with_sources
+      executor_profile: quality
+  - id: A-5
+    statement: usage が None で終わった呼び出しは invocations_without_usage に、turns が None の呼び出しは invocations_without_turns に数えられ、失敗した呼び出しの usage もトークン総量に加算される。failures_by_kind は7種すべてのキーを持つ。ended_by_rate_limit は D-110 の規則(実行を止めた失敗が PROVIDER_ERROR で、その呼び出しの最後の rate_limit_info の status が allowed_warning 以外)で真になり、真のとき resetsAt を併記する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_failed_and_usage_less_invocations_are_counted
+      executor_profile: quality
+  - id: A-6
+    statement: overhead がモデル別の写像として出力され、記録された argv_digest が begin_invocation に渡された argv のダイジェストと違う、または定数が無いモデルは unknown と報告される。テストは定数表を注入して判定し、pipeline/overhead.py の既定の表に依存しない(T-030 が表を埋めても赤にならない)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_overhead_is_unknown_on_argv_mismatch_and_quota_is_recorded
+      executor_profile: quality
+  - id: A-7
+    statement: 'estimated_cost に "notional": true が入り、同じ行に免責の1行が含まれ、キーにも値にも billed / charged / 実課金 の語が現れない。語を1つ差し込んだ出力に対して判定が赤になる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_output_is_notional_and_never_claims_billing
+      executor_profile: quality
+  operator_surface:
+  - kind: observability
+    name: 実行ログ out/<deck>/meter.jsonl(notional コスト・3つの呼び出し回数・レート枠の使用率)。単価表の取得元 URL は人が読んで確かめる
+    paths:
+    - src/quiz_sift/pipeline/meter.py
+    reversible: true
+    adr: ADR-013
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements

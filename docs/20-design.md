@@ -60,7 +60,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 | Area | Choice | Rationale (ADR) |
 |------|------|-----------|
 | Language/runtime | Python 3.13 / Next.js · React | D-012, D-018 |
-| LLM | **Claude Code CLI(`claude -p`、サブスクリプション認証)**。分類・要約は `claude-opus-5`、想起・用語・含意は `claude-haiku-4-5` の混成。`ports/llm.py` のタスク別メソッド越し | ADR-013, ADR-015(ADR-002 を一部 supersede) |
+| LLM | **Claude Code CLI(`claude -p`、サブスクリプション認証)**。分類・要約は `claude-opus-5-5`、想起・用語・含意は `claude-haiku-4-5` の混成。`ports/llm.py` のタスク別メソッド越し | ADR-013, ADR-015(ADR-002 を一部 supersede) |
 | クラスタリング | LLM に直接分類させ、排他分割と「その他」は後処理で強制 | ADR-003 |
 | TTS | CosyVoice(ローカル OSS、Apache-2.0) | ADR-004 |
 | 形態素解析 | fugashi + unidic(語句実在性の判定) | ADR-010 |
@@ -174,7 +174,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   キャッシュは NFR-4 の**成果物キャッシュのみ**とし、**LLM レスポンスキャッシュは置かない**
   (AR-26: どの要件も強制しておらず、置けば R-3 の「2回の実行で API 呼び出しが2倍になる」基準が
   それを検出するために存在することになる)。再現性測定は成果物キャッシュを迂回して2回走らせ、
-  API 呼び出し回数が1回分の2倍になることを確認する。
+  `llm_calls` が1回分の2倍になることを確認する。
   要約の語句実在性は `grounding/` が名詞句を切り出して照合する(R-4 と共有。重複実装を
   作らない)。**形態素解析だけでは足りない**: 実測(2026-09-22)で fugashi + unidic-lite は
   「Amazon EventBridge のルールで S3 のイベントを捕捉する」から Amazon / EventBridge / ルール /
@@ -215,11 +215,6 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   違反するアダプタが、要件が認めた経路で構築可能な状態でリポジトリに残る**。パーサを共有すれば
   2つのアダプタの意味が分岐しない。この書き換えで `inputs_digest` が動き、全ステージの
   キャッシュが1回無効化される(NFR-4 の性質は保つ)。
-  **タイムアウトは子プロセス1本に置く**(既定 10 分)。レート制限と判定した時点で子プロセスは
-  既に終わっているので、**待機は窓の外側で起き、次の起動は新しい窓を持つ** — AR-53 が要求した
-  「待機中は計時を止める」がタイマを止める実装なしで構造的に成立する。全体は実経過時間 12 時間で
-  外から止める(AR-52)。**再試行はレート制限だけ**とし、パース失敗やスキーマ不適合は1回で失敗確定
-  (再試行すると「失敗件数が実際の失敗数と一致する」の意味が壊れる)。
 - **What this requires of a person**:
   (1) ホストに `claude` が在りログイン済みであること、および ADR-014 の最小ホームのセットアップ。
   **API キーは要らなくなった**(ADR-013)。
@@ -576,18 +571,23 @@ Playwright chromium の起動を個別に確認した(最後のものは結局�
 ```
 class RunMeter(UsageRecorder, Protocol):
     def begin_call(self, method: str) -> None: ...       # llm_calls += 1
-    def begin_invocation(self) -> InvocationScope: ...   # provider_invocations += 1、稼働区間
-    def end_invocation(self, model: str, turns: int | None, usage: TokenUsage | None) -> None: ...
-    def record_quota(self, when: str, info: RateLimitInfo) -> None: ...   # when = start | end
+    def begin_invocation(self, argv_digest: str) -> InvocationScope: ...   # provider_invocations += 1(D-107)
+    def end_invocation(self, model: str, turns: int | None, usage: TokenUsage | None,
+                       cost_usd: float | None) -> None: ...   # cost_usd = total_cost_usd(D-114)
+    def record_quota(self, info: RateLimitInfo) -> None: ...   # 最初の観測を start、最後を end に(D-114)
     def record_failure(self, kind: FailureKind) -> None: ...
 ```
+
+**レート枠は `rate_limit_event` を読むアダプタが `record_quota` で渡す**(D-114)。`Llm` Protocol を変えない
+方針なので cli は `RateLimitInfo` を観測できず、meter が最初に受けた値を `quota_at_start`、最後に受けた値を
+`quota_at_end` にする。
 
 `LlmFactory` は `Callable[[RunMeter], Llm]` になる。`Meter` が `RunMeter` を満たすので
 `UsageRecorder` の口は温存され、`Llm` Protocol は不変のまま。
 
 **2つの呼び出し回数**(AR-38)。`llm_calls` は Protocol メソッド1回、`provider_invocations` は
-子プロセス1本。差が生まれる要因は**チャンク分割**と**レート制限の再起動**の2つだけ(D-091 により
-再試行はレート制限のみ)なので、2語の差は常に説明可能である。
+子プロセス1本。差が生まれる要因は**チャンク分割**だけ(D-101 により再試行しない)なので、
+2語の差は常に説明可能である。
 
 **3つの呼び出し回数**(AR-57)。`model_turns` はエンベロープの `num_turns` の総和で、**レート枠を
 消費するのはこれ**。`--json-schema` の結果が `StructuredOutput` ツール経由で配送されるため、成功
@@ -615,22 +615,23 @@ class RunMeter(UsageRecorder, Protocol):
 名前で示す)。`Meter.finish` が出す JSON Lines の行:
 `run_id` / `started_at` / `finished_at` / `elapsed_sec` / `llm_calls` / `provider_invocations` /
 `model_turns` / `turns_by_model` / `max_concurrency` / `tokens`(4値の内訳ごとの総量)/ `tokens_by_model` /
-`notional_cost`(`computed` / `declared` / `relative_diff` / `status`)/ `prices`(出所つき、2モデル分)/
-`overhead`(`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `material`)/
+`estimated_cost`(`notional: true` / `computed` / `declared` / `relative_diff` / `status`)/ `prices`(出所つき、2モデル分)/
+`overhead`(`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns`)/
 `failures_by_kind`(7種)/ `invocations_without_usage` / `invocations_without_turns` /
 `ended_by_rate_limit`(真なら `resetsAt` を併記)/ `quota_at_start` / `quota_at_end`
 (後2者は `five_hour` と `seven_day` それぞれの `utilization` と `resetsAt`)。
 `overhead` は **モデル別の写像**(`tokens_by_model` / `prices` と同じ形)で、各要素が
-`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns` を持ち、
-`material` は全体で1つ。**正直な注記**: 直列実行ではこの値の大半がレート制限の待機ではなく
-Python 側の処理時間(パース・検証・形態素解析)になるので、**レート制限の待機は
-`rate_limit_wait_sec` として別に積み**、出力に読み方を併記する。
+`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns` を持つ。
+**実行ログには `material` を置かない**(D-116)。フル処理で material を独立に得る手段は無く、
+「合計 − Σ overhead×turns」で出せば AR-51 が禁じた恒等式に戻る。恒等式の判定は T-030 の較正表
+(既知長の合成プロンプト)でだけ行う。レート制限で終わった実行は待機しないので、待機時間の欄は置かない
+(D-091 撤回)。
 
 **notional コスト**。自算値は既存 `ModelPrice.cost`(4値 × 単価)、申告値は `total_cost_usd` の
 総和、相対差は `(declared - computed) / computed`。**単価が1つでも 0 なら
 `{"status":"unavailable","reason":"zero_price"}` を書き、「記録済み」と報告しない**(AR-36)。
-キー名を `estimated_cost` → `notional_cost` に改名し、`"notional": true` と免責の1行を同じ行に
-書く。**実課金額を主張する語(`billed` / `charged` / `実課金`)がログとレポートに現れないことを
+キー名は `estimated_cost` のまま残し(D-113。改名すると done の T-002 の凍結基準が偽になる)、
+その中に `"notional": true` を、同じ行に免責の1行を書く。**実課金額を主張する語(`billed` / `charged` / `実課金`)がログとレポートに現れないことを
 機械判定する**。単価表は 2 モデル分(ADR-015)で、`priced_at` に加えて**取得元**を持つ。
 
 > **注記(Risks へも載せる)**: `total_cost_usd` はサブスクリプション実行でも返るが、これは CLI が
@@ -640,7 +641,8 @@ Python 側の処理時間(パース・検証・形態素解析)になるので�
 
 **固定オーバーヘッドの分離**(AR-41 / AR-51 / AR-76)。定数は**モデルごと**に
 `OverheadConstant(model, per_turn_tokens, bucket, measured_at, cli_version, argv_digest)` として持ち、
-判定は **`Σ_model (overhead_model × turns_model) + material = 報告された入力トークン合計`**。
+判定は **`Σ_model (overhead_model × turns_model) + material = 報告された入力トークン合計`**
+(material が独立に分かる較正表の上でだけ判定する。D-116)。
 ADR-015 の混成でモデルごとに値が違うので、単一の `overhead × num_turns` では真になりえない。
 ログの `overhead` フィールドも `tokens_by_model` / `prices` と同じく**モデル別の写像**にする。
 **切片は「1子プロセスあたり」であって「1ターンあたり」ではない**(AR-76)ので、`total(k) = c + k·m`
@@ -676,9 +678,9 @@ ADR-013 が経路を決め、ADR-014 が境界を決めた。ここは **(a)〜(
 | `ports/metering.py` | `RunMeter` Protocol |
 | `adapters/llm_prompts.py` | system プロンプトと JSON Schema。**SDK に触らない** |
 | `adapters/llm_contract.py` | 応答の純粋パーサ(ID 完全性検査を含む)。**既存 `llm_anthropic.py` の `_proposals` / `_string` / `_schema` をここへ移して共有する**(AR-67。再実装しない) |
-| `adapters/llm_claude_cli.py` | `ClaudeCliLlm`。argv 組み立て・stdin・失敗分類・待機 |
+| `adapters/llm_claude_cli.py` | `ClaudeCliLlm`。argv 組み立て・stdin・失敗分類 |
 | `adapters/claude_process.py` | `SubprocessRunner`(実 spawn)と `Workspace`(空 cwd / 最小ホーム) |
-| `adapters/claude_failure.py` | `FailureKind` と、出所つきのレート制限判定 |
+| `adapters/claude_failure.py` | `FailureKind` 7種と判定順序(レート制限は `PROVIDER_ERROR`) |
 | `safety/invocation_log.py` | 逐語ログの構造化レコードとマスク |
 
 **前提作業(これが無いと (a) と (d) が確定的に赤)**: `src/quiz_sift/cli.py` の
@@ -755,7 +757,7 @@ AST で走査する(これが無いと「選択点は1つ」が `composition.py`
 ```
 claude -p --output-format stream-json --verbose --max-turns 3
   --json-schema <インライン JSON>          ← ファイルパスは受け付けない(実測)
-  --model <claude-opus-5 | claude-haiku-4-5>
+  --model <claude-opus-5-5 | claude-haiku-4-5>
   --system-prompt <タスク別。教材本文を含まない>
   --exclude-dynamic-system-prompt-sections
   --strict-mcp-config --mcp-config {"mcpServers":{}}
@@ -793,22 +795,24 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
 
 **並行度は 1(直列)で凍結する**(D-100)。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分で、R-3 の全体
 上限 12 時間に収まる。並列化してもレート枠は増えないので、**枠が binding なら利得はゼロで枠に速く
-当たるだけ**。加えて並列化は (i) 最小ホームの共有による `.claude.json` 同時書き込み、(ii) 
-累積待機時間の定義破壊(どれか1本が生きていれば待機区間が 0 になる)を同時に持ち込む。
+当たるだけ**。加えて並列化は最小ホームの共有による `.claude.json` 同時書き込みを持ち込む。
 `MAX_CONCURRENCY` は1箇所の定数にしておき、T-020 で枠に余裕があると分かった次サイクルで上げる。
 
 **並行度 1 は1実行の中でしか効かない**(AR-64)。最小ホームは `~/.quiz-sift-claude-home` という
 **固定パスのプロセス間共有資源**なので、R-3 が要求する「キャッシュを迂回した2回の実行」を並行に
 走らせたり、人が別シェルで別の段を起動したりすれば、2つの `claude` が同じ `.claude.json` を
 同時に書く。**(b) の判定そのものも壊れる** — fake runner の差分観測が、別プロセスの書き込みを
-「製品が作ったファイル」として数える。**最小ホームの使用をプロセス間ロック(`HOME` 配下の
-ロックファイル)で直列化し、取得できなければ起動時にエラー終了する**。
+「製品が作ったファイル」として数える。**最小ホームの使用をプロセス間ロックで直列化し、取得できなければ
+起動時にエラー終了する**。ロックは**最小ホームのディレクトリ自身の fd に `fcntl.flock` を掛ける**形にし、
+ロックファイルを作らない(D-105)。`HOME` 配下にロックファイルを置くと、(b) の「製品が `HOME` 配下に
+作成したファイルが 0 件」を製品自身が破る。
 
 - **証拠種別**: (a)〜(e) と (g) は `command`。**`init.tools` が実際に許容集合に収まることの確認は
   `artifact`**(ゲートでは argv の形しか見えず、AR-43 と同じ自己確認の穴がここにも開くため、
   ホスト実測を1本置いて塞ぐ)。(f) は T-020 の実測ログに対する `artifact`。
 - **What this requires of a person**: ADR-014 の最小ホームを1回セットアップすること。
-  サンドボックスイメージの再ビルドとダイジェストの再ピン(`anthropic` の extra 化に伴う)。
+  **サンドボックスイメージの再ビルドは本サイクルでは不要**(D-103。`anthropic` は通常依存のまま残し、
+  extra 化は次サイクルに回す)。
 - **Reversibility**: **可逆**。
 
 ## Risks / trade-offs
@@ -847,10 +851,10 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
 - **NFR-8 は否定的証拠にとどまる**(D-087)。`apiKeySource` は D-093 により本番経路で観測できる
   ようになったが、**要件は毎回の検証を課していない**。hooks・ユーザメモリ・システム管理設定から
   指示や権限が入る経路は製品コードでは塞げず、criterion の「この基準が測っていないこと」へ落とした。
-- **有効ツールを 0 件にできない**(実測)。危険な9本は消せるが、セッション管理系 19 本
-  (`Skill`・`SendMessage`・`CronCreate`・`RemoteTrigger` など)が残る。最小ホームにスキルも
-  プラグインも置かないこと(ADR-014)と `--max-turns 3` で爆発半径は有限だが、**ゼロではない**。
-  教材本文は Udemy 由来の第三者テキストであり、注入の可能性は消えていない。
+- **有効ツールは `StructuredOutput` の1本までしか削れない**(実測)。それはファイルシステムにも
+  ネットワークにも触れないので脅威モデル上は 0 件と等価だが、**CLI の更新で deny の列挙から漏れる
+  新ツールが増えれば黙って有効になる**。ゲートは argv しか見ないのでこれを検知できず、ホスト実測の
+  `init.tools`(NFR-8 (e)1 の `artifact`)を取り直したときに初めて分かる。
 - **週次のレート枠が 2026-09-25 時点で 95%**(実測)。D-085 は「枠を実測せず凍結する」と決めたが、
   `rate_limit_event` により**枠を使い切らずに使用率が読める**ことが分かった。T-020 は
   7日枠がリセットされる 2026-09-28 08:00 JST 以降でなければ完走しない見込み。
@@ -868,16 +872,15 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
   前サイクルで `L-REQ-FAILURE-MODES` を「人間が採用と判断したのにレビュアー枠を使い切っていて
   要件段階に一度も当たらなかった」と記録したのと同じ失敗を繰り返さないため。**採否そのものは
   人間が mandate で決める**ので、採らない判断なら今回の適用記録ごと落とせばよい。
-- **レート制限の判定表は、返却の「形」までは実測していない**。`rate_limit_event` の構造は
-  `status: allowed_warning` の状態で観測したが、**実際に枠を使い切ったときに何が返るか**
-  (`status` の値、そもそもイベントが出るのか、子プロセスが非 0 で終わるのか)は未観測。
-  設計は fail-closed(表に当たらない失敗は必ず失敗側)なので、**形が違えばレート制限が
-  `PROVIDER_ERROR` として失敗計上され、T-020 が途中で非 0 終了する**。逆向き(未知を待機に倒す)は
-  プロダクト全体を静かに壊すので、この倒し方を選んだ。
+- **枠を使い切ったときの返却の「形」は実測していない**。`rate_limit_event` の構造は
+  `status: allowed_warning` の状態で観測したが、枠切れ時に `status` が何になるか、イベントが出るのか、
+  stdout が JSON のままかは未観測。D-091 撤回によりどの形でも失敗に倒れて非 0 終了するので
+  **判定は壊れない**が、JSON でない出力なら `PARSE` に分類され **`resetsAt` がログに残らない**。
+  その場合、人はリセット時刻を CLI 外で確かめて再実行する。
 - **オーバーヘッド定数が日/セッションでぶれるかは未実測**。`argv_digest` は argv の変化を検知するが、
   同じ argv で値がぶれる場合は検知できない。ぶれるなら「定数」の前提が崩れ、NFR-7 の分離が
   `unknown` を報告し続けることになる。
-- **単価表の取得元 URL がまだ空**。NFR-7 が出所を要求しており、`claude-opus-5` と
+- **単価表の取得元 URL がまだ空**。NFR-7 が出所を要求しており、`claude-opus-5-5` と
   `claude-haiku-4-5` の両方について埋めないと **C-019 が判定不能**になる。`/tasks` の作業項目。
 
 ## Adversarial review

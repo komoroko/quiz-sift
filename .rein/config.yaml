@@ -278,7 +278,9 @@ review_policy:
     # 受け取る security reviewer の 840,373 バイトだけ。これは水増しではなく1回の launch に
     # 実際に渡る量なので、余裕を 1 MiB に置く。これはこのアダプタのコンテキスト窓についての
     # 主張であって、人が一度に読める量についての主張ではない。
-    max_diff_bytes: 1048576
+    # 2026-09-25 に 1.5 MiB へ再度引き上げた(D-112)。CLI 移行の8タスクを足す前の時点で既に
+    # 1.02 MB あり、critical タスクがあるので変更全体を1回で読むことになるため。
+    max_diff_bytes: 1572864
 
 guard:
   # true while this repo IS the Loose Rein template (its scaffold originals share paths with

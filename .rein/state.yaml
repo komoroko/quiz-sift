@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-24T22:48:40+09:00'
+updated_at: '2026-09-25T03:38:55+09:00'
 gates:
   mandate:
     status: pending
@@ -134,7 +134,7 @@ tasks:
       base: d14b5e8cdfb1730a7e75f8f5fa4e4d0ab15b8112
       updated_at: '2026-09-23T02:49:50+09:00'
   T-002:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: 3bb07e5906d229c4b1597b54f0320355f58817ed
     evidence:
@@ -185,7 +185,7 @@ tasks:
       base: 9af57d15e40061b887b07cdb71485ef1cf2c234a
       updated_at: '2026-09-23T03:06:13+09:00'
   T-006:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: 52679f00b66c1d1484bc172434193ec6b32e9127
     evidence:
@@ -440,7 +440,7 @@ tasks:
       base: 2b207ac9ea2a097df9c3180fa31f82a065e53200
       updated_at: '2026-09-23T18:49:03+09:00'
   T-010:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: b30cbbe37088891c3fd1af77763458be159880ff
     evidence:
@@ -649,7 +649,7 @@ tasks:
         step: lint
       updated_at: '2026-09-23T08:11:33+09:00'
   T-011:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: 8fece5477cc88751fa02bc19bc2701f90f2f224a
     evidence:
@@ -723,7 +723,7 @@ tasks:
       tree: sha256:c2d87fe485a8f438b33170ef27736f3d327df277d39436163803a3c5f97d35c8
       updated_at: '2026-09-23T08:34:38+09:00'
   T-009:
-    status: needs-revision
+    status: done
     attempts: 18
     completed_commit: e068d761998db85310ad87ed773b5fcfd98835d2
     evidence:
@@ -791,7 +791,7 @@ tasks:
       tree: sha256:cefd1c3577e782143f716e4385246daa102feb29edbcb693a303374479849c01
       updated_at: '2026-09-23T23:08:41+09:00'
   T-012:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: 27e43336b62761752006efc66be765c139e60839
     evidence:
@@ -841,7 +841,7 @@ tasks:
       tree: sha256:35cc43451f4943a4856cb6b964dfbdf87bce1b96c4cb21b22ff8d78d6f3b7b5f
       updated_at: '2026-09-23T08:34:38+09:00'
   T-013:
-    status: needs-revision
+    status: done
     attempts: 2
     completed_commit: a4998389d667b9bf3d9ac33fd7d39acf9ce8a8ed
     evidence:
@@ -971,7 +971,7 @@ tasks:
       tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
       updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
-    status: needs-revision
+    status: done
     attempts: 6
     completed_commit: 8dc48c4d06d813b88858c728b97f2eb26ae08473
     evidence:
@@ -1021,7 +1021,7 @@ tasks:
       tree: sha256:caed600b8912c3dc52595b6692c772dedb80a9d960c06841baebc6dd3ef8a3c5
       updated_at: '2026-09-24T21:36:55+09:00'
   T-014:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: deb63dcf6e6b82a23777d42367c985da0185395c
     evidence:
@@ -1157,7 +1157,7 @@ tasks:
       tree: sha256:e58ce93f8d2a6c314c95dae2ceb49a7df8de9b5aaf1e86b2a88e1fbb0f202e06
       updated_at: '2026-09-24T06:04:50+09:00'
   T-016:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: cc22ee444031c2e78bc81ddf66aea95da5859bbe
     evidence:
@@ -1213,7 +1213,7 @@ tasks:
       tree: sha256:2fb772a0027a791276c18fac6ca8461f91b3609b7465fd458f0b471f3fe546d2
       updated_at: '2026-09-23T18:38:26+09:00'
   T-023:
-    status: needs-revision
+    status: done
     attempts: 1
     completed_commit: 8a66279db23efaca07a9aecfb9f5767bfb447bc3
     evidence:
@@ -1251,7 +1251,7 @@ tasks:
       tree: sha256:3acfca47120e63327fb184c919259c0f73ae1f33f2afafac57e3598f43c4f861
       updated_at: '2026-09-23T18:38:26+09:00'
   T-018:
-    status: needs-revision
+    status: done
     attempts: 3
     completed_commit: beb7c169b31046fb323ad0d1021872cd5fe88d50
     evidence:
@@ -1295,55 +1295,8 @@ tasks:
       tree: sha256:4de2f76e2c9351c631ac4bb07170397cc3a729b8fc2adc4ba8558b04b71c24bf
       updated_at: '2026-09-24T06:27:08+09:00'
   T-020:
-    status: needs-revision
+    status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: blocked
-        summary: '実測をホストで走らせる前提が2つ欠けている。(1) CosyVoice がホストに無い: .venv に torch が無く(ModuleNotFoundError:
-          No module named ''torch'')、/mnt/d/prog_works と ~ の下に cosyvoice のチェックアウトも無い(D-076 で人が事前に導入する前提)。(2)
-          実装者の環境に ANTHROPIC_API_KEY が設定されていない。このため docs/test/measurements/{full-run,reproducibility,audio-silence}.md
-          は書けず、A-1〜A-4 のテストは『実測ログが無い』で赤。先に入れたもの: tests/measurements/test_full_run_logs.py に判定4本と負の対照(3項目の欠落・推定コストの不一致・2倍でない呼び出し回数・偽のトラック・音声の無いクラスタで赤、計23本が緑)と実行ハーネスを置いた。人がやること:
-          CosyVoice と重みを導入し、PYTHONPATH(src + CosyVoice + third_party/Matcha-TTS)と ANTHROPIC_API_KEY を通して、次のコマンドを順に1回ずつ走らせる。PYTHONPATH=src
-          python tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir> / repro
-          --out-root <repo> / silence --out-root <repo>。これで3つのログが書かれる。判断の記録: 再現性で2回呼ぶのは分類(classify_clusters)だけにした。要約と含意判定の呼び出し回数はクラスタ数で変わり、2倍の検査が応答キャッシュの有無を判定できなくなるため。一致率はラベル名に依存しない
-          Rand index で出す。'
-        at: '2026-09-24T21:44:56+09:00'
-        touched:
-        - tests/measurements/test_full_run_logs.py
-      updated_at: '2026-09-24T21:45:10+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-020: the implementer reported blocked — 実測をホストで走らせる前提が2つ欠けている。(1) CosyVoice がホストに無い:
-          .venv に torch が無く(ModuleNotFoundError: No module named ''torch'')、/mnt/d/prog_works と ~ の下に
-          cosyvoice のチェックアウトも無い(D-076 で人が事前に導入する前提)。(2) 実装者の環境に ANTHROPIC_API_KEY が設定されていない。このため docs/test/measurements/{full-run,reproducibility,audio-silence}.md
-          は書けず、A-1〜A-4 のテストは『実測ログが無い』で赤。先に入れたもの: tests/measurements/test_full_run_logs.py に判定4本と負の対照(3項目の欠落・推定コストの不一致・2倍でない呼び出し回数・偽のトラック・音声の無いクラスタで赤、計23本が緑)と実行ハーネスを置いた。人がやること:
-          CosyVoice と重みを導入し、PYTHONPATH(src + CosyVoice + third_party/Matcha-TTS)と ANTHROPIC_API_KEY を通して、次のコマンドを順に1回ずつ走らせる。PYTHONPATH=src
-          python tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir> / repro
-          --out-root <repo> / silence --out-root <repo>。これで3つのログが書かれる。判断の記録: 再現性で2回呼ぶのは分類(classify_clusters)だけにした。要約と含意判定の呼び出し回数はクラスタ数で変わり、2倍の検査が応答キャッシュの有無を判定できなくなるため。一致率はラベル名に依存しない
-          Rand index で出す。'
-        tree: sha256:8bc65f3c0c53331f42aad7c68f9911e50791281fb5de2803c087557b6d9b11da
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 5f725f15-c9b5-4f2a-bef8-7d402c2f334e
-        output_tail: "T-020 は **blocked** で止めました。実測を走らせる前提が2つホストに揃っていないため、3つの実測ログはまだ1本も書けていません。レポートは中央の監査チェーンに記録されています(`rein\
-          \ report` は終了コード 2 を返しましたが、記録自体はされています)。\n\n**欠けている前提**\n1. **CosyVoice がホストに無い**: `.venv` に\
-          \ torch が無く(`ModuleNotFoundError: No module named 'torch'`)、`/mnt/d/prog_works` と `~` の下にも CosyVoice\
-          \ のチェックアウトがありません。D-076 で事前に人が導入することになっている部分です。\n2. **`ANTHROPIC_API_KEY` がこの環境に無い**: 設定ファイルの中までキーを探しに行く操作は拒否されたので、そこは探していません。\n\
-          \n**このため赤のままのもの**\n- A-1〜A-4 の受入テスト4本は、どれも「実測ログが無い」で赤です。\n- `bash gate.sh test` もこの4本のせいで赤です。\n\
-          - `lint`・`format`・`types`・`docs`・`smoke` の5ステップは走らせていません(新しいテストファイルに ruff と mypy をかけたところ、指摘はありませんでした)。\n\
-          \n**入れたもの**(コミット `c3abfa7`)\n- `tests/measurements/test_full_run_logs.py` に次を置きました。\n  - 受入基準ごとの判定4本\n\
-          \  - 壊したログで赤くなることを確かめる負の対照\n  - 実測を行う実行ハーネス\n- 負の対照が赤にするのは、3項目の欠落、推定コストと内訳の不一致、呼び出し回数が2倍でないこと、偽のトラック、音声の無いクラスタです。\n\
-          - 負の対照を含むログ非依存の23本は緑です。\n\n**再開の手順**\nCosyVoice と重みを導入し、`PYTHONPATH`(src、CosyVoice、third_party/Matcha-TTS)と\
-          \ `ANTHROPIC_API_KEY` を通してから、次のコマンドを順に1回ずつ実行してください。3本のログはこれで書かれます。\n\n```\nPYTHONPATH=src python\
-          \ tests/measurements/test_full_run_logs.py full --out-root <repo> --tts-model <dir>\nPYTHONPATH=src\
-          \ python tests/measurements/test_full_run_logs.py repro --out-root <repo>\nPYTHONPATH=src python\
-          \ tests/measurements/test_full_run_logs.py silence --out-root <repo>\n```\n\n`full` は `out/aip-c01/`\
-          \ が既にあると走りません。キャッシュが残っていると全段の呼び出しを数えられないためです。\n\n**ハーネスで決めたこと**\n- **再現性の測定で2回呼ぶのは分類だけ**: 要約と含意判定の呼び出し回数はクラスタ数によって変わります。それらを含めると、「呼び出しがちょうど2倍か」で応答キャッシュの有無を判定できなくなります。\n\
-          - **割当一致率は Rand index**: LLM が付けるラベル名は実行ごとに変わるので、ラベル名に依存しない指標にしました。"
-        at: '2026-09-24T21:45:08+09:00'
 baseline:
   measured_at: '2026-09-22T06:40:36+00:00'
   tree_digest: sha256:d6bb6d79d299dc61d188e2b47a0ad8c550b564d061e4edffb5bb67331573b07f
