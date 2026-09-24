@@ -212,7 +212,7 @@ def render_golden_log(rows: list[GoldenRow], raw_digest: str, argv: list[str], c
         f"| {row.selector_kind} | {'一致' if row.agrees else '不一致'} |"
         for row in rows
     )
-    rate = f"{agreed}/{len(rows)}" if rows else "0/0"
+    rate = f"{agreed}/{len(rows)}"
     return f"""# 実測ログ: ゴールデンセットの正解ラベル一致率
 
 R-2(C-002)の「ゴールデンセット10件に対する正解ラベル一致率が 100% で、正解判定の根拠の要素種別が
@@ -462,8 +462,9 @@ def _main(argv: list[str]) -> int:
                 f"{question_id} user={choice} extracted={label} {kind}{'  (受験者の誤答)' if choice != label else ''}"
             )
         return 0
-    labels = dict(item.split("=", 1) for item in args.label)
-    if len(labels) != GOLDEN_SIZE or not set(labels.values()) <= LABELS:
+    pairs = [item.split("=", 1) for item in args.label]
+    labels = dict(pair for pair in pairs if len(pair) == 2)
+    if len(pairs) != GOLDEN_SIZE or len(labels) != GOLDEN_SIZE or not set(labels.values()) <= LABELS:
         print(f"--label p001-qNNN=<A-D> を {GOLDEN_SIZE} 件渡す", file=sys.stderr)
         return 2
     unknown = sorted(set(labels) - set(questions))
@@ -474,7 +475,7 @@ def _main(argv: list[str]) -> int:
     for question_id, label in labels.items():
         choice, extracted, kind = questions[question_id]
         rows.append(GoldenRow(question_id, choice, label, extracted, kind))
-    command = ["PYTHONPATH=src", "python", "tests/measurements/test_extraction_logs.py", *argv]
+    command = ["PYTHONPATH=src", sys.executable, "tests/measurements/test_extraction_logs.py", *argv]
     GOLDEN_LOG.write_text(
         render_golden_log(rows, _digest(raw), command, _commit(), args.label_source), encoding="utf-8"
     )

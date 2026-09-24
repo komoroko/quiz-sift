@@ -11,11 +11,11 @@ R-2(C-002)の「ゴールデンセット10件に対する正解ラベル一致�
 
 | 項目 | 値 |
 |---|---|
-| コマンド | `PYTHONPATH=src python tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label p001-q001=C --label p001-q003=D --label p001-q004=C --label p001-q005=A --label p001-q006=C --label p001-q007=B --label p001-q010=A --label p001-q026=C --label p001-q028=D --label p001-q031=A --label-source エージェントが読み取った。ログイン済み Chromium の結果ページに CDP の Runtime.evaluate でブラウザの DOM API を使い、各問題ブロックで answer-result-pane--answer-correct--* クラスが付いた選択肢の位置を A〜D に対応づけた。人は正解を読んでおらず、このラベルを載せたコマンドを発行しただけ。抽出器と同じ正解マーク(correct-mark)を別パーサで読んだものなので、10/10 はパーサ間の一致を示し、抽出器が読む信号の選び方の独立検証ではない(コミット 4952646)。` |
-| 実行日時 | 2026-09-24T21:17:08+09:00 |
-| コミット | `b5251a4d02ab` |
+| コマンド | `PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label p001-q001=C --label p001-q003=D --label p001-q004=C --label p001-q005=A --label p001-q006=C --label p001-q007=B --label p001-q010=A --label p001-q026=C --label p001-q028=D --label p001-q031=A --label-source 人が目視で確認した。2026-09-24、リポジトリの持ち主が自分のログイン済みブラウザで演習テストの結果ページを開き、1・3・4・5・6・7・10・26・28・31 問目の正解を画面上の表示から目視で確認したうえで「全部あっていました」と回答した。確認は抽出ラベルを見ない形では行われていない(本人は以前の実行でこの --label の値を発行している。値はコミット 4952646 のものを据え置いた)。` |
+| 実行日時 | 2026-09-24T21:32:04+09:00 |
+| コミット | `0f93ad34b17e` |
 | 生 HTML | `out/udemy/aip-c01/raw/page-001.html` (`sha256:9fd31dd227e4bd024ed181419dcb14971998c040749f8541931da606be33f631`) |
-| ラベルの出所 | エージェントが読み取った。ログイン済み Chromium の結果ページに CDP の Runtime.evaluate でブラウザの DOM API を使い、各問題ブロックで answer-result-pane--answer-correct--* クラスが付いた選択肢の位置を A〜D に対応づけた。人は正解を読んでおらず、このラベルを載せたコマンドを発行しただけ。抽出器と同じ正解マーク(correct-mark)を別パーサで読んだものなので、10/10 はパーサ間の一致を示し、抽出器が読む信号の選び方の独立検証ではない(コミット 4952646)。 |
+| ラベルの出所 | 人が目視で確認した。2026-09-24、リポジトリの持ち主が自分のログイン済みブラウザで演習テストの結果ページを開き、1・3・4・5・6・7・10・26・28・31 問目の正解を画面上の表示から目視で確認したうえで「全部あっていました」と回答した。確認は抽出ラベルを見ない形では行われていない(本人は以前の実行でこの --label の値を発行している。値はコミット 4952646 のものを据え置いた)。 |
 
 ## 一致率
 
