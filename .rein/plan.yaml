@@ -1041,7 +1041,7 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: stream-json(--output-format stream-json --verbose)と --max-turns 3 以上を既定とする。2026-09-25 の実測で --max-turns 1 では構造化出力にターンが足りず error_max_turns で result が null になること、3 なら --json-schema と併用して成功することを確認した。これにより init イベントの tools と apiKeySource、および rate_limit_event(status / rateLimitType / utilization / resetsAt / unifiedWindows)が本番経路で観測できる。--output-format json では3つとも取れない。
+  answer: 'stream-json(--output-format stream-json --verbose)と --max-turns 3 以上を既定とする。2026-09-25 の実測で --max-turns 1 では構造化出力にターンが足りず error_max_turns で result が null になること、3 なら --json-schema と併用して成功することを確認した。これにより init イベントの tools と apiKeySource、および rate_limit_event(status / rateLimitType / utilization / resetsAt / unifiedWindows)が本番経路で観測できる。--output-format json では3つとも取れない。 [2026-09-25 追記: --max-turns 1 で error_max_turns になるという観測は claude 2.1.282 では再現しない(T-029 実測)。D-118 / ADR-016 を参照]'
   requirement_ids:
   - NFR-7
   - NFR-8
@@ -2960,13 +2960,13 @@ tasks:
       - tests/adapters/test_claude_failure.py::test_classification_order_reaches_all_seven_kinds
       executor_profile: quality
   - id: A-2
-    statement: subtype が error_max_turns の結果は TRUNCATED、JSON でない stdout は PARSE、rate_limit_event を伴って is_error が真の結果は PROVIDER_ERROR に落ち、最後に観測した rate_limit_info の status と resetsAt が失敗の記録に残る。レート制限を再試行する経路が無い。
+    statement: 'subtype が error_max_turns の結果、および stop_reason が max_tokens / model_context_window_exceeded の結果は TRUNCATED、stop_reason がそれ以外(end_turn / tool_use / 未知の値を含む)の結果は TRUNCATED にならない(D-120)。stdout が result イベントをちょうど1つ含む JSON のイベント列にならない場合(空の stdout、JSON でない行、result の無い列)は、終了コードと stderr に関係なく PARSE(D-119)。rate_limit_event を伴って is_error が真の結果は PROVIDER_ERROR に落ち、最後に観測した rate_limit_info の status と resetsAt が失敗の記録に残る。レート制限を再試行する経路が無い。起動失敗(SPAWN)は spawn が例外を送出した場合だけで、終了コードは SPAWN の判定に使わない。次の3つを別々に確かめる: 空の stdout・exit 1・stderr が ''Error:'' の入力は PARSE、result を1つ持つ正常な stdout に exit 1 と stderr の ''Error:'' が付いた入力は PARSE にならない、result イベントを2つ含む stdout は PARSE(AR-108)。'
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/adapters/test_claude_failure.py::test_rate_limit_is_a_provider_error_with_resets_at
+      - tests/adapters/test_claude_failure.py::test_truncated_parse_and_rate_limit_inputs_land_in_their_kinds
       executor_profile: quality
   - id: A-3
     statement: init イベントの tools が {StructuredOutput} と一致しない呼び出し、および stream-json の途中に StructuredOutput 以外の tool_use が現れた呼び出しは失敗(PROVIDER_ERROR)になる。
@@ -3073,7 +3073,7 @@ tasks:
       - tests/adapters/test_llm_claude_cli.py::test_usage_is_recorded_before_judging_and_no_retry
       executor_profile: quality
   - id: A-5
-    statement: 実パーサが T-029 の3件のフィクスチャを読み、成功は割当を返し、error_max_turns は TRUNCATED、不正スキーマの Error 出力は PARSE に落ちる。
+    statement: 実パーサが T-029 の実物フィクスチャ2件を、meta の exit_code と stderr を付けたまま判定器へ渡して読み(AR-109)、成功は割当を返し、不正スキーマ(stdout 空・非 0 終了・stderr の Error:)は PARSE に落ちる。別に、tests/support/claude_fake.py のファクトリが成功フィクスチャの骨格から subtype / is_error / stop_reason / structured_output の値だけを置き換えて作る(キーは消さない)error_max_turns 形は TRUNCATED に落ち、その骨格(キー集合)は差し替えた4キー以外で成功フィクスチャと同一である(D-118)。
     evidence:
       kind: command
       command:
@@ -3082,7 +3082,7 @@ tasks:
       - tests/adapters/test_claude_contract.py::test_real_fixtures_parse_to_the_expected_kinds
       executor_profile: quality
   - id: A-6
-    statement: tests/support/claude_fake.py の単一のファクトリだけが fake の出力を作り(T-026 が置いた assert_no_inline_stream_json(tests_root) で判定。定義は T-026 A-6 と同一)、その出力のキー骨格が成功フィクスチャと同一である。usage.cache_read_input_tokens を落とした fake に対してこの骨格判定が赤になる(negative control)。ファクトリは、任意の structured_output・7種それぞれの失敗の形・PATH に置ける実行ファイルとしての入口(stdin のプロンプトから問題キーを読んで同じ多重集合を返す)を提供する。
+    statement: tests/support/claude_fake.py の単一のファクトリだけが fake の出力を作り(T-026 が置いた assert_no_inline_stream_json(tests_root) で判定。定義は T-026 A-6 と同一)、result イベントを持つすべての形(成功、TRUNCATED、PROVIDER_ERROR、SCHEMA、INCOMPLETE_IDS)の出力のキー骨格が成功フィクスチャと同一である(値の置き換えは骨格を変えない。result を持たない PARSE 形は対象外。AR-110)。usage.cache_read_input_tokens を落とした fake に対してこの骨格判定が赤になる(negative control)。ファクトリは、任意の structured_output・7種それぞれの失敗の形・PATH に置ける実行ファイルとしての入口(stdin のプロンプトから問題キーを読んで同じ多重集合を返す)を提供する。
     evidence:
       kind: command
       command:
@@ -3239,18 +3239,16 @@ tasks:
     - docs/test/measurements/claude-cli-contract.md
   acceptance:
   - id: A-1
-    statement: tests/fixtures/claude_cli/ に実 CLI から採取した生の stdout 3件(成功 / --max-turns 1 による error_max_turns / 不正な --json-schema による JSON でない Error 出力)と、それぞれの .meta.yaml(採取日・claude --version の出力・モデル・採取に使った argv 全体・合成プロンプト全文・stdout の sha256)がある。
+    statement: tests/fixtures/claude_cli/ に実 CLI から採取した生の stdout 2件(成功 / 不正な --json-schema による PARSE の実物)と、それぞれの .meta.yaml(採取日・claude --version の出力・モデル・採取に使った argv 全体・合成プロンプト全文・stdout の sha256・終了コード・stderr)がある。不正スキーマの meta は終了コードが 0 でなく、stderr が 'Error:' で始まり、stdout が空であることを記録している(D-119)。--max-turns 1 による error_max_turns の実物は採らない(D-118。2.1.282 では success で完了する)。
     evidence:
       kind: artifact
       paths:
       - tests/fixtures/claude_cli/success.stdout
       - tests/fixtures/claude_cli/success.meta.yaml
-      - tests/fixtures/claude_cli/error_max_turns.stdout
-      - tests/fixtures/claude_cli/error_max_turns.meta.yaml
       - tests/fixtures/claude_cli/invalid_schema.stdout
       - tests/fixtures/claude_cli/invalid_schema.meta.yaml
   - id: A-2
-    statement: 各 .meta.yaml の sha256 が対応する stdout と一致し、成功フィクスチャの argv が設計 NFR-8 節の (e) の argv(stream-json・--verbose・--max-turns 3・インライン --json-schema・--exclude-dynamic-system-prompt-sections・--strict-mcp-config・空の --mcp-config・全ツール deny の --settings・--permission-mode default)と一致する。
+    statement: 各 .meta.yaml の sha256 が対応する stdout と一致し、tests/fixtures/claude_cli/ の .stdout / .meta.yaml は A-1 の4ファイルだけである(error_max_turns.* が残っていれば赤)。成功フィクスチャの argv が設計 NFR-8 節の (e) の argv(stream-json・--verbose・--max-turns 3・インライン --json-schema・--exclude-dynamic-system-prompt-sections・--strict-mcp-config・空の --mcp-config・全ツール deny の --settings・--permission-mode default)と一致する。不正スキーマの meta は exit_code が 0 でなく、stderr が 'Error:' で始まり、stdout の sha256 が空文字列の sha256 である。成功の meta は exit_code が 0(D-119、AR-109)。
     evidence:
       kind: command
       command:
@@ -3278,7 +3276,7 @@ tasks:
       executor_profile: quality
   operator_surface:
   - kind: dependency
-    name: 人が事前に最小ホームを用意すること(`HOME=~/.quiz-sift-claude-home claude /login`)と、合成プロンプトによる実 CLI 呼び出し3回ぶんのレート枠
+    name: 人が事前に最小ホームを用意すること(`HOME=~/.quiz-sift-claude-home claude /login`)と、合成プロンプトによる実 CLI 呼び出し1回ぶんのレート枠(不正スキーマはモデルを呼ぶ前に終わる)
     paths:
     - tests/measurements/collect_claude_cli.py
     reversible: true

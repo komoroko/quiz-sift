@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-25T04:33:02+09:00'
+updated_at: '2026-09-25T04:43:38+09:00'
 gates:
   mandate:
     status: pending
@@ -1295,7 +1295,7 @@ tasks:
       tree: sha256:4de2f76e2c9351c631ac4bb07170397cc3a729b8fc2adc4ba8558b04b71c24bf
       updated_at: '2026-09-24T06:27:08+09:00'
   T-020:
-    status: needs-revision
+    status: todo
     attempts: 1
   T-031:
     status: done
@@ -1373,77 +1373,17 @@ tasks:
       base: 802e51c24655c875cbccd9f4d2655bc51276ea73
       updated_at: '2026-09-25T04:26:04+09:00'
   T-029:
-    status: needs-revision
+    status: todo
     attempts: 1
     base: eb2b2e190d3de7d3e7ecdf6bbaf85b1eba811e21
-    handoff:
-      report:
-        outcome: needs-revision
-        summary: '設計 NFR-6 節と A-1 が前提にする CLI 挙動が claude 2.1.282 で成り立たない(2026-09-25 ホスト実測、knowledge-gap
-          記録済み)。(1) --max-turns 1 は error_max_turns にならず、2回とも success(num_turns=2, structured_output 到達)。A-1
-          の『--max-turns 1 による error_max_turns』フィクスチャは採取不能で、TRUNCATED の実物をどう採るか(別の再現手段か、A-1 から外すか)の判断が要る。(2)
-          不正 --json-schema の ''Error: ...'' は標準出力でなく標準エラーに出る(stdout 空、exit 1)。設計の『PARSE の実物は stdout の
-          Error:』と食い違い、T-026/T-027 の PARSE 判定の入力を直す必要がある。成功側は設計どおり: init.tools==[StructuredOutput]、apiKeySource==none。採取スクリプト
-          tests/measurements/collect_claude_cli.py と採取済みの3件+meta+contract.md は作業ツリーに未コミットで置いてある(error_max_turns.stdout
-          の中身は実際には success)。テストファイルは未着手。'
-        at: '2026-09-25T04:30:51+09:00'
-        touched:
-        - tests/measurements/collect_claude_cli.py
-        - tests/fixtures/claude_cli/success.stdout
-        - tests/fixtures/claude_cli/success.meta.yaml
-        - tests/fixtures/claude_cli/error_max_turns.stdout
-        - tests/fixtures/claude_cli/error_max_turns.meta.yaml
-        - tests/fixtures/claude_cli/invalid_schema.stdout
-        - tests/fixtures/claude_cli/invalid_schema.meta.yaml
-        - docs/test/measurements/claude-cli-contract.md
-      updated_at: '2026-09-25T04:31:04+09:00'
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-029: the implementer reported needs-revision — 設計 NFR-6 節と A-1 が前提にする CLI 挙動が claude
-          2.1.282 で成り立たない(2026-09-25 ホスト実測、knowledge-gap 記録済み)。(1) --max-turns 1 は error_max_turns にならず、2回とも
-          success(num_turns=2, structured_output 到達)。A-1 の『--max-turns 1 による error_max_turns』フィクスチャは採取不能で、TRUNCATED
-          の実物をどう採るか(別の再現手段か、A-1 から外すか)の判断が要る。(2) 不正 --json-schema の ''Error: ...'' は標準出力でなく標準エラーに出る(stdout
-          空、exit 1)。設計の『PARSE の実物は stdout の Error:』と食い違い、T-026/T-027 の PARSE 判定の入力を直す必要がある。成功側は設計どおり:
-          init.tools==[StructuredOutput]、apiKeySource==none。採取スクリプト tests/measurements/collect_claude_cli.py
-          と採取済みの3件+meta+contract.md は作業ツリーに未コミットで置いてある(error_max_turns.stdout の中身は実際には success)。テストファイルは未着手。'
-        tree: sha256:7303cdfa794992b702490d300c64cd4efeaaabb0298c8fbec0310f07f4c58a0b
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 8120bbeb-f885-4048-9441-3a47497cb559
-        output_tail: 'T-029 は完了できず、`needs-revision` で止めました。設計と受入基準 A-1 が前提にしている CLI の挙動が、今の claude 2.1.282
-          では成り立たないためです。ホストの最小ホームで設計 (e) どおりの argv を使って実測しました。
-
-
-          - **`--max-turns 1` でも `error_max_turns` にならない**: 2回試して2回とも正常終了し(`num_turns=2`)、構造化出力も届きました。A-1
-          が求める `error_max_turns` のフィクスチャはこの方法では採れません。代わりの再現方法を探すか、A-1 から外すかを人が決める必要があります。
-
-          - **不正な `--json-schema` の `Error: ...` は標準エラーに出る**: 標準出力は空で、終了コードは 1 でした。設計は「`PARSE` の実物は標準出力の
-          `Error:`」と書いているので、T-026/T-027 の `PARSE` 判定がどちらを読むかも直す必要があります。
-
-          - **成功ケースは設計どおり**: `init.tools` は `StructuredOutput` の1本だけ、`apiKeySource` は `none` でした。
-
-
-          実 CLI の呼び出しで消費したレート枠は3回ぶんです。不正スキーマのケースはモデルを呼ぶ前に終わるので、消費はありません。
-
-
-          採取スクリプト `tests/measurements/collect_claude_cli.py`、フィクスチャ3件と各 `.meta.yaml`、`docs/test/measurements/claude-cli-contract.md`
-          は作業ツリーにあり、まだコミットしていません。`error_max_turns.stdout` は名前に反して中身が正常終了の出力なので、コミットしないでください。受入テスト `tests/measurements/test_claude_cli_logs.py`
-          は書いておらず、品質ゲートも走らせていません。
-
-
-          食い違いは knowledge-gap(risk: high)として監査ログに記録しました。`rein report` は終了コード 2 で終わりましたが、出力には「recorded
-          in the central audit chain」と出ています。コミットしていないため、`--touched` の照合で差分と合わなかったのが原因だと思いますが、確かめてはいません。'
-        at: '2026-09-25T04:31:01+09:00'
   T-026:
-    status: needs-revision
+    status: todo
   T-027:
-    status: needs-revision
+    status: todo
   T-028:
-    status: needs-revision
+    status: todo
   T-030:
-    status: needs-revision
+    status: todo
 baseline:
   measured_at: '2026-09-24T19:00:55+00:00'
   tree_digest: sha256:71c183fd3b026baeec2a324e7e45b1042827508602088f1859997435fb3a827c
