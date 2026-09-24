@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-25T04:48:46+09:00'
+updated_at: '2026-09-25T05:01:20+09:00'
 gates:
   mandate:
     status: approved
@@ -1440,9 +1440,71 @@ tasks:
       base: 802e51c24655c875cbccd9f4d2655bc51276ea73
       updated_at: '2026-09-25T04:26:04+09:00'
   T-029:
-    status: todo
-    attempts: 1
+    status: blocked
+    attempts: 2
     base: eb2b2e190d3de7d3e7ecdf6bbaf85b1eba811e21
+    handoff:
+      report:
+        outcome: implemented
+        summary: 'ホストで claude 2.1.282 を最小ホーム・4変数 env・設計 (e) の argv で叩き、契約フィクスチャ2件(success: exit 0 / invalid_schema:
+          exit 1・stderr ''Error: --json-schema is not valid JSON''・stdout 空)と meta を採取。error_max_turns
+          は採らず。init.tools=[StructuredOutput]・apiKeySource=none を claude-cli-contract.md に記録(親環境の metered
+          変数 0 個、最小ホームのファイル一覧を前後で記録)。A-2/A-3/A-4 の判定テストを追加し、各々の negative control(error_max_turns.stdout
+          残置・--strict-mcp-config 欠落・exit_code 0・Glob 混入・metered 変数名混入・sha ずれ)で赤になることを確認。前回試行の collect_claude_cli.py
+          を2件用に改修して再利用。観測: 最小ホームには CLI 自身が settings.json(theme のみ)・skills/synced・plugins・projects を書いている(ファイル一覧に記録済み)。'
+        at: '2026-09-25T05:01:02+09:00'
+        touched:
+        - tests/fixtures/claude_cli/success.stdout
+        - tests/fixtures/claude_cli/success.meta.yaml
+        - tests/fixtures/claude_cli/invalid_schema.stdout
+        - tests/fixtures/claude_cli/invalid_schema.meta.yaml
+        - tests/measurements/collect_claude_cli.py
+        - tests/measurements/test_claude_cli_logs.py
+        - docs/test/measurements/claude-cli-contract.md
+      updated_at: '2026-09-25T05:01:20+09:00'
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 52a4cd2f-8f8b-4f3e-90cb-9df00ab62ce1
+        output_tail: 'T-029 は完了し、`implemented` で報告しました(commit `cbf7f72`)。品質ゲートの6ステップ(lint / format / types
+          / test / docs / smoke)はすべて緑です。
+
+
+          **採取結果**(claude 2.1.282、最小ホーム、環境変数は HOME / PATH / LANG / TZ の4つ、argv は設計 NFR-8 節 (e) のとおり)
+
+          - **成功**: 終了コード 0。`init.tools` は `[StructuredOutput]` だけで、`apiKeySource` は `none` でした。
+
+          - **不正な `--json-schema`**: 終了コード 1、stdout は空、stderr は `Error: --json-schema is not valid JSON...`
+          でした。
+
+          - `error_max_turns` は採っていません(D-118)。
+
+          - 親環境の metered 認証変数は 0 個でした。最小ホームのファイル一覧は採取の前後で `docs/test/measurements/claude-cli-contract.md`
+          に記録してあります。
+
+
+          **テスト**: `tests/measurements/test_claude_cli_logs.py` に A-2 / A-3 / A-4 の3本を置きました。チケットに挙がっている壊し方をそれぞれ試し、いずれも赤になることを確認しています。
+
+          - `error_max_turns.stdout` を残す
+
+          - argv から `--strict-mcp-config` を落とす
+
+          - 不正スキーマの meta を exit_code 0 にする
+
+          - 記録の tools に `Glob` を足す
+
+          - 記録に metered 認証変数名を入れる
+
+          - stdout を変えて sha256 をずらす
+
+
+          期待する argv は採取スクリプトの定数から読まず、設計 (e) からテストに直接書き写しました。両方が同じ誤りを持つと緑になってしまうためです。
+
+
+          **気になった点**: 最小ホームには資格情報のほかに、`settings.json`(theme だけ)、`skills/synced`、`plugins`、`projects/`
+          が作られています。どれも CLI が書いたものと見ています。要件 NFR-8 (b) は最小ホームに `settings.json` やプラグインを置かないと定めているので、関係するかは人が判断してください。ファイル一覧は記録に残してあります。'
+        at: '2026-09-25T05:01:15+09:00'
   T-026:
     status: todo
   T-027:
