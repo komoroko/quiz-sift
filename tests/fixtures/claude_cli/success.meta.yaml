@@ -1,0 +1,38 @@
+collected_at: '2026-09-25T04:54:01+09:00'
+claude_version: 2.1.282 (Claude Code)
+model: claude-haiku-4-5
+argv:
+- claude
+- -p
+- --output-format
+- stream-json
+- --verbose
+- --max-turns
+- '3'
+- --json-schema
+- '{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}'
+- --model
+- claude-haiku-4-5
+- --system-prompt
+- You are a calculator. Return only the requested structured answer.
+- --exclude-dynamic-system-prompt-sections
+- --strict-mcp-config
+- --mcp-config
+- '{"mcpServers":{}}'
+- --settings
+- '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+- --permission-mode
+- default
+env_keys:
+- HOME
+- LANG
+- PATH
+- TZ
+home: /home/koich/.quiz-sift-claude-home
+prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-029). No study material is included.
+  What is 2 + 3?
+
+  '
+exit_code: 0
+stderr: ''
+stdout_sha256: b3e8e447dbd2fbd9a21f5ee85238e3faecac8f90c79c68ec10143b4fd9e485c4
