@@ -9,9 +9,10 @@
   子プロセス(`fetch-run`)で走らせ、その argv・標準出力・標準エラー・終了コードを逐語で記録する。
 - `... golden-candidates --out-root <リポジトリ>` は保存済みの生 HTML から、問題ごとの受験者の選択・
   抽出した正解・根拠の要素種別を出す(本文は出さない)。ゴールデンセットを選ぶための一覧で、再取得はしない。
-- `... golden --out-root <リポジトリ> --label p001-q003=B ...` は**人が確認した正解ラベル**10件を
-  受け取り、保存済みの生 HTML から抽出し直した正解と突き合わせて `docs/test/measurements/golden-set.md`
-  を書く。ラベルは人が付けるもので、このファイルは抽出結果から埋めない。
+- `... golden --out-root <リポジトリ> --label p001-q003=B ... --label-source <経路>` は正解ラベル10件と
+  その読み取り経路を受け取り、保存済みの生 HTML から抽出し直した正解と突き合わせて
+  `docs/test/measurements/golden-set.md` を書く。ラベルは外から渡すもので、このファイルは抽出結果から
+  埋めない。誰が何を見てラベルを読んだかは実行ごとに違うので、定型文にせず `--label-source` を逐語で残す。
 
 どちらのログも本文を持たない(問題 ID・選択肢記号・件数・要素パスだけ)。
 
@@ -204,7 +205,7 @@ class GoldenRow:
         return self.human_label == self.extracted_label
 
 
-def render_golden_log(rows: list[GoldenRow], raw_digest: str, argv: list[str], commit: str) -> str:
+def render_golden_log(rows: list[GoldenRow], raw_digest: str, argv: list[str], commit: str, label_source: str) -> str:
     agreed = sum(row.agrees for row in rows)
     table = "\n".join(
         f"| {row.question_id} | {row.user_choice} | {row.human_label} | {row.extracted_label} "
@@ -215,8 +216,9 @@ def render_golden_log(rows: list[GoldenRow], raw_digest: str, argv: list[str], c
     return f"""# 実測ログ: ゴールデンセットの正解ラベル一致率
 
 R-2(C-002)の「ゴールデンセット10件に対する正解ラベル一致率が 100% で、正解判定の根拠の要素種別が
-全問で同一である」ことの実測(受入基準 A-2 / A-3、D-048)。人手ラベルは人が結果ページで正解を確かめて
-付けたもので、抽出ラベルは `extract.udemy.extract` が保存済みの生 HTML から同定したもの。
+全問で同一である」ことの実測(受入基準 A-2 / A-3、D-048)。表の「人手ラベル」列は外から渡した正解ラベルで、
+誰が何を見て読んだかは実行条件の「ラベルの出所」に記す。抽出ラベルは `extract.udemy.extract` が保存済みの
+生 HTML から同定したもの。
 問題 ID の `p001-qNNN` は結果ページの NNN 問目。本文は載せない(NFR-2)。
 `tests/measurements/test_extraction_logs.py` がこの記録を機械判定する。
 
@@ -228,6 +230,7 @@ R-2(C-002)の「ゴールデンセット10件に対する正解ラベル一致�
 | 実行日時 | {datetime.now().astimezone().isoformat(timespec="seconds")} |
 | コミット | `{commit}` |
 | 生 HTML | `{RAW_PAGE.as_posix()}` (`{raw_digest}`) |
+| ラベルの出所 | {label_source} |
 
 ## 一致率
 
@@ -246,6 +249,7 @@ def recorded_golden_rows(text: str) -> list[GoldenRow]:
     for heading in GOLDEN_HEADINGS:
         _section(text, heading)
     _check_conditions(text)
+    assert _table_value(_section(text, "## 実行条件"), "ラベルの出所"), "ラベルの出所が空"
     rows = []
     for line in _section(text, "## ゴールデンセット").splitlines():
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -311,7 +315,7 @@ def _good_rows() -> list[GoldenRow]:
 
 
 def _synthetic_golden_log(rows: list[GoldenRow]) -> str:
-    return render_golden_log(rows, "sha256:" + "0" * 64, ["golden"], "0123456789ab")
+    return render_golden_log(rows, "sha256:" + "0" * 64, ["golden"], "0123456789ab", "合成データ")
 
 
 def test_golden_checks_accept_a_good_log() -> None:
@@ -435,7 +439,8 @@ def _main(argv: list[str]) -> int:
         if name.startswith("fetch"):
             sub.add_argument("--url", default=DEFAULT_URL)
         if name == "golden":
-            sub.add_argument("--label", action="append", default=[], help="人が確かめた正解。p001-q003=B")
+            sub.add_argument("--label", action="append", default=[], help="正解ラベル。p001-q003=B")
+            sub.add_argument("--label-source", required=True, help="ラベルを誰が何を見て読んだか(ログに逐語で残す)")
     args = parser.parse_args(argv)
     out_root: Path = args.out_root.resolve()
 
@@ -470,7 +475,9 @@ def _main(argv: list[str]) -> int:
         choice, extracted, kind = questions[question_id]
         rows.append(GoldenRow(question_id, choice, label, extracted, kind))
     command = ["PYTHONPATH=src", "python", "tests/measurements/test_extraction_logs.py", *argv]
-    GOLDEN_LOG.write_text(render_golden_log(rows, _digest(raw), command, _commit()), encoding="utf-8")
+    GOLDEN_LOG.write_text(
+        render_golden_log(rows, _digest(raw), command, _commit(), args.label_source), encoding="utf-8"
+    )
     return 0
 
 
