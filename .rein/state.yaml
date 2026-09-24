@@ -1,21 +1,86 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-25T03:38:55+09:00'
+updated_at: '2026-09-25T04:05:18+09:00'
 gates:
   mandate:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-MANDATE-FD997084
+      confirmed_at: '2026-09-25T04:04:59+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:86f5698742dc4ab760d0b30493270040ab28eafd29b837b12578549f50d40c44
+      plan_digest: sha256:48a4a2bc3e85df80fbd7b36f5a56d0bd9b89c77dcf9a8d705914e4722c30ec81
+      config_digest: sha256:9e7af59173e9efab4bde68a5efa4a92f5c37e562baaf9635e3d4c71e51531499
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      artifact_digest: sha256:c7f379cf45780b17b3219eac96e3c926239695885cd22ea11dca837c2b7db53e
+      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
+      attested_chain_root: sha256:c73138f6267edf43dab84894937828fbafd826aa672b1e3c67e2425a8727d1ea
   acceptance:
     status: pending
     receipt: null
   T-019:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-019-DF0823DE
+      confirmed_at: '2026-09-25T04:05:11+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:3e3872187e0b6db727f188740c479297d164dc51d2804de3e80ea0b7e8b84fd0
+      crossing_digest: sha256:d0be0be3fb9cfbaedc295f44aaae419916566a90f086f57f1e0082d5ba348e93
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:25dc37ea4af01e0b59e206258b43c42b24639a704e8f4c2d624500642312a56c
+      attested_chain_root: sha256:ae31549e23cc7ce57b11e4eb48f859eaa116b03a6170be6a1bfc7c78e4d3f8f4
   T-020:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-020-50E6B7A4
+      confirmed_at: '2026-09-25T04:05:18+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:2a6d3db2097fa811fdc217e6f566add1b07647e77ff804aab2a6b6c6f19a513f
+      crossing_digest: sha256:b7b97464ca5742eed1106935469db83c4d4d7715a8fe4776ee9583232c99042c
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:46ed54048a19729608236c01773eb1ace7d0a9fb26bb3848b8cf73d4fc720805
+      attested_chain_root: sha256:3e3872187e0b6db727f188740c479297d164dc51d2804de3e80ea0b7e8b84fd0
 plan:
-  status: draft
+  status: frozen
+  digest: sha256:48a4a2bc3e85df80fbd7b36f5a56d0bd9b89c77dcf9a8d705914e4722c30ec81
+  config_digest: sha256:9e7af59173e9efab4bde68a5efa4a92f5c37e562baaf9635e3d4c71e51531499
+  environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+  sources:
+    docs/05-current-state.md: sha256:9d2cb5da07ade1cf2ef6c98d93ec23142e4cedbae4e7b5e8128cfdb0e9b04886
+    docs/10-requirements.md: sha256:1d1365cf96799140c880b036a98224f9c0a2ae47f9d98a555284e9b393e76852
+    docs/20-design.md: sha256:658bc944417fc290ee0c43be0a7874212858cf26d67137a0fcd4650814dc2e0c
+    docs/tasks/T-001.md: sha256:f9c7c4c094d7c5cbe782772b195a8b677a6803893940db716afd9fdd309ef55b
+    docs/tasks/T-002.md: sha256:de8a5147a791c88684e75ccdf7fad3213117230903b34b4a5089cc601c35c08f
+    docs/tasks/T-003.md: sha256:633da66b589951234e3fb726eeba2d53c74685ff73887c4a94be065d68c1f5f7
+    docs/tasks/T-004.md: sha256:aaa6df9dd48dc5414ae2275d9611b2d8b304033c2b4c7a32d53623e30942eed8
+    docs/tasks/T-005.md: sha256:cecc243b8183518261588b74f136d58995d361403ef66b0b44da8b246a165e90
+    docs/tasks/T-006.md: sha256:49282bfd5c07d425cfbca52f4689d7178c706b582928fd5fc8e833819fdf2822
+    docs/tasks/T-007.md: sha256:7c0e284f3ece4b6d875ac953be33c3df6bb9601dfee5734d8e5e14d167c8d7ef
+    docs/tasks/T-008.md: sha256:f8c44ccd811cc8f95a3d688f11720957ff3f9ad42e262ab73b5d676813f388eb
+    docs/tasks/T-009.md: sha256:bb894469986a5056d18ef9d015329c06e24db6a98fdb7a1ac53fe63be6d7ea04
+    docs/tasks/T-010.md: sha256:ff92dc4f71208de580bf720660b656a8fdacac6af4643b9fcd76a9b19ccc9258
+    docs/tasks/T-011.md: sha256:8f5274a386b03985a04104a8f5721ca794d172b24fa535e75b3a88421fe0f6e0
+    docs/tasks/T-012.md: sha256:30549fa7652a6915734f026b429feebfe8c9347fd58c7041459ee91fc9a1227c
+    docs/tasks/T-013.md: sha256:6befdfc53421e19cc15d5019b255091ef434fabac83a8b954918dcab88822b52
+    docs/tasks/T-014.md: sha256:6bb8b829a76820cd17d86e3fdbc4d47711dddd76622bf89cec7e40b14456d5fe
+    docs/tasks/T-015.md: sha256:d9f0014298410ecef83c0f8f5c4a2d1db9a106d1501080fa672cf9eee4822ca7
+    docs/tasks/T-016.md: sha256:54cd8c2d9bc34c7e6bb032bbcfae87e85125378ce6ea3fc4e440dce331e4059e
+    docs/tasks/T-017.md: sha256:43c9b0a6ace57b71ef18f4a0c834dcb7cb5222870cc6c387314ac3830a62ce11
+    docs/tasks/T-018.md: sha256:670134b5739da2e10b7c040251d0e2a17edb01c3c9489fb6641696d389e56b94
+    docs/tasks/T-019.md: sha256:0938e7a0b5beb74fa3fbdbad990f109d5878160d51355bac6dab83d2b3b18a68
+    docs/tasks/T-020.md: sha256:c5be92309a148e7f5ccb224f13234e7c349a1eaf3fc5d34990242eafcfed306a
+    docs/tasks/T-021.md: sha256:31d94af7c79d146b0c1a3a532e64fe2b87834f4ffbc54e9f18fb264bda9fa47f
+    docs/tasks/T-022.md: sha256:973a33f4e8496d99138b459faa7b2e595a002b06a1f4892a1527d16ff9114b31
+    docs/tasks/T-023.md: sha256:796925cc5ee2272b5f7f12ef693845f586f9b0dfcff9f233c97811a941b47feb
+    docs/tasks/T-024.md: sha256:c5a94507afe93e060280d969fc96992cad9afeed3f459b95ae961c7fe7570724
+    docs/tasks/T-025.md: sha256:32717ed01d8aeef8b417f488587d2d47298bc94fc9332f8538dfd4019b2ffea0
+    docs/tasks/T-026.md: sha256:3f1c4c7e5a83c7092385804c4b2766d05f006823811aad4511f75d617d9d9e24
+    docs/tasks/T-027.md: sha256:01c9ced02956e46fba25208dbb8147360ed04fe1d8c5ca84c786583113d2cf9c
+    docs/tasks/T-028.md: sha256:b14c913ffc540a891afb3149d48589f8d30475b4aa12a2bd0f440f372805c1f1
+    docs/tasks/T-029.md: sha256:d39032ebd65894f5d8110a3cc73f3b0879504d1b906275d42758ff06db59a745
+    docs/tasks/T-030.md: sha256:33ffb50e0a1633be1b1a822d18cf7e7c2f65c881d7cb749383811f33b6bdee7a
+    docs/tasks/T-031.md: sha256:b4373f1033a61305b0ec8441e395ec199e00ac24ca195211b6dd771f8361d710
+  frozen_at: '2026-09-25T04:05:00+09:00'
 execution:
   status: idle
 tasks:
