@@ -20,7 +20,7 @@ claims:
 - id: C-003
   requirement_ids:
   - R-3
-  statement: 問題群は排他クラスタへまとめられ、外部 API 呼び出しに失敗があった実行は下流へ進まず非0終了し、既知5グループ(各3問以上)の固定フィクスチャに対し最大クラスタが全体の50%以下・「その他」比率が20%以下に収まり、退化スタブに対してはそのガードが赤くなり、実行サマリに未分類比率・最大クラスタ比率・失敗件数の3値が実際の値と一致して出力され、キャッシュを迂回した再クラスタリング2回(外部 API 呼び出しが2倍になることを確認)の割当一致率が記録され、各クラスタの要約の主要語句が当該クラスタの問題文に実在する。
+  statement: 問題群は排他クラスタへまとめられ、M/N・未分類比率・最大クラスタ比率が記録され、既知5グループのフィクスチャに対し最大クラスタ比率が 50% を超えず「その他」比率が 20% 以下であり、各クラスタに全問題 ID の一覧と要約が付き、要約の主要な語句がそのクラスタの問題文中に実在する。キャッシュを迂回した2回の再クラスタリングについて割当一致率が記録され、その2回の llm_calls(Protocol 呼び出し数であって子プロセス数ではない)が1回分の2倍になる。外部 LLM 呼び出しに失敗があった実行は下流ステージへ進まず非 0 終了する。失敗の種別は SPAWN / TIMEOUT / PARSE / SCHEMA / TRUNCATED / INCOMPLETE_IDS / PROVIDER_ERROR の7種で、レート制限は PROVIDER_ERROR として失敗に数えられ resetsAt がログに残る。渡した問題 ID のうち応答に現れなかった ID が1件以上ある呼び出しは失敗とする。再試行は行わない。実行のサマリに未分類比率・最大クラスタ比率・失敗件数の3値が出力され、失敗件数が実際の失敗数と一致する。
   risk: high
   domains:
   - analysis
@@ -125,14 +125,14 @@ claims:
 - id: C-019
   requirement_ids:
   - NFR-7
-  statement: 100〜200問のフル処理1回について、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数、再試行を含む)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限への到達回数・最初の到達までの経過時間・累積待機時間が、1つのログへ実行ごとに記録される。notional コストは4値トークンと出所を持つ単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドは、実測した定数の減算として教材由来の入力トークンと区別して記録され、その定数は測定日・CLI バージョン・計上先のトークンバケツを出所として持ち、overhead + material が報告された入力トークン合計に一致する。累積待機時間は実経過時間に対する、1つも子プロセスが走っていない区間の合計として定義される。出力には notional の語が含まれ、実課金額を主張しない。
+  statement: 100〜200問のフル処理1回について、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数、再試行を含む)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限への到達回数・最初の到達までの経過時間・累積待機時間・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しとレート制限で終わった呼び出しのトークンも、成否の判定より先に記録される。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドは1ターンあたりの定数として持ち、overhead × num_turns + material が報告された入力トークン合計に一致する。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持つ。累積待機時間は実経過時間に対する、1つも子プロセスが走っていない区間の合計として定義される。出力には notional の語が含まれ、実課金額を主張しない。
   risk: medium
   domains:
   - observability
 - id: C-020
   requirement_ids:
   - NFR-8
-  statement: 本プロダクトの製品コードの実行が従量課金される外部サービス経路を取らない(ハーネス自身の LLM 利用は対象外)。新規インタプリタで、親環境に metered 認証変数が入っており anthropic が import 可能な状態で既定構成を1回走らせた後に anthropic が sys.modules に現れず(import 不能な場合は skip せず失敗)、子プロセスへ渡す環境が HOME / PATH / LANG / TZ の4つと一致し HOME は資格情報1ファイルだけを置いた専用の最小ホームを指し、既定 Llm の選択点が composition.build_default_llm() ただ1つでその本体が return 文1つかつ右辺がクラス名の直接呼び出しで分岐も動的解決も環境変数参照も含まず、コンソールスクリプトが1つだけでその全入口から到達可能な import グラフに metered API へ HTTP を発行しうるモジュールが存在せず、子プロセスの argv が有効ツール0件かつ権限バイパス指定を含まずかつ外部 MCP 設定を読まない指定を含みかつ作業ディレクトリがその実行のために作った空ディレクトリであり、列挙した 13 個の metered 認証変数をいずれも持たない状態でフル処理が完走する。
+  statement: 本プロダクトの製品コードの実行が従量課金される外部サービス経路を取らない(ハーネス自身の LLM 利用は対象外)。新規インタプリタで、親環境に metered 認証変数が入っており anthropic が import 可能な状態で既定構成を1回走らせた後に anthropic が sys.modules に現れず(import 不能な場合は skip せず失敗。選択点を SDK アダプタへ差し替えるとこの判定が赤くなる negative control を伴う)、子プロセスへ渡す環境が HOME / PATH / LANG / TZ の4つと一致し HOME は人間が事前に用意した専用の最小ホームを指して製品がその配下に作成したファイルが 0 件であり、既定 Llm の選択点が composition.build_default_llm() ただ1つでその本体が return 文1つかつ右辺がクラス名の直接呼び出しで分岐も動的解決も環境変数参照も含まず、製品として到達可能な入口すべての import グラフに metered API へ HTTP を発行しうるモジュールが存在せず、子プロセスの argv が有効ツールの集合を StructuredOutput ただ1つに絞りかつ権限バイパス指定を含まずかつ外部 MCP 設定を読まない指定を含みかつ作業ディレクトリがその実行のために作った空ディレクトリであり、出力形式が stream-json で max-turns が 3 以上であり、列挙した 13 個の metered 認証変数をいずれも持たない状態でフル処理が完走する。
   risk: high
   domains:
   - pipeline
@@ -1021,14 +1021,112 @@ decisions:
   - NFR-8
 - id: D-091
   subject: CLI 経路のレート制限到達を「失敗」として扱うか「待機」として扱うか
-  reach: local
+  reach: mandate
   status: settled
-  settled_by: loop
-  answer: 待機して継続する。R-3 の失敗件数には含めず、到達回数と累積待機時間を NFR-7 が記録する。
-  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。NFR-4 が既に段階ごとの中間成果物の永続化を要求しているので「中断して後から再開」は既存の claim だけで成立し、NFR-7 に所要時間の合格ラインが無いので「待って継続」が破る基準も無い。ただし D-085 の未実測が解けてレート枠がフル処理を賄えないと判明した場合、分割実行が NFR-7 の「1回のフル処理」の定義を動かすため、この判断は mandate へ格上げされる。
+  settled_by: human
+  answer: 失敗として扱う(2026-09-25 に、当初のループ判断「待機して継続」を人間が撤回して差し替えた)。レート制限は特別扱いせず PROVIDER_ERROR として失敗に数え、下流へ進まず非 0 終了し、resetsAt をログに残す。人が枠のリセット後に再実行する。撤回の理由は、設計レビューの2巡目で「レート制限と判定できる既知の値が1つも無い」ことが判明したため — 観測できた status は allowed_warning だけで、これは成功した呼び出しにも付いてくる。これを除外するとホワイトリストが空になり、RateLimited の枝に到達する入力が存在しないまま「待機して継続」という成立条件の無い基準を凍結することになる。NFR-4 の段階キャッシュが「完了した段は呼び直さない」を既に保証しているので、再開に新しい仕組みは要らない。
   requirement_ids:
   - R-3
   - NFR-7
+- id: D-092
+  subject: NFR-8 (e)1「有効ツールの集合が空」が CLI 2.1.281 で表現できないことへの対応
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 許容集合の列挙へ書き換える。init イベントの tools 配列が、要件が列挙する 19 本の許容集合の部分集合であることを求める。2026-09-25 の実測で --allowedTools '' は無効果(28 本のまま)、--settings の permissions.deny で Bash / Read / Write / Edit / NotebookEdit / Task / TaskStop / WebFetch / WebSearch の9本は確実に消えるがセッション管理系 19 本が残ることを確認した。AR-30 で拒否リストをやめたのと同じ形にすることで、CLI の更新で新しい危険なツールが増えた場合も検出できる。
+  requirement_ids:
+  - NFR-8
+- id: D-093
+  subject: 本番経路の出力形式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: stream-json(--output-format stream-json --verbose)と --max-turns 3 以上を既定とする。2026-09-25 の実測で --max-turns 1 では構造化出力にターンが足りず error_max_turns で result が null になること、3 なら --json-schema と併用して成功することを確認した。これにより init イベントの tools と apiKeySource、および rate_limit_event(status / rateLimitType / utilization / resetsAt / unifiedWindows)が本番経路で観測できる。--output-format json では3つとも取れない。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-094
+  subject: NFR-8 (b) の最小ホームと NFR-3(資格情報を読まない・コピーしない)の矛盾
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人間が事前に用意する(ADR-014 Option C)。HOME=~/.quiz-sift-claude-home claude /login を人間が1回走らせ、製品は固定パスを HOME に渡して .claude/.credentials.json の存在を確かめるだけにする。置くのは人間なので製品は資格情報を読みもコピーもせず、NFR-3 と真正面から整合する。使い捨てホーム + symlink 案は、トークン更新の書き戻しで実ホームのログインが壊れうること(未実測)と、教材本文がセッション記録に残らなくなって D-088 が据えた不可逆ゲートの根拠が消えることから採らない。
+  requirement_ids:
+  - NFR-8
+  - NFR-3
+- id: D-095
+  subject: 既定モデル
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 混成(ADR-015)。classify_clusters と summarize_cluster は claude-opus-5、generate_recall / describe_term / check_entailment は claude-haiku-4-5。呼び出し回数の 95% 以上を占める側を Haiku にすれば枠の消費は Haiku 全面にほぼ等しく、圧縮の質が効く分類・要約には Opus を残せる。Opus 5 が Pro プランで使えることは 2026-09-25 に実測で確認した。
+  requirement_ids:
+  - NFR-7
+  - R-3
+  - R-4
+  - R-5
+  - NFR-1
+- id: D-096
+  subject: NFR-8 (b) の「最小ホームの内容が1ファイルだけ」の判定時点
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 「製品が HOME 配下に作成したファイルが 0 件であること」と読み替える。claude は .claude.json・.claude/projects 配下のセッション記録・statsig を必ず書くため、文字どおりの1ファイル判定は2回目の起動から必ず偽になる。測る対象は製品の振る舞いであって CLI の振る舞いではない。
+  requirement_ids:
+  - NFR-8
+- id: D-097
+  subject: マスク後の逐語ログに、LLM が言い換えた教材由来テキスト(クラスタ要約・想起素材)が残り Git 追跡対象に入ること
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 許容する。NFR-2 の criterion は「取り込んだ実教材の本文」を対象としており違反ではない。応答本文まで伏せると、不可逆ゲートで人が読む証拠から LLM の応答そのものが消え、AR-42 が恐れた「証拠が空」に近づく。保護境界の定義に明記する。
+  requirement_ids:
+  - NFR-2
+- id: D-098
+  subject: ID 完全性の検査を分類以外のメソッドにも課すか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 分類(classify_clusters)だけに課す。他の4メソッドは1問・1語・1対を扱うので「渡した ID の集合」が自明であり、空応答はスキーマ不適合か値の検査で落ちる。要件の対象を広げない。
+  requirement_ids:
+  - R-3
+- id: D-099
+  subject: composition.build_default_llm() の右辺に入れ子のクラス呼び出しを許すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 許さない。右辺はクラス名の直接呼び出し1つに限る。llm_calls の計数はデコレータ(MeteredLlm)ではなくアダプタ内部に置く。
+  rationale: 覆しても composition.py と計数の置き場所というアダプタ1タスクぶんで、claim も受入基準も動かない。入れ子を許すと NFR-8 (c) の AST 判定が「どこまでが選択点か」を決められなくなり、AR-31 が突いた抜け道が戻る。
+  requirement_ids:
+  - NFR-8
+- id: D-100
+  subject: LLM 呼び出しの並行度
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 1(直列)で凍結し、MAX_CONCURRENCY を1箇所の定数として置く。
+  rationale: 覆してもアダプタとメーターの1タスクぶんで claim は動かない。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分は R-3 の全体上限 12 時間に収まり、並列化してもレート枠は増えないので枠が binding なら利得はゼロで枠に速く当たるだけ。加えて並列化は最小ホームの共有による同時書き込みと、累積待機時間の定義破壊(どれか1本が生きていれば待機区間が 0 になる)を同時に持ち込む。T-020 で枠に余裕があると分かった次サイクルで定数を上げるのは、証拠の追加であって基準の緩和ではない。
+  requirement_ids:
+  - NFR-7
+- id: D-101
+  subject: 失敗した呼び出しの再試行方針
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 再試行しない(2026-09-25 に改訂)。どの失敗種別も1回で確定する。D-091 がレート制限を失敗に倒したことで、再試行する対象が1つも残らなくなった。
+  rationale: 覆してもアダプタ1ファイルぶん。再試行を入れると R-3 の「失敗件数が実際の失敗数と一致する」の意味が壊れる。この決め方により provider_invocations が llm_calls を超える要因はチャンク分割だけになり、2語の差が常に説明可能になる。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-102
+  subject: error_max_turns(--max-turns が足りず構造化出力が届かなかった場合)をどの失敗種別に落とすか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: TRUNCATED として数える。応答の切り詰めと同じ箱に入れる。
+  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。処置が同じ(バッチサイズか --max-turns を見直す)ものを同じ箱に入れるほうが、失敗件数の内訳が次サイクルの判断材料になる。識別材料は subtype の値 error_max_turns と stop_reason で、どちらも実測済み。
+  requirement_ids:
+  - R-3
 tasks:
 - id: T-001
   title: ドメイン型と共有スキーマ

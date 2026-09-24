@@ -60,7 +60,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 | Area | Choice | Rationale (ADR) |
 |------|------|-----------|
 | Language/runtime | Python 3.13 / Next.js · React | D-012, D-018 |
-| LLM | Anthropic `claude-opus-5`、`ports/llm.py` のタスク別メソッド越し | ADR-002 |
+| LLM | **Claude Code CLI(`claude -p`、サブスクリプション認証)**。分類・要約は `claude-opus-5`、想起・用語・含意は `claude-haiku-4-5` の混成。`ports/llm.py` のタスク別メソッド越し | ADR-013, ADR-015(ADR-002 を一部 supersede) |
 | クラスタリング | LLM に直接分類させ、排他分割と「その他」は後処理で強制 | ADR-003 |
 | TTS | CosyVoice(ローカル OSS、Apache-2.0) | ADR-004 |
 | 形態素解析 | fugashi + unidic(語句実在性の判定) | ADR-010 |
@@ -185,14 +185,51 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 - **証拠種別**: 退化ガードと negative control、メトリクスの計算は `command`。
   **キャッシュ迂回2回の割当一致率は `artifact`**(D-030。スタブは決定的なので一致率が常に 100% になり、
   ゲートでは測る意味が消える)。
+  **失敗の分類(ADR-013 の CLI 経路で形が変わった)**。`FailureKind` は `SPAWN` / `TIMEOUT` /
+  `PARSE` / `SCHEMA` / `TRUNCATED` / `INCOMPLETE_IDS` / `PROVIDER_ERROR` の**7種**。
+  **レート制限は特別扱いしない**(D-091 を 2026-09-25 に撤回): `PROVIDER_ERROR` として失敗に数え、
+  下流へ進まず非 0 終了し、`rate_limit_event` が返した `resetsAt` をログに残す。人が枠のリセット後に
+  再実行し、NFR-4 の段階キャッシュが「完了した段は呼び直さない」を保証する。
+  **撤回の理由**: レート制限と判定できる既知の値が1つも無い。観測できた `status` は
+  `allowed_warning` だけで、それは**成功した呼び出しにも付いてくる**(枠の残量通知)。除外すると
+  ホワイトリストが空になり、`RateLimited` の枝に到達する入力が存在しないまま「待機して継続」という
+  成立条件の無い基準を凍結することになる。**判定順序の並べ替えも効かなかった** — `rate_limit_event`
+  を読むには stdout を JSON として解釈する必要があり、枠切れで JSON でない出力が返るなら順序に
+  関係なく `PARSE` に落ちる。**失敗に倒せば、判定表も待機も再試行も要らなくなる。**
+  判定順序: 起動失敗 → タイムアウト → stdout が JSON にならない(`PARSE`)→ `subtype` が
+  `error_max_turns`、または `stop_reason` が切り詰めを示す(`TRUNCATED`。D-102)→ `is_error` が真
+  (`PROVIDER_ERROR`)→ スキーマ不適合(`SCHEMA`)→ ID 完全性(`INCOMPLETE_IDS`)。
+  **再試行しない**(D-101 を改訂)。レート制限を失敗に倒した結果、再試行する対象が1つも残らない。
+  これにより `provider_invocations` が `llm_calls` を超える要因は**チャンク分割だけ**になり、
+  2語の差が常に説明可能になる。
+  **応答の切り詰め**(AR-62): CLI 経路には `max_tokens` 相当が無い。ID 完全性のためにスキーマへ
+  `unassigned` を足した結果、応答は純増する。`CLASSIFY_BATCH_SIZE` は 50 から **25** へ下げ、
+  `inputs_digest` の「生成パラメータ」には `max_tokens` の代わりに `--max-turns` とバッチサイズを入れる。
+  **タイムアウトは子プロセス1本に置く**(既定 10 分)。全体は実経過時間 12 時間で外から止める(AR-52)。
+  **ID 完全性**(NFR-8 経由で R-3 に入った新基準)。スキーマに `unassigned: string[]` を必須で
+  足し、プロンプトを「どこにも当てはまらない問題は `unassigned` に入れる。すべての問題キーが
+  ちょうど1回現れること」へ書き換える。`flatten(groups[].question_ids) + unassigned` が渡した
+  キー集合と**多重集合として一致**しない呼び出しは失敗。現行の「バッチに無いキーは落とす」挙動(`llm_anthropic.py:186-187`)は新基準と正反対なので
+  **削除する**。**残す SDK アダプタも新しい契約に従う**(AR-67): D-090 がそれを残すと決め、
+  NFR-8 (c) がテストコードからの直接構築を認めている以上、旧挙動のまま残すと **R-3 の ID 完全性に
+  違反するアダプタが、要件が認めた経路で構築可能な状態でリポジトリに残る**。パーサを共有すれば
+  2つのアダプタの意味が分岐しない。この書き換えで `inputs_digest` が動き、全ステージの
+  キャッシュが1回無効化される(NFR-4 の性質は保つ)。
+  **タイムアウトは子プロセス1本に置く**(既定 10 分)。レート制限と判定した時点で子プロセスは
+  既に終わっているので、**待機は窓の外側で起き、次の起動は新しい窓を持つ** — AR-53 が要求した
+  「待機中は計時を止める」がタイマを止める実装なしで構造的に成立する。全体は実経過時間 12 時間で
+  外から止める(AR-52)。**再試行はレート制限だけ**とし、パース失敗やスキーマ不適合は1回で失敗確定
+  (再試行すると「失敗件数が実際の失敗数と一致する」の意味が壊れる)。
 - **What this requires of a person**:
-  (1) Anthropic API キー。
+  (1) ホストに `claude` が在りログイン済みであること、および ADR-014 の最小ホームのセットアップ。
+  **API キーは要らなくなった**(ADR-013)。
   (2) **退化ガード用の合成フィクスチャ(5グループ×3問以上)と、退化スタブ2本を書き、
   そのグループ構造が「既知の正解」であることを保証すること**。
   (3) 実データの M/N と最大クラスタ比率、および警告を読んで圧縮の質を判定すること。
-- **Reversibility**: コードと成果物は **可逆**。ただし **LLM API の呼び出しは課金**であり、
-  フル処理とキャッシュ迂回の2回再実行はその分だけ**誰かが課金される=不可逆**。
-  **→ 実 API を叩くタスクを分離し、`reversible: false` とする。**
+- **Reversibility**: コードと成果物は **可逆**。**課金は発生しなくなった**(ADR-013)が、
+  不可逆な点は残る: (i) **教材本文がホストの Claude Code セッション記録に平文で書かれる**
+  (D-086 が許容、D-088 が不可逆ゲートの根拠に据えた)、(ii) **サブスクリプションのレート枠の消費**。
+  **→ 実 CLI を叩くタスクは分離したまま、`reversible: false` を維持する**(D-088)。
 
 ### R-4 → design
 
@@ -502,7 +539,29 @@ lock を直接 COPY できないのは `rein oci build` のビルドコンテキ
 検査する**(AR-1)。
 
 **node・Playwright・torch・CosyVoice はイメージに入れない**(ADR-012)。R-7 と R-12 の
-「実際に動く」側は `artifact` へ降ろした。
+「実際に動く」側は `artifact` へ降ろした。**`claude` バイナリも同じ扱い**(ADR-013): node
+ランタイムを要するので焼かず、ゲート内では注入した fake runner に差し替わる。
+
+**境界は2分割する**(ADR-014)。ゲートで差し替えるのは `claude` の spawn **だけ**で、env 辞書の
+構築・argv の組み立て・空 cwd の作成・最小ホームの検証・stdout のパース・失敗分類・マスクは
+**実コードのままサンドボックスで走る**。1つの runner に全部を飲ませると、NFR-8 の (b) も (e) も
+「fake が観測した要求」しか検査できず、実装の正しさが自己確認に落ちる。
+
+**実 CLI の出力契約をフィクスチャで固定する**(AR-43)。`tests/fixtures/claude_cli/` に実 CLI から
+採取した生の stdout を1件置き、`.meta.yaml` に採取日・`claude --version` の出力・モデル・
+**採取に使った argv 全体**・合成プロンプト全文・sha256 を記録する。**失敗の形も採る**(AR-63)。成功1件だけでは、新設した `FailureKind` 7種と判定順序が**同じ実装者が
+書いた fake に対してしか検証されない**。採取コストがほぼゼロの形を2件足す(2026-09-25 に採取済み):
+`error_max_turns`(`--max-turns 1` で再現。`is_error: true` / `result: null` / `num_turns: 2`)と、
+**不正な `--json-schema` に対する JSON ですらない `Error: ...` の標準出力**(`PARSE` の実物)。
+それぞれが期待する `FailureKind` へ落ちることをゲート内の `command` 証拠にする。
+**期待する `FailureKind` を明記する**(AR-77): `error_max_turns` → **`TRUNCATED`**(D-102)、
+不正な `--json-schema` の `Error: ...` → **`PARSE`**。期待値を書かずに「それぞれが期待する
+`FailureKind` へ落ちる」を証拠にすることはできない。`FailureKind` は `TRUNCATED` を含む**7種**。
+ゲート内の判定は4本:
+(1) 実パーサがフィクスチャを食えること、(2) fake の出力がフィクスチャと同一のキー骨格を持つこと、
+(3) **fake が単一のファクトリからしか生まれないこと**(これが無いと「全 fake の集合」が列挙できず
+(2) が空振りする)、(4) **negative control** — `usage.cache_read_input_tokens` を落とした fake が
+(2) で赤くなること。採取は合成プロンプトで行うので NFR-2 に触れない。
 
 実現性は 2026-09-22 に実測済み(`docs/speculative-work.md` に記録)。`--network none` で
 fugashi + unidic-lite の形態素解析、ffmpeg `silencedetect` による mp3 の無音検出、
@@ -510,15 +569,247 @@ Playwright chromium の起動を個別に確認した(最後のものは結局�
 
 ### NFR-7: 処理コストと所要時間の可視化
 
-`pipeline/meter.py` が実行ごとに `run_id, elapsed_sec, calls_by_model, estimated_cost` を
-JSON Lines で記録する。**トークンは input / output の2値に畳まない**(AR-29): ADR-002 が
-adaptive thinking を既定にしているので出力側に思考トークンが乗り、プロンプトキャッシュを使えば
-入力側は `cache_creation_input_tokens` / `cache_read_input_tokens` で単価が別になる。
-2値に畳むと推定コストが系統的にずれ、D-021 が「次サイクルで上限を決める材料」と位置づけた
-その材料が歪む。単価表も同じ粒度で持つ。
+`pipeline/meter.py` が実行ごとに JSON Lines で記録する。現行 `Meter` は `UsageRecorder` しか
+満たさず、記録できるのは「成功した子プロセス数」だけなので、**`ports/metering.py` に上位 Protocol
+`RunMeter` を新設する**(`ports/llm.py` は触らない):
 
-単価表はコード内定数で、`claude-opus-5` は入力 $5.00 / 出力 $25.00 per 1M、`priced_at` に取得日を
-持たせる。**TTS はローカル OSS なのでコストが乗らない**(ADR-004)。上限は初回実測後(D-021)。
+```
+class RunMeter(UsageRecorder, Protocol):
+    def begin_call(self, method: str) -> None: ...       # llm_calls += 1
+    def begin_invocation(self) -> InvocationScope: ...   # provider_invocations += 1、稼働区間
+    def end_invocation(self, model: str, turns: int | None, usage: TokenUsage | None) -> None: ...
+    def record_quota(self, when: str, info: RateLimitInfo) -> None: ...   # when = start | end
+    def record_failure(self, kind: FailureKind) -> None: ...
+```
+
+`LlmFactory` は `Callable[[RunMeter], Llm]` になる。`Meter` が `RunMeter` を満たすので
+`UsageRecorder` の口は温存され、`Llm` Protocol は不変のまま。
+
+**2つの呼び出し回数**(AR-38)。`llm_calls` は Protocol メソッド1回、`provider_invocations` は
+子プロセス1本。差が生まれる要因は**チャンク分割**と**レート制限の再起動**の2つだけ(D-091 により
+再試行はレート制限のみ)なので、2語の差は常に説明可能である。
+
+**3つの呼び出し回数**(AR-57)。`model_turns` はエンベロープの `num_turns` の総和で、**レート枠を
+消費するのはこれ**。`--json-schema` の結果が `StructuredOutput` ツール経由で配送されるため、成功
+した子プロセス1本の中でモデル往復が 2 回以上起きる(実測: `num_turns: 2` / `stop_reason: tool_use`)。
+`provider_invocations` を「枠の消費実態」と読むと 2〜3 倍ずれる。
+
+**`model_turns` の記録経路**(AR-75)。`UsageRecorder.record(model, usage)` は4値しか運ばないので、
+**`end_invocation(model, turns, usage)` を `RunMeter` に置く** — `num_turns` と `usage` と モデル ID を
+**呼び出し単位で対にして**渡す口がないと、`Σ_model overhead_model × turns_model` の判定が組めない。
+`turns` が取れずに終わった呼び出し(`SPAWN` / `TIMEOUT` / `PARSE`)は `turns=None` / `usage=None` で
+記録し、**件数を別に数える**(AR-65 が usage について置いた規律をターンにも通す)。
+
+**並行度**。並行度 1 を凍結した以上、ロック付きの区間計算は作らない(AR-66)。並行度は
+「同時に起動した子プロセスの最大数」として定数 1 を記録する。時刻は既存の `ports/clock.py` の
+`Clock.monotonic` を使う。**レート制限を失敗に倒した(D-091 撤回)ので、待機も累積待機時間も無い。**
+
+**失敗した呼び出しのトークンも会計に入れる**(AR-65)。拒否・打ち切り・エラーでも消費したトークンは
+枠を食うので、**成否の判定より先に `usage` を記録する**(現行 SDK アダプタが同じ規律を持つ)。
+`result` イベントが来ずに終わった子プロセスは `usage: null` で記録し件数を別に数える。
+**`Meter.record` はモデル ID が単価表に無いとき例外を投げる**(現行実装)が、CLI が返す ID が
+`claude-haiku-4.5` のように一字違うだけでフル処理が計測器の例外で死ぬので、**照合失敗は
+`{"status":"unavailable","reason":"unknown_model"}` へ倒し、例外にしない**。
+
+**ログのフィールド一覧**(AR-65。要件は「項目リストは1本だけ」と定めているので、設計は散文ではなく
+名前で示す)。`Meter.finish` が出す JSON Lines の行:
+`run_id` / `started_at` / `finished_at` / `elapsed_sec` / `llm_calls` / `provider_invocations` /
+`model_turns` / `turns_by_model` / `max_concurrency` / `tokens`(4値の内訳ごとの総量)/ `tokens_by_model` /
+`notional_cost`(`computed` / `declared` / `relative_diff` / `status`)/ `prices`(出所つき、2モデル分)/
+`overhead`(`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `material`)/
+`failures_by_kind`(7種)/ `invocations_without_usage` / `invocations_without_turns` /
+`ended_by_rate_limit`(真なら `resetsAt` を併記)/ `quota_at_start` / `quota_at_end`
+(後2者は `five_hour` と `seven_day` それぞれの `utilization` と `resetsAt`)。
+`overhead` は **モデル別の写像**(`tokens_by_model` / `prices` と同じ形)で、各要素が
+`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns` を持ち、
+`material` は全体で1つ。**正直な注記**: 直列実行ではこの値の大半がレート制限の待機ではなく
+Python 側の処理時間(パース・検証・形態素解析)になるので、**レート制限の待機は
+`rate_limit_wait_sec` として別に積み**、出力に読み方を併記する。
+
+**notional コスト**。自算値は既存 `ModelPrice.cost`(4値 × 単価)、申告値は `total_cost_usd` の
+総和、相対差は `(declared - computed) / computed`。**単価が1つでも 0 なら
+`{"status":"unavailable","reason":"zero_price"}` を書き、「記録済み」と報告しない**(AR-36)。
+キー名を `estimated_cost` → `notional_cost` に改名し、`"notional": true` と免責の1行を同じ行に
+書く。**実課金額を主張する語(`billed` / `charged` / `実課金`)がログとレポートに現れないことを
+機械判定する**。単価表は 2 モデル分(ADR-015)で、`priced_at` に加えて**取得元**を持つ。
+
+> **注記(Risks へも載せる)**: `total_cost_usd` はサブスクリプション実行でも返るが、これは CLI が
+> 定価表から計算した名目値である可能性が高い。その場合「自算値 vs 申告値」の相対差は**単価表の
+> 一致度を測っているだけ**で、課金の裏取りにはならない。AR-24 / AR-36 が閉じたかったのは
+> 「常に 0.0 を返す実装」なのでその目的は達するが、**2値の独立性は見かけほど高くない**。
+
+**固定オーバーヘッドの分離**(AR-41 / AR-51 / AR-76)。定数は**モデルごと**に
+`OverheadConstant(model, per_turn_tokens, bucket, measured_at, cli_version, argv_digest)` として持ち、
+判定は **`Σ_model (overhead_model × turns_model) + material = 報告された入力トークン合計`**。
+ADR-015 の混成でモデルごとに値が違うので、単一の `overhead × num_turns` では真になりえない。
+ログの `overhead` フィールドも `tokens_by_model` / `prices` と同じく**モデル別の写像**にする。
+**切片は「1子プロセスあたり」であって「1ターンあたり」ではない**(AR-76)ので、`total(k) = c + k·m`
+の回帰で得た `c` を実測の `num_turns` で割って `per_turn_tokens` を出し、**その割り算を記録に残す**
+(同一 argv では `num_turns` が動かないので、per-turn 値はこの割り算でしか分離できない)。
+**`argv_digest` が AR-51 への直接の答え** — ADR-013 が定めた argv を変えると定数が自動的に無効に
+なり、実行時に現 argv のダイジェストと突き合わせて違えば `overhead` を `unknown` として報告し
+「記録済み」と言わない。
+
+測定は**同一ブロックの k 回反復**(k = 1, 2, **3**)で `total(k) = overhead + k·m` を取る。
+要件は2本(短・長)を求めているが、**2点だと切片と傾きが一意に解けてしまい「差が材料の差と一致
+する」半分が恒等式になる**(AR-51 の恒等式問題が形を変えて残る)。3点目を足すと線形性そのものが
+反証可能になる。実測は**ホスト(`artifact`)**で `docs/test/measurements/overhead-<model>.md` に
+数値表として残し、**ゲート(`command`)**はその表から切片を再計算して定数と突き合わせる —
+これでネットワーク無しに機械判定が成立する。
+
+**レート枠の記録**(2026-09-25 実測により観測可能になった)。`stream-json` の `rate_limit_event` が
+`rate_limit_info` として `status` / `rateLimitType` / `utilization` / `resetsAt` と、
+`unifiedWindows` の `five_hour` / `seven_day` を返す。**フル処理の開始時と終了時の両方**について
+両ウィンドウの `utilization` と `resetsAt` を記録し、`resetsAt` が処理中に進んだかどうかで
+「単一ウィンドウ内で完走したか」を**反証可能に**判定する。
+
+### NFR-8: 外部サービスの利用が従量課金を伴わないこと
+
+ADR-013 が経路を決め、ADR-014 が境界を決めた。ここは **(a)〜(g) をどう機械判定するか**だけを書く。
+
+**モジュール構成**(新規):
+
+| ファイル | 役割 |
+|---|---|
+| `composition.py` | **(c) の唯一の選択点**。`build_default_llm()` 1本だけを置く |
+| `ports/process.py` | `CommandSpec` / `CommandResult` / `CommandRunner` Protocol |
+| `ports/metering.py` | `RunMeter` Protocol |
+| `adapters/llm_prompts.py` | system プロンプトと JSON Schema。**SDK に触らない** |
+| `adapters/llm_contract.py` | 応答の純粋パーサ(ID 完全性検査を含む)。**既存 `llm_anthropic.py` の `_proposals` / `_string` / `_schema` をここへ移して共有する**(AR-67。再実装しない) |
+| `adapters/llm_claude_cli.py` | `ClaudeCliLlm`。argv 組み立て・stdin・失敗分類・待機 |
+| `adapters/claude_process.py` | `SubprocessRunner`(実 spawn)と `Workspace`(空 cwd / 最小ホーム) |
+| `adapters/claude_failure.py` | `FailureKind` と、出所つきのレート制限判定 |
+| `safety/invocation_log.py` | 逐語ログの構造化レコードとマスク |
+
+**前提作業(これが無いと (a) と (d) が確定的に赤)**: `src/quiz_sift/cli.py` の
+`from quiz_sift.adapters import llm_anthropic` を**削除する**。`llm_anthropic.py` はモジュール
+先頭に `import anthropic` を持つので、CLI を import した時点で `sys.modules` に `anthropic` が
+入る。cli.py がこれを import しているのは `inputs_digest` のためにプロンプト定数とモデル名を
+読んでいるからなので、それらを `adapters/llm_prompts.py` へ移す。あわせて `pyproject.toml` に
+`[project.scripts]` を**1本だけ**追加する(現在 0 本。(d) は「1つだけ」を判定するので 0 は不可)。
+**入口は `[project.scripts]` だけではない**(AR-69)。`cli.py` は `if __name__ == "__main__"` を持ち、
+docstring が `python -m quiz_sift.cli ...` を製品の使い方として書いている。(d) の走査対象は
+**`__main__` ガードを持つモジュールを含む「到達可能な入口の集合」全体**とする — コンソール
+スクリプトの本数だけを数えると、`python -m` 経由の第2の入口が素通りする。
+
+**(a) の判定**: **新規インタプリタ(サブプロセス)**で走らせる(AR-50。`sys.modules` はプロセス
+全域なので、(c) が認める「テストコードからの直接構築」のテストと同一プロセスで判定すると順序依存で
+赤になる)。`anthropic` の import 可能性は **`sys.path` にスタブパッケージを置く**ことで満たす
+(AR-49。実 SDK はイメージに無く、判定に要るのは「読み込まれたか」だけ)。
+
+**`build_default_llm` の形**(AR-55。設計が判定だけ書いて対象を書いていなかった):
+
+```
+# src/quiz_sift/composition.py — このモジュールにはこの関数以外を置かない
+def build_default_llm(meter: RunMeter) -> Llm:
+    return ClaudeCliLlm(meter)
+```
+
+`CommandRunner` と `Workspace` は **`ClaudeCliLlm.__init__` の本体で構築する**(キーワード既定値には
+**しない**)。既定値にすると `SubprocessRunner()` / `Workspace()` が **import 時に1回だけ評価され**、
+AR-64 のプロセス間ロック取得や最小ホームの検証が `composition.py` の import で走ってしまい、
+(c) の AST テスト自体がサンドボックスの import 時に死ぬ(AR-73)。
+
+**`__init__` にも (c) と同じ AST 制約を掛ける**(AR-74)。既定式や本体は (c) の検査の死角で、
+`runner = SubprocessRunner() if os.environ.get("QS_DIRECT") else Other()` と書けば全検査を素通りする —
+D-099 と (c) が `build_default_llm` から追い出した分岐と環境変数参照が、検査の無い場所へ移るだけになる。
+`ClaudeCliLlm.__init__` の本体は**属性代入と引数なしのクラス呼び出しだけ**とし、`if` / `match` /
+`try` / 添字 / `os.environ` / ファイル読み出し / `importlib` を含まないことを AST で判定する。
+
+**`Workspace` はゲートでも差し替えない**(AR-72)。差し替えると (b) の「製品が `HOME` 配下に作成した
+ファイルが 0 件」が fake の指す一時ディレクトリに対する判定になり、**構造上あたりまえに 0 件**になる
+(AR-55 が (a) について指摘したのと同型の「赤くなり得ない緑」)。代わりに `Workspace` は
+**根のパスを引数に取る実クラス**(`Workspace(home_root, cwd_root)`)とし、ゲート内テストは
+`tmp_path` を根として**実物を走らせる**。ADR-014 が「ゲートで差し替えるのは `claude` の spawn だけ」と
+書いた境界はこれで保たれる。最小ホームの実体が無いサンドボックスでは、テストが最小ホームの形
+(資格情報1ファイル)を自分で作って与える。`new_cwd()` が作った一時ディレクトリは**呼び出しごとに
+後始末する**(500〜1000 回ぶんの残骸を残さない)。
+
+ゲート内の fake runner 注入は `composition` ではなく**テストコードからの直接構築**で行う。
+
+**(a) の control は2本要る**(AR-55)。
+- **positive control**: 判定に使う実行で `build_default_llm()` が実際に呼ばれ `llm_calls ≥ 1` である
+  ことを同時に要求する。`Llm` に一度も触れないサブコマンド(取り込みなど)を走らせるだけでは
+  無条件に緑になるため。判定対象のコマンドを固定して記す。
+- **negative control**: 選択点を SDK アダプタへ差し替えると (a) が赤くなること。**ただし赤の出所に
+  注意が要る** — `llm_anthropic.py` はモジュール先頭に `import anthropic` を持つので、差し替えは
+  import だけで赤くする。control が測るべきは「パイプラインが実際に SDK を使ったこと」なので、
+  **差し替え版でも positive control(`llm_calls ≥ 1`)が緑であることを同時に要求する**。
+- **`AnthropicLlm` のコンストラクタを `(meter)` 1引数に揃える**。現行は
+  `(client, recorder, *, model)` で、現行の既定実装が `anthropic.Anthropic()` を入れ子で作っている
+  (D-099 と (c) がどちらも禁じる形)。揃えないと **(c) の形を保ったまま SDK へ差し替えることが
+  できず、要件が要求する negative control が書けない**(AR-55)。クライアントの構築は
+  `__init__` の本体へ移す。
+
+**(c) の AST 判定**: `ast.parse` で `build_default_llm` を取り、(1) 本体が `Return` 1文、
+(2) `value` が `ast.Call` で `func` が `ast.Name`(`ast.Attribute` は落とす)、(3) `ast.walk` に
+`If` / `Match` / `Try` / `Subscript` / `IfExp` / `BoolOp` / `Lambda` / `Attribute` / `comprehension`
+/ `Import` が無い、(4) 名前参照が `{クラス名} ∪ 引数名` に含まれる、(5) その名前が実際にクラスで
+あることを `inspect.isclass` で確かめる(関数へのすり替えを塞ぐ)。**入れ子のクラス呼び出しは
+禁止**する(D-099)ので、`llm_calls` の計数はデコレータではなくアダプタ内部に置く。
+加えて「`Llm` を実装するクラスを構築している式が `src/` 全体で `composition.py` の1箇所だけ」を
+AST で走査する(これが無いと「選択点は1つ」が `composition.py` の中しか見ない自己完結になる)。
+
+**(e) の argv**(2026-09-25 実測で確定):
+
+```
+claude -p --output-format stream-json --verbose --max-turns 3
+  --json-schema <インライン JSON>          ← ファイルパスは受け付けない(実測)
+  --model <claude-opus-5 | claude-haiku-4-5>
+  --system-prompt <タスク別。教材本文を含まない>
+  --exclude-dynamic-system-prompt-sections
+  --strict-mcp-config --mcp-config {"mcpServers":{}}
+  --settings {"permissions":{"deny":[<全ツール名>]}}
+  --permission-mode default
+```
+
+**argv 全体を1回通して受け付けられることを確認済み**(2026-09-25。`--exclude-dynamic-system-prompt-sections`・
+`--strict-mcp-config`・`--mcp-config` のインライン JSON・`--settings` のインライン JSON・
+`--permission-mode` のすべて)。
+
+- **ツールは `StructuredOutput` の1本まで削れる**(実測)。`--allowedTools ''` は無効果だが、
+  `--settings` の `permissions.deny` に**全ツール名を列挙する**と `init.tools` が
+  `["StructuredOutput"]` だけになり、それでも呼び出しは成功する。`StructuredOutput` は
+  `--json-schema` の結果を配送する機構そのものなので、脅威モデル上は「0 件」と等価。
+  **素の状態には `Glob` と `Grep`(どちらもファイルシステムを読む)が含まれる**ので、deny の列挙から
+  漏らせない。有効ツールの集合は他フラグの有無でも動く(実測で 19 / 22 / 1)ため、**列挙の正しさを
+  列挙の側から保証してはならない** — 判定は `init.tools` が `{"StructuredOutput"}` と**一致**すること。
+- **判定の時点**(AR-61): `init` はターン 0 の宣言であり、脅威(第三者テキストによる注入)が働くのは
+  ターン 1 以降。`tools` が1本だけなら t>0 で増える余地は無いが、**`stream-json` の全イベントを
+  通して、許容集合外のツール**使用**が現れたら失敗**にする判定も置く(時間軸に沿った判定)。
+- 権限バイパスの不在は否定判定(`--dangerously-skip-permissions` が argv に無く、
+  `--permission-mode` が `bypassPermissions` / `acceptEdits` でない)。
+- 作業ディレクトリは `Workspace.new_cwd()` が毎回 `mkdtemp` で作る**空ディレクトリ**。リポジトリ内には
+  作らない。
+- プロンプト本体は **stdin だけ**(`subprocess.run(input=...)` はパイプであって一時ファイルではない)。
+
+**NFR-2 のマスク**(AR-42)。**全文を後からマスクする実装にしない**。`InvocationRecord` に
+`argv` / `exit_code` / `duration_sec` / `usage`(4値)/ `failure_kind` / `rate_limited` /
+`rate_limit_evidence` / `stdin_sha256` / `stdin_len` / `stdout_masked` / `stderr_masked` を
+**別々のフィールドとして**持ち、ログはそのレンダリングとして生成する。こうすると「全面
+`[MASKED]` に置換する実装」が**型として表現できなくなる**。マスク自体は既存の
+`safety/log_filter.MaterialTextFilter.mask` をそのまま使い、`safety/secret_mask.py` に
+OAuth トークンの形と `.credentials.json` のパス文字列を足す。
+
+**並行度は 1(直列)で凍結する**(D-100)。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分で、R-3 の全体
+上限 12 時間に収まる。並列化してもレート枠は増えないので、**枠が binding なら利得はゼロで枠に速く
+当たるだけ**。加えて並列化は (i) 最小ホームの共有による `.claude.json` 同時書き込み、(ii) 
+累積待機時間の定義破壊(どれか1本が生きていれば待機区間が 0 になる)を同時に持ち込む。
+`MAX_CONCURRENCY` は1箇所の定数にしておき、T-020 で枠に余裕があると分かった次サイクルで上げる。
+
+**並行度 1 は1実行の中でしか効かない**(AR-64)。最小ホームは `~/.quiz-sift-claude-home` という
+**固定パスのプロセス間共有資源**なので、R-3 が要求する「キャッシュを迂回した2回の実行」を並行に
+走らせたり、人が別シェルで別の段を起動したりすれば、2つの `claude` が同じ `.claude.json` を
+同時に書く。**(b) の判定そのものも壊れる** — fake runner の差分観測が、別プロセスの書き込みを
+「製品が作ったファイル」として数える。**最小ホームの使用をプロセス間ロック(`HOME` 配下の
+ロックファイル)で直列化し、取得できなければ起動時にエラー終了する**。
+
+- **証拠種別**: (a)〜(e) と (g) は `command`。**`init.tools` が実際に許容集合に収まることの確認は
+  `artifact`**(ゲートでは argv の形しか見えず、AR-43 と同じ自己確認の穴がここにも開くため、
+  ホスト実測を1本置いて塞ぐ)。(f) は T-020 の実測ログに対する `artifact`。
+- **What this requires of a person**: ADR-014 の最小ホームを1回セットアップすること。
+  サンドボックスイメージの再ビルドとダイジェストの再ピン(`anthropic` の extra 化に伴う)。
+- **Reversibility**: **可逆**。
 
 ## Risks / trade-offs
 
@@ -545,6 +836,24 @@ adaptive thinking を既定にしているので出力側に思考トークン�
   優先した。実際に聞いて不満なら `ports/tts.py` 越しに差し替える(ADR-004)。
 - **Udemy への実アクセスは不可逆**。CDP 接続でパスワードの取り扱いは消えたが、アクセス履歴と
   ボット検知のリスクは残る。
+- **`total_cost_usd` と自算値の独立性は見かけほど高くない**(ADR-013 / NFR-7)。申告値は CLI が
+  定価表から計算した名目値である可能性が高く、その場合「自算値 vs 申告値」の相対差は**単価表の
+  一致度を測っているだけ**で、課金の裏取りにはならない。AR-24 / AR-36 が閉じたかったのは
+  「常に 0.0 を返す実装」なのでその目的は達する。
+- **`claude` CLI のバージョンが凍結できない**。ADR-001 は依存をイメージに焼くと決めたが、CLI は
+  ホストに置かれ自動更新される。`--json-schema`・`usage` の4値・`rate_limit_event` の形はいずれも
+  2.1.281 での実測に依拠しており、**更新で壊れてもゲートは緑のまま**(ゲートは fake runner しか
+  見ない)。契約フィクスチャ(NFR-6)が唯一の検知手段で、それも採取し直すまでは古い契約を守る。
+- **NFR-8 は否定的証拠にとどまる**(D-087)。`apiKeySource` は D-093 により本番経路で観測できる
+  ようになったが、**要件は毎回の検証を課していない**。hooks・ユーザメモリ・システム管理設定から
+  指示や権限が入る経路は製品コードでは塞げず、criterion の「この基準が測っていないこと」へ落とした。
+- **有効ツールを 0 件にできない**(実測)。危険な9本は消せるが、セッション管理系 19 本
+  (`Skill`・`SendMessage`・`CronCreate`・`RemoteTrigger` など)が残る。最小ホームにスキルも
+  プラグインも置かないこと(ADR-014)と `--max-turns 3` で爆発半径は有限だが、**ゼロではない**。
+  教材本文は Udemy 由来の第三者テキストであり、注入の可能性は消えていない。
+- **週次のレート枠が 2026-09-25 時点で 95%**(実測)。D-085 は「枠を実測せず凍結する」と決めたが、
+  `rate_limit_event` により**枠を使い切らずに使用率が読める**ことが分かった。T-020 は
+  7日枠がリセットされる 2026-09-28 08:00 JST 以降でなければ完走しない見込み。
 
 ## Open questions
 
@@ -555,9 +864,21 @@ adaptive thinking を既定にしているので出力側に思考トークン�
   torch が要る。`/tasks` で手順を決める。
 - **`web/` の依存管理が未設計**。node と Playwright をイメージから外したので、`npm ci` と
   `next build` はホスト側の手順になる。`/tasks` で決める。
-- **`L-DES-ADR` レンズが未適用**。条件(ADR に却下オプションがあるか)は機械的に判定でき、
-  12 本の ADR がいずれも該当するが、`proposed` の採否は人間が mandate で決めるもの。
-  採用するなら「選んだ案の短所が、却下した案の短所に比べて過小に書かれていないか」が見られる。
+- **`L-DES-ADR` / `L-DES-FAILURE-WALK` は `proposed` のまま、2026-09-25 のラウンドで適用した**。
+  前サイクルで `L-REQ-FAILURE-MODES` を「人間が採用と判断したのにレビュアー枠を使い切っていて
+  要件段階に一度も当たらなかった」と記録したのと同じ失敗を繰り返さないため。**採否そのものは
+  人間が mandate で決める**ので、採らない判断なら今回の適用記録ごと落とせばよい。
+- **レート制限の判定表は、返却の「形」までは実測していない**。`rate_limit_event` の構造は
+  `status: allowed_warning` の状態で観測したが、**実際に枠を使い切ったときに何が返るか**
+  (`status` の値、そもそもイベントが出るのか、子プロセスが非 0 で終わるのか)は未観測。
+  設計は fail-closed(表に当たらない失敗は必ず失敗側)なので、**形が違えばレート制限が
+  `PROVIDER_ERROR` として失敗計上され、T-020 が途中で非 0 終了する**。逆向き(未知を待機に倒す)は
+  プロダクト全体を静かに壊すので、この倒し方を選んだ。
+- **オーバーヘッド定数が日/セッションでぶれるかは未実測**。`argv_digest` は argv の変化を検知するが、
+  同じ argv で値がぶれる場合は検知できない。ぶれるなら「定数」の前提が崩れ、NFR-7 の分離が
+  `unknown` を報告し続けることになる。
+- **単価表の取得元 URL がまだ空**。NFR-7 が出所を要求しており、`claude-opus-5` と
+  `claude-haiku-4-5` の両方について埋めないと **C-019 が判定不能**になる。`/tasks` の作業項目。
 
 ## Adversarial review
 
@@ -630,13 +951,89 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
 台本分割の最小単位(AR-8)、smoke の凍結(AR-20)、artifact の実行主体(N-2)、`gate.sh` の位置(N-3)。
 
 
+### 2026-09-25 のデルタ(従量課金の禁止 → Claude Code CLI 経路)に対するラウンド
+
+適用レンズ7本。うち `L-DES-ADR` と `L-DES-FAILURE-WALK` は `proposed` だが、**前サイクルで
+`L-REQ-FAILURE-MODES` を「人間が採用と判断したのにレビュアー枠を使い切って一度も当たらなかった」と
+記録した失敗を繰り返さないため、このラウンドで適用した**(採否そのものは人間が mandate で決める)。
+**7本すべてが何かを見つけた。** blocker 4件 / major 9件 / minor 4件。
+
+| ID | Sev | Lens | Finding | Disposition |
+|----|-----|------|---------|-------------|
+| AR-54 | blocker | COVERAGE | **C-019 / C-020 の statement が要件の改訂に追随しておらず、達成不能な claim として凍結される寸前だった。** C-020 は「HOME は資格情報1ファイルだけ」(D-096 が同一ファイル内で否定)と「有効ツール0件」(D-092 と実測が不可能と言う)を主張していた。C-019 はレート枠の記録も単価表の2モデル化も持っていなかった | **fixed** — 両 statement を書き直した。**これはリードの欠陥**: C-019/C-020 を一度更新した後に D-092 / D-096 で要件がさらに動き、再同期しなかった |
+| AR-55 | blocker | COVERAGE / INFEASIBILITY | **NFR-8 (a) が構造上あたりまえに緑になる。** `claude` 不在と最小ホーム不在の起動時検査でパイプラインが LLM を1つも組み立てないまま終わるので、**既定が SDK アダプタのままでも `anthropic` は `sys.modules` に現れない**。R-3 の退化ガードと契約フィクスチャには negative control を課しているのに、NFR-8 の中心基準にだけ無かった。加えて `build_default_llm` の signature も本体も設計に一度も書かれておらず、`LlmFactory` の引数1つ・入れ子禁止(D-099)・fake runner の注入という3制約が互いに噛み合っていなかった | **fixed** — negative control(選択点を SDK に差し替えると (a) が赤くなること)を要件に追加。`build_default_llm` の本体を設計に明記し、`CommandRunner` / `Workspace` は `ClaudeCliLlm.__init__` のキーワード既定値として持つ形に確定した(注入はテストからの直接構築 = (c) が認める opt-in と同じ経路) |
+| AR-56 | blocker | INFEASIBILITY / FAILURE-WALK | **レート制限のホワイトリストに既知の要素が1つも無く、判定順序が枝を到達不能にし、待機に上限が無い。** 実測された `status: allowed_warning` は**成功した呼び出しに付いてくる**値なので、これを到達と数えると全呼び出しが待機に倒れる。判定順序が `PARSE` を先に置いており、枠切れの `claude` が JSON でないエラー文を出す最頻の形ではレート制限判定に到達しない。7日枠の `resetsAt` は数日先になりうるのに全体上限は12時間 | **fixed** — `allowed_warning` は到達ではないと明記。**レート制限判定を `PARSE` より前へ移した**。`resetsAt` が残り予算を超えると分かった時点で待たずに成果物を保存して非 0 終了する規定を追加(待機の長さは待つ前に分かる) |
+| AR-57 | blocker | NFR-HOLES | **`--max-turns 3` によりターン数が実行時変数になり、`provider_invocations` は「レート枠の消費実態」ではない**(子プロセス1本の中でモデル往復が 2 回以上)。**固定オーバーヘッド定数も成立しない**(入力トークン ≈ ターン数 × オーバーヘッド + 材料 なのに、定数にターン数のフィールドが無い) | **fixed** — 実測で裏付けた(成功時 `num_turns: 2` / `stop_reason: tool_use`。構造化出力は `StructuredOutput` ツール経由で配送されるため 1 ターンでは届かない)。**`model_turns` を第3の語として追加**し、枠を消費するのはこれと定義。オーバーヘッドは**1ターンあたり**の定数にし、判定を `overhead × num_turns + material = 合計` に変えた |
+| AR-58 | major | ADR | ADR-014 が Option D を「**害が消えるから**」という理由で却下し(不可逆ゲートは害を管理する仕組みであって害を維持する理由ではない)、採用した Option C の Cons を1件も書いていなかった | **fixed** — Option D の却下理由を symlink の未実測リスク1点に絞り、教材本文が消えることは却下理由にしないと明記。Option C に実在する短所4件(資格情報の失効が検査で見えない / 固定パスのプロセス間共有 / 長期コピーが2箇所 / 平文が無期限に蓄積)を追記 |
+| AR-59 | major | ADR | **ADR-015 の決め手が、同じ ADR が偽らしいと書いている仮定に乗っていた。** 「95% を Haiku に」は枠の消費がモデルに依らない場合のみ成立するが、同 ADR の表が `Opus limit` の実在を挙げている。分類は最初のステージなので、Opus 枠に当たると後続の Haiku が1回も走らない | **fixed** — 論証の限界を ADR に明記し、Option C の短所として「2つの枠のどちらに当たっても止まる」を追記。モデルごとの枠の重みは `utilization` の差分で実測できる(枠を使い切らないので D-085 の対象外)ことを `/tasks` の作業項目にした |
+| AR-60 | major | INFEASIBILITY / UNSTATED-ASSETS | argv の「実測で確定」に5項目の裏付けが無い。とくに **`--settings` がファイルパスしか受けないなら、書き先が最小ホームなら (b) が赤、空 cwd なら (e)4 が二読みになり逃げ場がない** | **fixed(実測で解消)** — (e) の argv 全体を1回通し、`--exclude-dynamic-system-prompt-sections` / `--strict-mcp-config` / `--mcp-config`(インライン)/ `--settings`(インライン)/ `--permission-mode` がすべて受け付けられ、`stream-json` の `result` が4値 `usage` と `total_cost_usd` を返すことを確認した |
+| AR-61 | major | NFR-HOLES / FAILURE-WALK | (e)1 の判定対象 `init.tools` は**ターン 0 の宣言**だが、脅威(第三者テキストの注入)が働くのはターン 1 以降。残る `Skill` / `ToolSearch` は実行中に能力を増やせる | **fixed** — 実測で**ツールを `StructuredOutput` の1本まで削れる**ことが分かったので、増える余地そのものが消えた。加えて `stream-json` の全イベントを通して許容集合外のツール**使用**が現れたら失敗にする、時間軸に沿った判定を追加 |
+| AR-62 | major | INFEASIBILITY | CLI 経路には `max_tokens` 相当が無い。ID 完全性で `unassigned` を必須にした結果 50 問なら最低 50 個のキーが必ず出力され応答は純増するのに、切り詰めは再試行禁止(D-101)のまま実行全体を非 0 終了させる | **fixed** — 切り詰めは `stop_reason` で識別できる(実測: 成功時 `tool_use`)ので `TRUNCATED` として別に数え、`CLASSIFY_BATCH_SIZE` を 50 → **25** に下げた。`inputs_digest` の生成パラメータには `max_tokens` の代わりに `--max-turns` とバッチサイズを入れる |
+| AR-63 | major | FAILURE-WALK | 契約フィクスチャが成功1件のみで、**`FailureKind` 6種と判定順序はすべて同じ実装者の fake だけで検証される**。失敗の形の一部はただで採れる | **fixed(実測で採取)** — `error_max_turns`(`--max-turns 1` で再現)と、不正な `--json-schema` に対する **JSON ですらない `Error: ...` の標準出力**(`PARSE` の実物)を採取。フィクスチャを3件に増やし、それぞれが期待する `FailureKind` へ落ちることをゲート内の `command` 証拠にする |
+| AR-64 | major | FAILURE-WALK | **並行度 1 は1実行の中でしか効かない。** 最小ホームは固定パスのプロセス間共有資源で、R-3 が要求する2回の実行を並行に走らせれば `.claude.json` を同時に書く。**(b) の判定も壊れる**(別プロセスの書き込みが「製品が作ったファイル」に数えられる) | **fixed** — 最小ホームの使用をプロセス間ロックで直列化し、取得できなければ起動時にエラー終了する規定を追加 |
+| AR-65 | major | NFR-HOLES | **失敗・レート制限で終わった呼び出しの usage の扱いが未定義**(枠を消費した呼び出しだけが会計から抜ける)。`Meter.record` はモデル ID が一字違うだけで例外を投げフル処理が計測器で死ぬ。**ログのフィールド一覧が設計のどこにも無い** | **fixed** — 「成否の判定より先に `usage` を記録する」を要件と設計の両方に明記。モデル ID の照合失敗は `{"status":"unavailable","reason":"unknown_model"}` へ倒し例外にしない。`Meter.finish` が出す JSON Lines のフィールドを設計に**名前で列挙**した |
+| AR-66 | minor | YAGNI | 並行度 1 を凍結したのに、ロック付きの並行アイドル区間計算を作っている(設計自身が「次サイクルのため」と書いている) | **fixed(reduce_scope)** — 直列前提にし、累積待機時間は `実経過 − 稼働時間の総和` で求める。並列化する次サイクルで区間計算へ置き換える |
+| AR-67 | minor | UNSTATED-ASSETS | `llm_contract.py` が `llm_anthropic.py` の既存パーサを再実装し、**残す側は削除対象の旧挙動を持ったまま**。要件が認めた経路(テストからの直接構築)で、R-3 の ID 完全性に違反するアダプタが構築可能になる | **fixed** — 既存の `_proposals` / `_string` / `_schema` を `llm_contract.py` へ**移して共有**する(再実装しない)。残す SDK アダプタも新契約に従うと明記 |
+| AR-68 | minor | COVERAGE | 決定 ID の引用が3箇所誤り(D-094↔D-099、D-096↔D-100、D-097↔D-096)、**ADR-016 は存在しない** | **fixed** — 4箇所とも訂正 |
+| AR-69 | minor | COVERAGE | (d) は `pyproject.toml` のスクリプトを数えるが、`cli.py` は `__main__` ガードを持ち docstring が `python -m quiz_sift.cli` を製品の使い方として書いている | **fixed** — (d) の走査対象を「`__main__` ガードを持つモジュールを含む到達可能な入口の集合」全体に広げた |
+| AR-70 | minor | ADR | ADR-013 の「Implementation effort: 中」「動くのは呼び出し経路だけ」が実物(新規9モジュール・新 Protocol・プロンプト書き換え)と合わず、却下案の工数を「1サイクル」と書いたのと非対称 | **fixed** — effort を**大**に改め、波及の実体を Background にも書いた |
+
+**このラウンドで実測が4件の finding を直接解消した**(AR-60 / AR-61 / AR-62 / AR-63)。設計を書き直す
+のではなく、未確認だった前提を叩いて確かめる方が安かった。最大の収穫は **ツールを
+`StructuredOutput` の1本まで削れること**と、**素の許容集合に `Glob` / `Grep` が含まれていたこと** —
+後者は要件が列挙した 19 本の許容集合が**ファイルシステム読み取りを許してしまう**ことを意味していた。
+
+**未解決の dispute**: なし。
+**レンズ候補(`unclassified`)**: レビュアーが AR-54 について「**要件文書が改訂されたサイクルで、その
+要件を参照する claim の statement が改訂されていない**」という条件を提案した。7本のどれにも当たらず、
+機械判定可能で、`/revise --to mandate` で戻ったサイクルでは必ず起こりうる形。**今回が1度目なので
+`unclassified` として記録し、2度目が出たらライブラリへ足す**(採否は acceptance で人間が決める)。
+
+#### 2巡目(blocker 修正の再レビュー、規定により1回のみ)
+
+**4件とも still-open**、さらに新規 blocker 2件を含む8件。1巡目の処置はいずれも「別の場所へ問題を
+移しただけ」だった。レビュアー枠は使い切ったので、以下はリードが処置を当てたもので**独立には
+検証されていない**。
+
+| ID | 2巡目の判定 | 内容と、リードの最終処置 |
+|----|------------|------------------------|
+| AR-54 | still-open → **fixed** | C-019 が AR-51 の恒等式対策(差と切片の判定)を落としており、`material := 合計 − overhead` と実装すれば**常に緑**。C-020 は要件が名指しで禁じた「**列挙の側からの保証**」(argv の deny 列挙を読む判定)を凍結しており、要件 (d) の「コンソールスクリプト1つだけ」と (f) の証拠の形を落としていた。**C-019 / C-020 を再度書き直した** |
+| AR-55 | still-open → **fixed** | 追加した negative control は、`llm_anthropic.py` が先頭に `import anthropic` を持つので**パイプラインが LLM を組み立てたかに関係なく import だけで赤くなる** — 赤の出所が測るべき振る舞いではない。また `AnthropicLlm.__init__` は `(client, recorder, *, model)` なので **(c) の形を保ったまま SDK へ差し替えること自体が不可能**で、要件が要求する control が書けない。**positive control(`llm_calls ≥ 1`)を足し、差し替え版でもそれを要求する形にした。`AnthropicLlm` のコンストラクタを `(meter)` へ揃えることを設計に明記した** |
+| AR-56 | still-open → **人間が判断を変えて解消** | **`allowed_warning` を除外するとホワイトリストが空になり、`RateLimited` の枝に到達する入力が存在しない**。判定順序の並べ替えも無効 — `rate_limit_event` を読むには stdout を JSON として解釈する必要があり、枠切れで JSON でない出力が返るなら順序に関係なく `PARSE` に落ちる。**人間が D-091 を撤回し、レート制限を特別扱いしない(`PROVIDER_ERROR` として失敗に数え非 0 終了、`resetsAt` を残して人が再開)ことにした。** 判定表も待機も再試行も丸ごと不要になり、反証不能な枝が消えた |
+| AR-57 | still-open → **fixed** | `model_turns` を足したのに**記録する口が無かった**(`RunMeter` にも `UsageRecorder.record` にも `num_turns` を渡す経路が無い)。判定式 `overhead × num_turns + material` は**混成モデルの下で真になりえない**(モデルごとに定数が違う)。回帰の切片は「1子プロセスあたり」で「1ターンあたり」ではない。**`end_invocation(model, turns, usage)` を置き、判定を `Σ_model (overhead_model × turns_model) + material` へ、定数と `overhead` ログをモデル別の写像にした** |
+| AR-71 | **blocker(新規)→ fixed** | **AR-54 の修正を C-019 / C-020 の2本にしか当てず、同じデルタで改訂された C-003(R-3)を取り残した。** C-003 は「外部 API 呼び出しが2倍」と書くが R-3 は AR-38 で `llm_calls` に限定済みで、レート制限の再起動を認めた時点で子プロセス数は2倍にならないことが保証されていた。**提案された `unclassified` レンズ(要件が改訂されたのに claim が改訂されていない)の2度目が、同じラウンドの中で起きた。** C-003 を書き直した |
+| AR-72 | **blocker(新規)→ fixed** | **`Workspace` を注入可能にしたこと(AR-55 の処置)が ADR-014 / NFR-6 の境界規定を破る。** 差し替えると (b) の「製品が `HOME` 配下に作成したファイルが 0 件」が fake の一時ディレクトリに対する判定になり**構造上あたりまえに 0 件**。AR-55 の処置が (b) に「赤くなり得ない緑」を作っていた。**`Workspace` は差し替えず、根のパスを引数に取る実クラスにしてゲートで実物を走らせる形にした** |
+| AR-73 | major → **fixed** | キーワード既定値は import 時に1回評価されるので、AR-64 のプロセス間ロック取得と最小ホーム検証が `composition.py` の import で走り、**(c) の AST テスト自体がサンドボックスの import 時に死ぬ**。`new_cwd()` の後始末も未規定。**既定値をやめて `__init__` 本体で構築し、cwd は呼び出しごとに後始末する**ことにした |
+| AR-74 | major → **fixed** | **`__init__` のデフォルト式は (c) の死角で第2の選択点になる** — `SubprocessRunner() if os.environ.get(...) else Other()` が全検査を素通りする。D-099 と (c) が追い出した分岐と環境変数参照が検査の無い場所へ移るだけ。**`__init__` にも同じ AST 制約を掛ける**ことにした |
+| AR-75 | major → **fixed** | `model_turns` に記録経路が無い(AR-57 と同根)。`end_invocation(model, turns, usage)` で閉じた |
+| AR-76 | major → **fixed** | オーバーヘッドからモデル次元が落ちていた(AR-57 と同根)。定数もログもモデル別の写像にした |
+| AR-77 | major → **fixed** | `FailureKind` が本文で「6種」、下で `TRUNCATED` を足して7種、契約フィクスチャ節は「6種」のまま。**`error_max_turns` がどの Kind へ落ちるか未定義なのに「期待する Kind へ落ちることを証拠にする」と書いていた**。7種へ統一し、**人間が `error_max_turns` → `TRUNCATED` と決めた**(D-102)。不正スキーマ → `PARSE` も明記 |
+| AR-78 | minor → **fixed** | NFR-8 の見出しが「(a)〜(f) がいずれも 0 件」なのに列挙に (g) があり、(g) は件数ではない。「(a)〜(g) を判定する((a)〜(f) は 0 件、(g) は argv の形の一致)」へ改めた |
+
+**未解決の dispute**: なし。
+**規定により、これ以上のレビュアーのラウンドは回さない**(`/design` step 6)。**2巡目の 12 件の処置は
+すべてリードがレビュアーの提案を適用したもので、独立には検証されていない。** 要件フェーズと同じく
+**同じ形の欠陥(判定器が実装側を読みに行く / 検査の無い場所へ問題が移る)が2巡続けて出た**ことを、
+mandate の承認時に人間が読む前提で記録する。
+**`unclassified` レンズ候補の2度目**: 「要件が改訂されたサイクルで、その要件を参照する claim の
+statement が改訂されていない」— AR-54(C-019 / C-020)と AR-71(C-003)で**同一サイクル内に2度**
+起きた。ライブラリへ足す判断は acceptance で人間が行う。
+
 ## Self-assessment (assumptions, confidence)
 
 - **Assumptions made**:
   - Udemy のページ構造は HTML から解析できる形になっている。**未検証**。R-2 の前提。
   - CDP 接続が Udemy のボット検知を回避できる。**未検証**。
   - CosyVoice の文内コードスイッチが AWS のサービス名混在に耐える。**未検証**(公称値のみ)。
-  - CosyVoice をホストに導入できる。**未検証** — pip で入らないことだけは実測済み。
+  - CosyVoice をホストに導入できる → **2026-09-24 に実測済み。導入でき、3音声の合成まで通した**
+    (Python 3.13 のまま、上流のハードピンを外して現行版で解決。`9627cc5`)。
+  - **Claude Code CLI の出力契約(`--json-schema` / `usage` の4値 / `total_cost_usd` /
+    `rate_limit_event` / `init.tools`)が、ホスト上の CLI が自動更新されても維持される**。2.1.281 で
+    実測。**イメージに焼けないので凍結できない**(ADR-001 が効かない唯一の依存)。
+  - **枠を使い切ったときに `claude` が何を返すかは未観測**。D-091 を撤回してレート制限を失敗に
+    倒したので、**この未知が基準の成否を左右しなくなった**(倒し方が未知に依存しない)。
+  - **Claude Pro のレート枠がフル処理を賄えるかは未検証**(D-085)。2026-09-25 時点で 7日枠が
+    **95%**、リセットは 2026-09-28 08:00 JST。**T-020 はそれ以降でなければ完走しない見込み**。
   - ffmpeg / fugashi + unidic-lite がネットワーク遮断下で動く → **2026-09-22 に実測済み。動く**。
   - 作者が唯一のユーザーであり、多ユーザー対応・認証・可用性は不要。
 - **Confidence**:
@@ -650,11 +1047,26 @@ L-DES-YAGNI の5件(`rein lens --select design` が applied として解決)と�
   - **低**: R-12。ブラウザ動作が artifact になり、2プロセス構成(rewrites / ThreadingHTTPServer /
     リクエストごとの接続)は設計で塞いだが**一度も動かしていない**。
   - **低**: NFR-1 の判定能力。上の Open questions の1点目。
+  - **低**: NFR-8 と NFR-7 の CLI 経路まわり。**2巡のレビューで blocker が2巡とも全件 still-open**
+    と判定され、しかも「判定器が実装側を読みに行く」「検査の無い場所へ問題が移る」という同じ形の
+    欠陥が繰り返し出た。実測が4件を直接解消した(ツールを1本まで削れる / `Glob`・`Grep` の存在 /
+    argv の受理 / 失敗形の採取)一方、**最終的な文面は誰にも読まれていない**。
+  - **中**: R-3 の失敗分類。D-091 の撤回で反証不能な枝が消え、7種の分類はすべて `command` で
+    判定できる形になった。実物の契約フィクスチャを3件(成功 / `error_max_turns` / `PARSE`)置く。
 - **Open questions / points for the human to decide**:
   - 上の Open questions 4点。
   - `/tasks` で分解した結果が現実的な規模に収まらない場合の、スコープ縮小の判断。
   - **2巡目の修正が独立に検証されていない**: 再招集枠は使い切った。AR-5 / AR-6 / AR-8 / N-1 / N-2 /
     N-3 の最終修正はリードが適用したままレビューを受けていない(N-1 と S-2 のテストが赤くなることは
-    手元で確認済み)。
+    手元で確認済み)。**2026-09-25 のデルタも同じ状態** — AR-54〜AR-78 の2巡目 12 件はリードが
+    適用したままで、**要件フェーズと設計フェーズの両方で「同じ形の欠陥が2巡続けて出た」**。
+  - **AR-46: Anthropic SDK アダプタを残すか削除するか**(人間の判断として持ち越し)。残す決定は
+    済んでいるが、レビュアーは「どの要件も必要としていないのに NFR-8 (a)(c) の判定機構・
+    optional extra・mypy overrides・依存監査の対象面を丸ごと生んでいる」と指摘した。**削除すれば
+    要件が2本簡単になり、AR-55 が要求する `AnthropicLlm` のコンストラクタ変更も不要になる。**
+  - **`L-DES-ADR` と `L-DES-FAILURE-WALK` の採否**(どちらも `proposed`)。このラウンドで適用し、
+    3本とも何かを見つけた(ADR-014 の「害が消えるから却下」、ADR-015 の自己矛盾した決め手、
+    ADR-013 の工数の非対称)。採らない判断なら適用記録ごと落とせる。
+  - **週次枠 95% により T-020 は 2026-09-28 08:00 JST 以降でなければ走らない**。
   - **ガードの境界を2度越えた**: `src/` と `scripts/` に、Bash のヒアドキュメントで
     PreToolUse フックを素通りして書き込んだ。どちらも是正済みだが、同じ機構で再発しうる。
