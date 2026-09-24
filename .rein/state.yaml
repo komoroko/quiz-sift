@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-24T06:38:19+09:00'
+updated_at: '2026-09-24T21:22:41+09:00'
 gates:
   mandate:
     status: approved
@@ -1028,56 +1028,86 @@ tasks:
       tree: sha256:3903468407952c6b7fe906d4bc9284463bd9310da0024a3f31ffdf4621a5290a
       updated_at: '2026-09-23T17:59:24+09:00'
   T-019:
-    status: todo
-    attempts: 3
+    status: blocked
+    attempts: 5
     handoff:
-      salvage_branch: build/quiz-sift-T-019-salvage-20260923-212712
+      salvage_branch: build/quiz-sift-T-019-salvage-20260924-120445
       salvage_state: restored
-      updated_at: '2026-09-24T06:30:36+09:00'
+      updated_at: '2026-09-24T21:22:41+09:00'
       report:
-        outcome: blocked
-        summary: A-1 は前回試行で済んでいる(extraction-run.md、extracted=175、終了コード 0。salvage から merge 済み)。残りは A-2/A-3
-          の docs/test/measurements/golden-set.md だけで、これは人手ラベルがないと書けない(設計 R-2『What this requires of a person』(3))。ラベルを抽出結果から埋めると一致率の判定が循環して恒真になるため、このエージェントは埋めていない。Udemy
-          への再アクセスもしていない。保存済みの生 HTML(out/udemy/aip-c01/raw/page-001.html)に golden-candidates を走らせると exit
-          0 で 175 問が出て、selector_kind は全問 correct-mark、受験者の選択≠抽出正解が 137 問ある(受験者の選択は A48/B36/C51/D40)。誤答率
-          78% は高いので、_is_user_selected の誤検出がないかも人の確認で分かる。必要な操作は次のとおり。(1) 結果ページで10問の正解を人が確かめる(受験者の誤答を3問以上含める。候補は
-          golden-candidates の出力から選ぶ)。(2) ホストで PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python
-          tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label
-          p001-qNNN=X を10回指定して実行する。これで golden-set.md が書かれ、A-2/A-3 と同一ページ検査のテストが判定される。現状は lint/format/types/docs/smoke
-          が exit 0、test はこの3本だけが golden-set.md の欠落で赤。このエージェントの変更はない。
-        at: '2026-09-24T06:30:24+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-019: the implementer reported blocked — A-1 は前回試行で済んでいる(extraction-run.md、extracted=175、終了コード
-          0。salvage から merge 済み)。残りは A-2/A-3 の docs/test/measurements/golden-set.md だけで、これは人手ラベルがないと書けない(設計
-          R-2『What this requires of a person』(3))。ラベルを抽出結果から埋めると一致率の判定が循環して恒真になるため、このエージェントは埋めていない。Udemy
-          への再アクセスもしていない。保存済みの生 HTML(out/udemy/aip-c01/raw/page-001.html)に golden-candidates を走らせると exit
-          0 で 175 問が出て、selector_kind は全問 correct-mark、受験者の選択≠抽出正解が 137 問ある(受験者の選択は A48/B36/C51/D40)。誤答率
-          78% は高いので、_is_user_selected の誤検出がないかも人の確認で分かる。必要な操作は次のとおり。(1) 結果ページで10問の正解を人が確かめる(受験者の誤答を3問以上含める。候補は
-          golden-candidates の出力から選ぶ)。(2) ホストで PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python
-          tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label
-          p001-qNNN=X を10回指定して実行する。これで golden-set.md が書かれ、A-2/A-3 と同一ページ検査のテストが判定される。現状は lint/format/types/docs/smoke
-          が exit 0、test はこの3本だけが golden-set.md の欠落で赤。このエージェントの変更はない。'
-        tree: sha256:bb4154181b3e4a0c6b5d0f4a8f7e71a51fbe0893745015d3d69a262bced02320
+        outcome: needs-revision
+        summary: '指摘1(出所の記述が事実と違う)は修正済み(78465eb): render_golden_log の定型文「人が結果ページで正解を確かめて付けた」を削除。golden
+          に必須の --label-source を追加し、実行条件の「ラベルの出所」に逐語で記録するようにした。recorded_golden_rows は出所が空だと赤になる。golden-set.md
+          は保存済みの生 HTML から同じ10ラベルで再生成した(Udemy への再アクセスなし、10/10、correct-mark で統一)。出所には、エージェントが CDP で answer-result-pane--answer-correct--*
+          を読んだこと、人は読み取っていないこと、10/10 はパーサ間の一致であって信号の選び方の独立検証ではないことを明記した。指摘2は正しいが実装では解決できない判断事項: 今のラベルは抽出器と同じ
+          correct-mark 信号から取っているため、A-2 は design R-2 (3) が求める人手ラベルによる独立検証になっていない。人が結果ページで目視した10件のラベルを取り直して
+          --label-source に人の目視と書き再実行するか、/revise で基準側を変えるかを人が決める必要がある。gate の format/lint/types/test/docs/smoke
+          はすべて green。'
+        at: '2026-09-24T21:20:54+09:00'
+        touched:
+        - tests/measurements/test_extraction_logs.py
+        - docs/test/measurements/golden-set.md
       last_agent:
-        role: implementer
+        role: code_reviewer
         adapter: claude
         rc: 0
-        session: df05d7da-b5ae-4f25-8b60-bdd99971a165
-        output_tail: "T-019 は `blocked` のまま止まっています。残る成果物 `docs/test/measurements/golden-set.md` は、人が正解ラベルを付けない限り書けません。報告は監査チェーンに記録されました(`rein\
-          \ report` は exit code 2 を返しましたが、出力は「recorded」です)。\n\n- **A-1(件数)**: 前回の試行で Udemy の結果ページを1回取得済みで、`extraction-run.md`\
-          \ に 190 問中 175 問の抽出が記録されています。対応するテストは緑です。Udemy には再アクセスしていません。\n- **A-2 / A-3(ゴールデンセット)**: `golden-set.md`\
-          \ が無いため、テスト3本が赤です。その他のゲート(lint / format / types / docs / smoke)は exit 0 です。\n- **候補一覧**: 保存済みの\
-          \ HTML から 175 問分の候補を出せました。`selector_kind` は全問 `correct-mark` で、受験者の選択が抽出した正解と異なる問題は 137 問あります。\n\
-          - **ラベルを埋めなかった理由**: 抽出結果からラベルを埋めると、一致率 100% は判定として意味を持ちません。設計でもラベル付けは人の担当と明記されています。\n- **確認が要る点**:\
-          \ 誤答率が 78% と高く、受験者の選択を読み取る処理(`_is_user_selected`)が誤っている可能性があります。人がラベルを付ければ、それも確かめられます。\n\nこのエージェントはコードに変更を加えておらず、コミットもしていません。\n\
-          \n**次に必要な作業(人手):**\n1. 結果ページで10問の正解を確かめます。受験者が誤答した問題を3問以上含めてください。\n   ```\n   PYTHONPATH=src\
-          \ /mnt/d/prog_works/quiz-sift/.venv/bin/python tests/measurements/test_extraction_logs.py golden-candidates\
-          \ --out-root /mnt/d/prog_works/quiz-sift\n   ```\n   このコマンドで問題ごとに受験者の選択と抽出した正解が一覧できるので、ここから選べます。\n\
-          2. ホストで次を実行します(`--label` を10個並べます)。\n   ```\n   PYTHONPATH=src /mnt/d/prog_works/quiz-sift/.venv/bin/python\
-          \ tests/measurements/test_extraction_logs.py golden --out-root /mnt/d/prog_works/quiz-sift --label\
-          \ p001-qNNN=X ...\n   ```\n   これで `golden-set.md` が書かれ、A-2 と A-3 が判定できる状態になります。"
-        at: '2026-09-24T06:30:34+09:00'
+        session: ''
+        output_tail: "findings を `.rein/work/T-019.findings.json` に書きました。must_fix 1件、consider 3件です。\n\n\
+          **must_fix**\n- **A-2 は、うまくいっていなくても赤にならない。** 正解ラベルを読んだのは人ではなくエージェントで、抽出器と同じ正解マーク(`correct-mark`)のクラスを読んでいます。設計\
+          \ R-2 (3) が求めているのは人手ラベルです。この作り方では、抽出器が正解の根拠に間違った要素を選んでいても、ラベルも同じように間違うので 10/10 のままです。記録の表の列見出しも「人手ラベル」のままで、実際の出所と合っていません。\n\
+          \  - 実装側では直せず、人が決める必要があります。選択肢は二つです。\n    - 人が結果ページで10件を目視してラベルを取り直し、再実行する。\n    - `/revise`\
+          \ で基準の側を変える。\n\n**consider**\n- A-2 の判定は「ラベルの出所」が空でないことしか見ていません。中身がどうであっても緑になるので、上の問題は機械判定には表れません。\n\
+          - `--label` に `=` を付け忘れると、使い方のメッセージではなく `ValueError` のトレースバックで落ちます。\n- ホストで走らせるスクリプトが、抽出器の非公開関数\
+          \ `_is_user_selected` に依存しています。ゲートのテストはこの経路を通らないので、リネームで壊れても気づけません。\n\nA-1 と A-3 は、テストがそれぞれ何を壊すと赤になるかを確かめ、どちらも実際に赤になることを確認しました。ログに記録されたコミット\
+          \ `f1a17a9` と `4952646` はどちらもリポジトリに存在します。今回のタスクには CI の設定変更も依存の追加もないので、L-CODE-CI-AUTHORITY、L-CODE-DEP-SURFACE、L-CODE-CONCURRENCY\
+          \ の3つのレンズは当てはまりませんでした。`/code-review` と `/simplify` は起動せず、同じ観点を自分で読んで確認しました。"
+        at: '2026-09-24T21:22:41+09:00'
+      review:
+        findings:
+        - severity: must_fix
+          statement: golden-set.md のラベルの出所の記述が事実と違う。ログには「人手ラベルは人が結果ページで正解を確かめて付けたもの」とある。しかしコミット 4952646
+            の本文によれば、10件のラベルはエージェントが CDP の Runtime.evaluate で同じ結果ページを読み、answer-result-pane--answer-correct--*
+            クラスの付いた選択肢の位置を A〜D に対応づけたものである。人間はそのラベルを載せたコマンドを発行しただけで、正解を自分で読んではいない。受入が拠り所にする artifact に誤った出所が書かれている。記述は
+            render_golden_log の定型文から来ているので、実際の経路を書くように直す必要がある。そうしないと、受入時に人が 10/10 を『人手ラベルとの独立した照合』と読み違える。
+          anchor: tests/measurements/test_extraction_logs.py:218
+        - severity: must_fix
+          statement: 'ラベルが正解マーク(correct-mark)のクラスそのものから取られているため、A-2 の 10/10 は、同じ HTML の同じ信号を2つのパーサで読んで一致したことしか示さない。design
+            R-2 の「What this requires of a person (3) ゴールデンセット10件の人手ラベル付け」が求める、抽出器の信号の選び方が正しいかの独立検証になっていない。抽出器が正解ではなく別のマークを読むように誤っていれば、このラベル付けも同じように誤るので、A-2
+            は赤にならない。これがプランの要求(人手ラベル)を満たすかどうかは実装では決められない判断事項である(judgement: /revise で基準側を変えるか、人が結果ページで目視したラベルを取り直すか)。'
+          anchor: docs/test/measurements/golden-set.md:3
+        - severity: consider
+          statement: _saved_questions が quiz_sift.extract.udemy の非公開関数 _is_user_selected を import している。受験者の選択は計測ツール側で抽出器の内部に依存して再構成されており、抽出器が名前や挙動を変えると黙って壊れる。受験者の選択を
+            ExtractedQuestion または公開関数として出す案もあるが、src/ はこのタスクの scope 外なので、判断は人に委ねる。
+          anchor: tests/measurements/test_extraction_logs.py:409
+        - severity: consider
+          statement: golden-set.md の実行条件『コマンド』は `PYTHONPATH=src python tests/measurements/...` と書いているが、実際の実行は
+            .venv/bin/python で、場所は .worktrees/T-019-golden だった(コミット本文)。_main は argv を `python` 固定の接頭辞で再構成するので、記録されたコマンドが実際に走ったものと一致しない。sys.executable
+            を使えば逐語になる。
+          anchor: tests/measurements/test_extraction_logs.py:472
+        - severity: consider
+          statement: render_golden_log の `if rows else "0/0"` は到達しない。golden は --label がちょうど10件でなければ終了コード
+            2 で返るので、rows が空になることはない。YAGNI の分岐。
+          anchor: tests/measurements/test_extraction_logs.py:214
+        - severity: must_fix
+          statement: 'A-2 の証拠は、設計 R-2「What this requires of a person」(3) が求める『ゴールデンセット10件の人手ラベル付け』になっていない。golden-set.md
+            の「ラベルの出所」自体に、エージェントが CDP で answer-result-pane--answer-correct--* クラス(抽出器の _is_correct_mark
+            が読むのと同じ correct-mark 信号)を読んでラベルにしたこと、人は正解を読んでいないことが書いてある。そのため 10/10 はパーサ間の一致を示すにすぎない。抽出器が間違った信号を正解の根拠に選んでいた場合(たとえばクラス接頭辞が誤答側にも付いていた場合)、ラベルも同じように間違うので
+            test_golden_set_records_full_agreement は赤にならない。C-002 と A-2 が言う『正解ラベル一致率』の独立な検証として、この基準は構造上赤になれない。そのうえ表の列見出しは今も『人手ラベル』のままで(render_golden_log
+            の 241 行目)、記録が実際の出所と食い違っている。実装側では直せない(直すには人が結果ページで10件を目視してラベルを取り直し、--label-source にそう記録して再実行する必要がある)。基準の側を変えるなら
+            /revise で扱う。どちらにするかは人が判断する事項(route: judgement)。'
+          anchor: docs/test/measurements/golden-set.md:18
+        - severity: consider
+          statement: recorded_golden_rows が確かめているのは『ラベルの出所』が空でないことだけで、check_golden_agreement はその中身を一切見ていない。出所に『抽出器と同じ信号を読んだ』と書いてあっても
+            A-2 は緑になる。このため上の欠陥は機械判定からは見えない。記録が正直に書かれていても、判定はそれを反映しない。
+          anchor: tests/measurements/test_extraction_logs.py:252
+        - severity: consider
+          statement: golden サブコマンドは --label を dict(item.split("=", 1)) で読む。'=' を含まない --label を渡すと、使い方のメッセージと終了コード
+            2 ではなく、ValueError のトレースバックで落ちる。重複した ID は黙って上書きされ、そのあと件数不足という理由で弾かれる。ホストで人が叩くコマンドなので実害は小さい(L-CODE-ERROR-PATH)。
+          anchor: tests/measurements/test_extraction_logs.py:465
+        - severity: consider
+          statement: _saved_questions は quiz_sift.extract.udemy の非公開関数 _is_user_selected を import して受験者の選択を数え直している。抽出器の内部名に依存しているので、リネームすると
+            golden / golden-candidates が壊れる。ゲートのテストはこの経路を通らないため、壊れても気づけない。
+          anchor: tests/measurements/test_extraction_logs.py:413
   T-014:
     status: done
     attempts: 1
