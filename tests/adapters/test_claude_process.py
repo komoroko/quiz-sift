@@ -71,13 +71,17 @@ def make_measured_home(home: Path) -> Path:
 
 
 def fake_bin(root: Path, *, with_claude: bool) -> Path:
-    """子の PATH に置くディレクトリ。`claude` は検査が解決できるだけの実行ファイルで、走らせない。"""
+    """子の PATH に置くディレクトリ。`claude` は検査が解決できるだけの実行ファイルで、走らせない。
+
+    品質ゲートの /tmp は noexec なので、そこに書いたスクリプトは `shutil.which` に実行不能と見なされる。
+    実行可能なマウント上の既存バイナリ(`true`)への symlink にする。
+    """
     bin_dir = root / ("bin-with-claude" if with_claude else "bin-empty")
     bin_dir.mkdir()
     if with_claude:
-        claude = bin_dir / "claude"
-        claude.write_text("#!/bin/sh\nexit 99\n")
-        claude.chmod(0o755)
+        true_bin = shutil.which("true", path=os.defpath)
+        assert true_bin is not None
+        (bin_dir / "claude").symlink_to(true_bin)
     return bin_dir
 
 
