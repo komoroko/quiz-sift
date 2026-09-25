@@ -16,10 +16,12 @@
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 import tarfile
 import tempfile
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -287,9 +289,10 @@ def _deliver(archive: Path, target: Path) -> Path:
 class Pipeline:
     """1デッキ分の段。各メソッドは前段をキャッシュ越しに呼んで、自分の成果物を返す。"""
 
-    def __init__(self, root: Path, deck_id: DeckId, llm_factory: LlmFactory) -> None:
+    def __init__(self, root: Path, deck_id: DeckId, stage: str, llm_factory: LlmFactory) -> None:
         self.root = root
         self.deck_id = deck_id
+        self.stage = stage
         self.out_dir = deck_out_dir(root / "out", deck_id)
         self._cache = StageCache(root / "out", deck_id)
         self._llm_factory = llm_factory
@@ -301,14 +304,23 @@ class Pipeline:
     @property
     def llm(self) -> Llm:
         if self._llm is None:
-            self._meter = Meter(SystemClock())
+            # 実行の列(--fresh-run / --resume)はまだ無いので、実行ごとに新しい run_id の1実行だけの列になる。
+            self._meter = Meter(
+                SystemClock(),
+                log_path=self.out_dir / METER_LOG,
+                run_id=uuid.uuid4().hex,
+                execution_id=uuid.uuid4().hex,
+                stage=self.stage,
+                cache_mode="normal",
+                env_names=os.environ.keys(),
+            )
             self._llm = self._llm_factory(self._meter)
         return self._llm
 
-    def close(self) -> None:
-        """LLM を使った実行なら、計測を `out/<deck>/meter.jsonl` に締める(NFR-7)。"""
+    def close(self, *, exit_code: int, exit_reason: str | None) -> None:
+        """LLM を使った実行なら、計測の終了行を `out/<deck>/meter.jsonl` に書く(NFR-7)。"""
         if self._meter is not None:
-            self._meter.finish(self.out_dir / METER_LOG)
+            self._meter.finish(exit_code=exit_code, exit_reason=exit_reason)
 
     def _ingest_path(self) -> Path:
         manifest = manifest_path(self.root / "data", self.deck_id)
@@ -476,13 +488,24 @@ def _serve(root: Path, port: int) -> None:
             pass
 
 
+def _exit_code(error: BaseException) -> int:
+    """`error` で抜けたときのプロセスの終了コード。"""
+    if not isinstance(error, SystemExit):
+        return 1
+    if error.code is None:
+        return 0
+    return error.code if isinstance(error.code, int) else 1
+
+
 def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFactory, tts_factory: TtsFactory) -> None:
     root: Path = args.root
     if args.stage == "serve":
         _serve(root, args.port)
         return
-    pipeline = Pipeline(root, DeckId(args.deck), llm_factory)
+    pipeline = Pipeline(root, DeckId(args.deck), args.stage, llm_factory)
     handler.addFilter(pipeline.material_filter)
+    exit_code: int = 0
+    exit_reason: str | None = None
     try:
         result: Path | None
         match args.stage:
@@ -500,9 +523,12 @@ def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFac
                 result = pipeline.review()
             case _:
                 result = getattr(pipeline, args.stage)()
+    except BaseException as error:
+        exit_code, exit_reason = _exit_code(error), type(error).__name__
+        raise
     finally:
         handler.removeFilter(pipeline.material_filter)
-        pipeline.close()
+        pipeline.close(exit_code=exit_code, exit_reason=exit_reason)
     if result is not None:
         print(result, flush=True)
 

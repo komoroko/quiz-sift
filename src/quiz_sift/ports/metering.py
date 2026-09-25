@@ -47,14 +47,28 @@ class RateLimitInfo:
     """`rate_limit_event` の `rate_limit_info` を生のまま写したもの。"""
 
     status: str
-    """観測できた値は `allowed_warning` だけ。枠切れ時の値は未観測(D-110)。"""
+    """値域は `allowed` / `allowed_warning` / `rejected`(claude 2.1.282 のスキーマ。枠切れの実物は未観測。D-128)。"""
     resets_at: int | None
     five_hour: QuotaWindow | None
     seven_day: QuotaWindow | None
+    rate_limit_type: str | None
+    is_using_overage: bool | None
+    """`isUsingOverage`。キーが無ければ `None` で、「使っていない」とは読まない。"""
+    overage_status: str | None
 
 
-ALLOWED_STATUS = "allowed_warning"
-"""成功した呼び出しにも付いてくる既知の許可状態。これ以外はレート制限で止まった印と読む(D-110)。"""
+def rate_limit_stop(kind: FailureKind, is_error: bool | None, last: RateLimitInfo | None) -> bool:
+    """失敗した子1本がレート枠で止まったか(D-128、D-135)。
+
+    `last` はその子自身が最後に出した `rate_limit_event`。並行度に関係なく子ごとに評価する(AR-113a)。
+    """
+    return (
+        kind is FailureKind.PROVIDER_ERROR
+        and is_error is True
+        and last is not None
+        and last.status == "rejected"
+        and last.is_using_overage is False
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,15 +88,24 @@ class RunMeter(UsageRecorder, Protocol):
         """子プロセス1本の起動(`provider_invocations`)。以降の記録はこの1本に属する(D-107)。"""
         ...
 
-    def end_invocation(self, model: str, turns: int | None, usage: TokenUsage | None, cost_usd: float | None) -> None:
+    def end_invocation(
+        self,
+        model: str,
+        turns: int | None,
+        usage: TokenUsage | None,
+        cost_usd: float | None,
+        is_error: bool | None,
+        skills_digest: str | None,
+    ) -> None:
         """子プロセス1本の結果。**成否の判定より先に**呼ぶ。取れなかった値は `None` で渡す。
 
-        `cost_usd` はエンベロープの `total_cost_usd`(D-114)。
+        `cost_usd` はエンベロープの `total_cost_usd`(D-114)、`is_error` は result の `is_error`、
+        `skills_digest` は `init` イベントの skills 一覧のダイジェスト(D-141)。
         """
         ...
 
     def record_quota(self, info: RateLimitInfo) -> None:
-        """観測したレート枠。最初の値が開始時、最後の値が終了時になる(D-114)。"""
+        """観測したレート枠。開いている子プロセスに属し、実行で最初の値が開始時、最後の値が終了時になる(D-114)。"""
         ...
 
     def record_failure(self, kind: FailureKind) -> None:
