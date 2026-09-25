@@ -14,24 +14,7 @@ execution:
   status: idle
 tasks: {}
 baseline:
-  measured_at: '2026-09-25T16:03:15+00:00'
-  tree_digest: sha256:e2e0a28d26674d8e8fffa1ef5539aa78b1b1a15eadc749e4c819816805068551
-  red_steps:
-  - name: docs
-    failure: "$ bash gate.sh docs (rc=1)\n… (8 line(s) omitted; kept tail)\n\e[31m │  × \e[0mAll theme\
-      \ overrides will break – the theming system has been rewritten\n\e[31m │  × \e[0mNo migration path\
-      \ exists – existing projects cannot be upgraded\n\e[31m │  × \e[0mClosed contribution model – community\
-      \ members can't report bugs\n\e[31m │  × \e[0mCurrently unlicensed – unsuitable for production use\n\
-      \e[31m │\e[0m\n\e[31m │\e[0m  Our full analysis:\n\e[31m │\e[0m\n\e[31m │\e[0m  \e[4mhttps://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/\e\
-      [0m\n\e[0m\nINFO    -  Cleaning site directory\nINFO    -  Building documentation to directory:\
-      \ /work/site\nWARNING -  Doc file '05-current-state.md' contains a link '../src/quiz_sift/cli.py',\
-      \ but the target is not found among documentation files.\nWARNING -  Doc file '05-current-state.md'\
-      \ contains a link '../src/quiz_sift/server/__main__.py', but the target is not found among documentation\
-      \ files.\nINFO    -  Doc file '05-current-state.md' contains an unrecognized relative link '../web/',\
-      \ it was left as is.\nWARNING -  Doc file '05-current-state.md' contains a link '../.github/workflows/ci.yml',\
-      \ but the target is not found among documentation files.\nINFO    -  Doc file '05-current-state.md'\
-      \ contains an unrecognized relative link 'decisions/', it was left as is.\nINFO    -  Doc file '05-current-state.md'\
-      \ contains an unrecognized relative link 'tasks/', it was left as is.\nINFO    -  Doc file '05-current-state.md'\
-      \ contains an unrecognized relative link 'test/measurements/', it was left as is.\nAborted with\
-      \ 3 warnings in strict mode!"
+  measured_at: '2026-09-25T16:21:28+00:00'
+  tree_digest: sha256:6e8dcc543a5b659574fb5407eb3b7cdee1dc48abe90637133b09886b5eae605d
+  red_steps: []
   frozen: false
