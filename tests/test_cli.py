@@ -259,14 +259,14 @@ def test_every_stage_has_an_entry_point(
 
 
 def test_llm_use_is_metered(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """LLM を組み立てた実行だけが計測を1行書く(NFR-7)。キャッシュだけで済む実行は書かない。"""
+    """LLM を組み立てた実行だけが計測を開始行と終了行の2行書く(NFR-7)。キャッシュだけで済む実行は書かない。"""
     run = Runner(root, capsys, StubLlm(), StubTts())
     log = root / "out" / DECK / cli.METER_LOG
     run("ingest", DECK)
     assert not log.exists()
     run("cluster", DECK)
     run("cluster", DECK)
-    assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+    assert len(log.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_output_outside_gitignore_is_refused(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
