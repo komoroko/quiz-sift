@@ -20,7 +20,7 @@
 
 project: "quiz-sift"
 cycle_id: quiz-sift                      # lowercase slug naming this delta cycle
-updated_at: "2026-09-22"
+updated_at: "2026-09-25"
 
 # The two things a human approves. Not the five phases: what a human decides is what the loop may
 # change and what it must prove, and then whether the change is taken — never the order the work
