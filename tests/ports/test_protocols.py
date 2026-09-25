@@ -10,7 +10,9 @@ from typing import Any, cast
 
 import pytest
 
-from quiz_sift.adapters.llm_anthropic import CLASSIFY_BATCH_SIZE, AnthropicLlm
+from quiz_sift.adapters import llm_anthropic
+from quiz_sift.adapters.llm_anthropic import AnthropicLlm
+from quiz_sift.adapters.llm_prompts import CLASSIFY_BATCH_SIZE
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
@@ -18,6 +20,7 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.ports.clock import Clock, SystemClock
 from quiz_sift.ports.llm import Entailment, Llm, LlmCallError, TokenUsage
+from quiz_sift.ports.metering import FailureKind
 from quiz_sift.ports.tts import PcmAudio, Tts
 
 PACKAGE = Path(__file__).resolve().parents[2] / "src" / "quiz_sift"
@@ -130,28 +133,54 @@ def test_adapter_records_each_call_with_the_token_breakdown() -> None:
         llm.check_entailment("正解は A", "A ではない")
 
     # 拒否された呼び出しも課金されるので記録される。None は 0 に読む。
-    assert recorder.calls == [("claude-opus-5", TokenUsage(11, 22, 0, 44))] * 2
+    assert recorder.calls == [("claude-haiku-4-5", TokenUsage(11, 22, 0, 44))] * 2
     request = client.requests[0]
-    assert request["model"] == "claude-opus-5"
+    assert request["model"] == "claude-haiku-4-5"
     assert request["thinking"] == {"type": "adaptive"}
     assert request["output_config"]["format"]["type"] == "json_schema"
 
 
 def test_classification_keeps_failed_batches_as_failures() -> None:
     questions = [make_question(n) for n in range(CLASSIFY_BATCH_SIZE + 1)]
-    ok = response({"groups": [{"label": "S3", "question_keys": ["0", "1", "no-such-key"]}]})
-    client = FakeClient(ok, response({"groups": "not-a-list"}))
+    keys = [str(n) for n in range(CLASSIFY_BATCH_SIZE)]
+    ok = response({"groups": [{"label": "S3", "question_ids": keys[:2]}], "unassigned": keys[2:]})
+    client = FakeClient(ok, response({"groups": "not-a-list", "unassigned": []}))
     deck = Deck(DeckId("deck"), Language.JA, None, tuple(questions))
     result = make_llm(client, Recorder()).classify_clusters(deck)
 
     assert len(client.requests) == 2, "バッチごとに分割して呼ぶ"
+    assert client.requests[0]["model"] == "claude-opus-5-5"
     (group,) = result.assignments
     assert group.label == "S3"
     assert group.question_ids == (questions[0].question_id, questions[1].question_id)
     (failure,) = result.failures
     assert failure.question_ids == (questions[-1].question_id,)
+    assert failure.reason.startswith(FailureKind.SCHEMA.value)
     # 2回目の呼び出しには1回目のラベルが渡され、バッチ間でラベルが揃う。
     assert "S3" in client.requests[1]["messages"][0]["content"]
+
+
+def test_anthropic_adapter_shares_the_id_completeness_contract() -> None:
+    # 旧パーサはアダプタから消え、共有の契約へ移っている(AR-67)。
+    for name in ("_proposals", "_string", "_schema"):
+        assert not hasattr(llm_anthropic, name), name
+    source = (ADAPTERS / "llm_anthropic.py").read_text(encoding="utf-8")
+    assert "from quiz_sift.adapters.llm_contract import" in source
+
+    # 旧挙動では「0 を欠いた応答」は 1 だけの割当として通っていた。今は INCOMPLETE_IDS の失敗になる。
+    questions = [make_question(n) for n in range(2)]
+    deck = Deck(DeckId("deck"), Language.JA, None, tuple(questions))
+    missing = response({"groups": [{"label": "S3", "question_ids": ["1"]}], "unassigned": []})
+    result = make_llm(FakeClient(missing), Recorder()).classify_clusters(deck)
+    assert result.assignments == ()
+    (failure,) = result.failures
+    assert failure.question_ids == tuple(q.question_id for q in questions)
+    assert failure.reason.startswith(FailureKind.INCOMPLETE_IDS.value)
+
+    # 判定語のパースも共有: 未知の判定語は CONSISTENT にならず失敗する。
+    llm = make_llm(FakeClient(response({"verdict": "probably"})), Recorder())
+    with pytest.raises(LlmCallError, match=FailureKind.SCHEMA.value):
+        llm.check_entailment("正解は A", "A である")
 
 
 def test_recall_generation_returns_typed_draft() -> None:
