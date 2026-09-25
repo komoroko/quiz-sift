@@ -41,3 +41,18 @@ claude 2.1.282 の実行ファイルに埋め込まれたスキーマ定義を�
 - `rate_limit_event` は、レート枠の状態が変わるたびに出す作りになっている(リスナーが状態の変化を受けて出す)。
 - `result` イベントは、API エラーでターンが終わったとき `api_error_status`(HTTP の状態コード)を持ちうる。
 - 枠切れのときに `status: rejected` のイベントが実際に届くかどうか、`result` がどの形になるかは**未観測**。
+
+## 4. 作業ディレクトリの祖先の `settings.json` の `env`(2026-09-26、実呼び出し1回、AR-128)
+
+`/tmp/.claude/settings.json` と `/tmp/.claude/settings.local.json` を置いた。どちらも中身は `{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}}` である。そのうえで、`/tmp` 配下の空の一時ディレクトリを cwd にして、`--safe-mode` 付きの設計 argv を haiku で呼んだ。事前に `/tmp/.claude` が無いことを確かめた。終わったあとはディレクトリごと消した。
+
+- 終了コード 0。`result` は `subtype: success`・`is_error: false`・`num_turns: 2`。つまり向け替えは効いていない。
+- **祖先の `.claude/settings.json` と `settings.local.json` は、`--safe-mode` の下では読まれない**。`env` の経路として残るのは、HOME 側の `settings.json`(§2。D-122 の中身検査で塞ぐ)と管理設定だけである。
+- `init`:
+  - `tools` は `["StructuredOutput"]`
+  - `memory_paths` は `null`
+  - `apiKeySource` は `none`
+  - `claude_code_version` は `2.1.282`
+  - **`skills` は `--safe-mode` の下でも存在した**(名前が16件並ぶ)
+- `rate_limit_event` は、この呼び出しでも届いた(`status: allowed`・`isUsingOverage: false`)。
+- 採取スクリプトはスクラッチにだけあり、リポジトリには置いていない。§1〜§2 と同じ扱いである。

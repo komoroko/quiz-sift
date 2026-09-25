@@ -125,7 +125,7 @@ claims:
 - id: C-019
   requirement_ids:
   - NFR-7
-  statement: 100〜200問のフル処理1回(同じ run_id で連なる実行の列。各実行は開始時に列へ登録され終了記録の無い登録はレート枠以外の停止と数えられ、途中の非0終了はその実行で失敗したすべての呼び出しが、result が is_error 真で自身の子プロセスが最後に出した rate_limit_event が status rejected かつ isUsingOverage 偽である場合に限り、列全体で isUsingOverage 真の呼び出しが 0 件であることも完走の条件とし、それ以外の停止を含む列は完走に数えられず、最後の実行が exit 0 で完走。回数・トークン・コストは和、並行度は最大、経過時間は実行時間の和と全体の壁時計の両方、使用率と3つの resetsAt は各実行で最初と最後に届いた rate_limit_event の値で届かなければ null と件数)について、実行ごとの値と列の合算値として、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数。分割呼び出しを個別に数え、再試行はしない)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限で終了したか(終了した場合は resetsAt)・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しのトークンも成否の判定より先に記録され、usage が取れなかった呼び出しは件数を別に数える。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドはモデルごとに1ターンあたりの定数として持ち、既知長の合成プロンプトを k=1,2,3 回反復した較正表の上で Σ_model(overhead_model × turns_model) + material が報告された入力トークン合計に一致し、material は合計からの差し引きで求めない(フル処理の実行ログには material を置かない)。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持ち、現 argv のダイジェストと違えば unknown と報告する。出力には notional の語が含まれ、実課金額を主張しない。
+  statement: 100〜200問のフル処理1回(同じ run_id で連なる実行の列。各実行は起動前検査を通った時点で列へ登録され(検査に落ちた起動は列に入らない)終了記録の無い登録はレート枠以外の停止と数えられ、途中の非0終了はその実行で失敗したすべての呼び出しが、result が is_error 真で自身の子プロセスが最後に出した rate_limit_event が status rejected かつ isUsingOverage 偽である場合に限り、列全体で isUsingOverage 真の呼び出しが 0 件であることも完走の条件とし、それ以外の停止を含む列は完走に数えられず、最後の実行が exit 0 で完走。回数・トークン・コストは和、並行度は最大、経過時間は実行時間の和と全体の壁時計の両方、使用率と3つの resetsAt は各実行で最初と最後に届いた rate_limit_event の値で届かなければ null と件数)について、実行ごとの値と列の合算値として、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数。分割呼び出しを個別に数え、再試行はしない)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限で終了したか(終了した場合は resetsAt)・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しのトークンも成否の判定より先に記録され、usage が取れなかった呼び出しは件数を別に数える。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドはモデルごとに1ターンあたりの定数として持ち、既知長の合成プロンプトを k=1,2,3 回反復した較正表の上で Σ_model(overhead_model × turns_model) + material が報告された入力トークン合計に一致し、material は合計からの差し引きで求めない(フル処理の実行ログには material を置かない)。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持ち、現 argv のダイジェストと違えば unknown と報告する。出力には notional の語が含まれ、実課金額を主張しない。
   risk: medium
   domains:
   - observability
@@ -1370,6 +1370,139 @@ decisions:
   - R-3
   - NFR-7
   - NFR-8
+- id: D-132
+  subject: 起動前検査に落ちた起動を run_id の列の実行として登録するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 登録しない。起動前検査(最小ホームの中身検査・flock・claude の解決)を列への登録より前に行い、通った起動だけを実行として列へ登録する。検査に落ちた起動は LLM を呼ばず段キャッシュにも書かないので、人は最小ホームを直して同じ run_id で再開できる。ADR-018。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-133
+  subject: --safe-mode を足した argv で契約フィクスチャをどう扱うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: --safe-mode 付きの設計 argv で success / invalid_schema を取り直す。旧 argv を2本目の期待形として受ける分岐は作らない。 取り直した success に rate_limit_event が無い場合(これまでの実呼び出しでは毎回届いている。probe §4)は3回まで採り直し、それでも無ければ実装は needs-revision で止まり、(h) の証拠の形を人間が /revise で決める(黙って証拠を差し替えない。AR-129)。
+  rationale: フィクスチャの採取と契約テストの期待形は1タスク(旧 T-029 相当)の中に閉じ、claim の文面は動かない。取り直さない側へ戻すのもそのタスクの差し替えで済む。
+  requirement_ids:
+  - NFR-6
+  - NFR-8
+- id: D-134
+  subject: overage の判定を失敗種別の判定順のどこに置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: SPAWN の直後。stdout を行単位に走査して拾えた rate_limit_event に isUsingOverage 真があれば、TIMEOUT・PARSE の出力でも PROVIDER_ERROR とする。
+  rationale: 非0終了・列の完走不可・overage 件数はどちらの順でも同じで、変わるのは failures_by_kind の内訳だけ。判定表1行と fake 1本で戻せる。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-135
+  subject: レート枠による停止の述語に失敗種別 PROVIDER_ERROR を要求するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 要求する。is_error 真・自分の子の最後の rate_limit_event が rejected・isUsingOverage 偽に加え、その呼び出しの失敗種別が PROVIDER_ERROR であること(D-124 の文言「レート枠による PROVIDER_ERROR」に揃える)。
+  rationale: 人間が承認した D-124 / D-128 の両方の文言を満たす厳しい側への寄せで、完走と数える列が減るだけ。述語1つの変更で戻せる。
+  requirement_ids:
+  - NFR-7
+- id: D-136
+  subject: 実行の列を始める・再開する CLI の口
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: '段のサブコマンドに --fresh-run(新しい run_id、段キャッシュを迂回)と --resume RUN_ID(既存の列に実行を足す。開始行の無い run_id は即エラー終了)を足す。無指定は通常のキャッシュを使う1実行だけの列(cache_mode: normal)で、フル処理の列には数えない。R-3 のキャッシュ迂回2回は --fresh-run を2回で行う。'
+  rationale: フラグ名と既定は cli.py の中に閉じる。無指定を迂回にしないのは NFR-4 の「前段の呼び出し 0」を壊さないためで、claim は動かない。
+  requirement_ids:
+  - R-3
+  - NFR-4
+  - NFR-7
+- id: D-137
+  subject: 初回の段キャッシュ迂回をどう実現するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: --fresh-run / --resume の実行は inputs_digest の構成要素に run_id を加える。列ごとに成果物の名前が分かれ、その列が作った成果物(実行中に作ったものを含む)にだけヒットし、他の列や列より前の成果物にはヒットせず、別の列に上書きされない。キャッシュの削除はしない。通常の実行の digest は変えない。(AR-125・AR-131 で「run 単位のヒット許可」から改訂)
+  rationale: StageCache の引数1つと終了行の1フィールドに閉じる。削除案は教材本文を CLI のセッション記録にもう一度平文で残す(D-086)ので採らない。戻すのは1タスク。
+  requirement_ids:
+  - NFR-4
+  - NFR-7
+- id: D-138
+  subject: 1実行 12 時間の上限の掛け方
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: cli.main で signal.alarm を掛け、期限でハンドラが SystemExit の派生を上げる。subprocess.run は子を kill してから上げ直し、finally が終了行を書く。外部の timeout コマンドは終了行が書かれないので使わない。
+  rationale: cli.py の入口数行に閉じ、claim は「1実行 12 時間」を課すだけで掛け方を定めない。協調チェックへの差し替えは1タスク。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-139
+  subject: 列の集約をどこに記録するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 各実行の終了行に sequence オブジェクトとして、その時点までの列の集約を書く。最後の実行の終了行が最終値になる。新しいサブコマンドは作らない(NFR-8 (d) の入口集合を変えない)。
+  rationale: meter.jsonl の1フィールドに閉じ、要件の「実行ごとと列の合算値を記録」をどちらの案も満たす。
+  requirement_ids:
+  - NFR-7
+- id: D-140
+  subject: 起動できなかった子(SPAWN)を rate_limit_event が届かなかった呼び出しに数えるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 数える。要件の字義(呼び出しごと)に従い、SPAWN・TIMEOUT・PARSE の子も含める。SPAWN があれば (h) は unknown になるが、その列はどちらにしても完走不可。
+  rationale: unknown に倒れる側で、passed を過大に主張しない。計数の条件1つで戻せる。
+  requirement_ids:
+  - NFR-8
+- id: D-141
+  subject: skills 一覧ダイジェストの正規形
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: init イベントの skills の名前を並べ替えた JSON 配列の sha256。キーが無いときは固定値 "absent" のダイジェスト。名前が同じまま説明文が変わる同期は検知できないことを Risks に書く。
+  rationale: overhead.py と Meter の比較1箇所に閉じ、D-126 の「違えば unknown」の意味は変わらない。
+  requirement_ids:
+  - NFR-7
+- id: D-142
+  subject: R-3 の再現性測定(キャッシュ迂回2回)に使う列
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: --fresh-run cluster の1実行だけで exit 0 まで走った列を2本使う。再開した列は使わず、枠で止まったら新しい --fresh-run で取り直す。
+  rationale: 測定手順の選び方で C-003 の文面は動かない。再開した列を除くのは「1回分の2倍」を比較可能にするためで、証拠を緩めない側。
+  requirement_ids:
+  - R-3
+- id: D-143
+  subject: 起動前検査を掛けるサブコマンドとゲート内の差し替え口
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: LLM を呼びうる段(cluster / recall / glossary / script / audio)だけに掛け、ingest / review / serve には掛けない(D-115)。cli.main は preflight=default_preflight を既定値に持ち、ゲート内の cli テストは llm_factory と同じく fake を渡す。既定値が本物であることと入口が main(argv) だけを呼ぶことを signature と AST で判定する。
+  rationale: cli.py の引数1つと判定テストに閉じる。検査そのものは Workspace を直接走らせるテストが判定するので C-020 の証拠は動かない。
+  requirement_ids:
+  - NFR-8
+- id: D-144
+  subject: overage または rejected を観測した後の、同じ段の残りの呼び出し
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 発行しない。集計して非 0 終了する。それ以外の失敗種別は現行どおり段の呼び出しを終えてから止める。
+  rationale: 止める時点を早めるだけで、非 0 終了・失敗件数と実際の失敗数の一致・列の完走判定は変わらない。段の呼び出しループ1箇所に閉じる。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-145
+  subject: 列の status の定義(completed / resumable / not_completable)と --resume の条件
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: completed は not_completable でなく最後の実行の stage が audio で exit 0。途中の実行は exit 0 かレート枠による停止のどちらか。resumable はそのどちらでもないもの。--resume は resumable の列にだけ許す。JSON として読めない行は、列の最初の開始行より後ろにあればその列を not_completable にする。
+  rationale: 要件の「完走は最後の実行が exit 0」「途中の非0終了はレート枠によるものだけ」をフル処理(最終段まで)として読んだもので、完走と数える列を狭める側。集約関数1つに閉じる。
+  requirement_ids:
+  - NFR-7
 tasks: []
 lenses:
 - id: L-REQ-AMBIGUITY

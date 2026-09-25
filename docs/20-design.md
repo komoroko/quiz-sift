@@ -188,26 +188,40 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   **失敗の分類(ADR-013 の CLI 経路で形が変わった)**。`FailureKind` は `SPAWN` / `TIMEOUT` /
   `PARSE` / `SCHEMA` / `TRUNCATED` / `INCOMPLETE_IDS` / `PROVIDER_ERROR` の**7種**。
   **レート制限は特別扱いしない**(D-091 を 2026-09-25 に撤回): `PROVIDER_ERROR` として失敗に数え、
-  下流へ進まず非 0 終了し、`rate_limit_event` が返した `resetsAt` をログに残す。人が枠のリセット後に
-  再実行し、NFR-4 の段階キャッシュが「完了した段は呼び直さない」を保証する。
-  **撤回の理由**: レート制限と判定できる既知の値が1つも無い。観測できた `status` は
-  `allowed_warning` だけで、それは**成功した呼び出しにも付いてくる**(枠の残量通知)。除外すると
+  下流へ進まず非 0 終了する。`rate_limit_event` が届いていた場合に限り、最後に届いた `resetsAt` をログに残す
+  (D-123)。人は枠のリセット後に `--resume <run_id>` で再開し、その列が作った段はキャッシュから読む
+  (NFR-7 節「実行の列」、ADR-018)。
+  **撤回の理由**(2026-09-25 時点): レート制限と判定できる既知の値が1つも無かった。観測できた `status` は
+  `allowed_warning` と `allowed` で、どちらも**成功した呼び出しにも付いてくる**(枠の残量通知)。
+  `rejected` は claude 2.1.282 の実行ファイルのスキーマから読んだ値で、枠切れの実物は未観測(probe §3、D-127)。除外すると
   ホワイトリストが空になり、`RateLimited` の枝に到達する入力が存在しないまま「待機して継続」という
   成立条件の無い基準を凍結することになる。**判定順序の並べ替えも効かなかった** — `rate_limit_event`
   を読むには stdout を JSON として解釈する必要があり、枠切れで JSON でない出力が返るなら順序に
   関係なく `PARSE` に落ちる。**失敗に倒せば、判定表も待機も再試行も要らなくなる。**
-  判定順序: 起動失敗 → タイムアウト → stdout が **`result` イベントをちょうど1つ含む JSON のイベント列**に
+  D-128 で「レート枠による停止」の述語が戻ったが、それは**列の完走判定にだけ**使う(NFR-7 節)。再試行・待機は作らない。
+  **`stop_reason` / `is_error` / `subtype` は `result` イベントからだけ読む**(D-131。`assistant` メッセージにも
+  `stop_reason: tool_use` が載るので取り違えない)。
+  判定順序: 起動失敗 → **overage**(`PROVIDER_ERROR`。D-125、D-134)→ タイムアウト → stdout が **`result` イベントをちょうど1つ含む JSON のイベント列**に
   ならない(`PARSE`。**空の stdout、途中で切れて `result` の無い列を含む** — D-119、AR-100)→ `subtype` が
   `error_max_turns`、または `stop_reason` が `max_tokens` / `model_context_window_exceeded` のどちらか
   (`TRUNCATED`。D-102、D-120。値は Messages API の定義から取った。CLI 経由での実測は無い)→ `is_error` が真
   (`PROVIDER_ERROR`)→ スキーマ不適合(`SCHEMA`)→ ID 完全性(`INCOMPLETE_IDS`)。
+  **overage の走査はストリーム全体の厳格なパースと別に行う**: stdout を行ごとに `json.loads` し、
+  `type == "rate_limit_event"` の行だけを拾う(読めない行は飛ばす)。タイムアウトでも途中までの stdout
+  (`TimeoutExpired.stdout`)を走査する。こうしないと `PARSE` / `TIMEOUT` で終わった呼び出しの overage が
+  記録されず、NFR-8 (h) の「呼び出しごとに記録」が欠ける。overage を `TRUNCATED` / `SCHEMA` /
+  `INCOMPLETE_IDS` より前に置くのは、「真が1件でもあればその呼び出しを `PROVIDER_ERROR`」が
+  切り詰めや ID 欠落の陰に隠れないため。
   **再試行しない**(D-101 を改訂)。レート制限を失敗に倒した結果、再試行する対象が1つも残らない。
   これにより `provider_invocations` が `llm_calls` を超える要因は**チャンク分割だけ**になり、
   2語の差が常に説明可能になる。
   **応答の切り詰め**(AR-62): CLI 経路には `max_tokens` 相当が無い。ID 完全性のためにスキーマへ
   `unassigned` を足した結果、応答は純増する。`CLASSIFY_BATCH_SIZE` は 50 から **25** へ下げ、
   `inputs_digest` の「生成パラメータ」には `max_tokens` の代わりに `--max-turns` とバッチサイズを入れる。
-  **タイムアウトは子プロセス1本に置く**(既定 10 分)。全体は実経過時間 12 時間で外から止める(AR-52)。
+  **タイムアウトは子プロセス1本に置く**(既定 10 分)。**1回の実行**を実経過時間 12 時間で止める(AR-52、
+  D-131)。列の壁時計には上限を置かず記録だけにする。上限は `cli.main` の `signal.alarm` で掛け、ハンドラが
+  `SystemExit` の派生を上げる(D-138)。`subprocess.run` は子を kill してから上げ直し、`finally` が終了行を
+  書く。外部の `timeout` コマンドは SIGTERM で終了行が書かれず「レート枠以外の停止」に落ちるので使わない。
   **ID 完全性**(NFR-8 経由で R-3 に入った新基準)。スキーマに `unassigned: string[]` を必須で
   足し、プロンプトを「どこにも当てはまらない問題は `unassigned` に入れる。すべての問題キーが
   ちょうど1回現れること」へ書き換える。`flatten(groups[].question_ids) + unassigned` が渡した
@@ -546,7 +560,10 @@ lock を直接 COPY できないのは `rein oci build` のビルドコンテキ
 
 **実 CLI の出力契約をフィクスチャで固定する**(AR-43)。`tests/fixtures/claude_cli/` に実 CLI から
 採取した生の stdout を1件置き、`.meta.yaml` に採取日・`claude --version` の出力・モデル・
-**採取に使った argv 全体**・合成プロンプト全文・sha256 を記録する。**失敗の形も採る**(AR-63)。成功1件だけでは、新設した `FailureKind` 7種と判定順序が**同じ実装者が
+**採取に使った argv 全体**・合成プロンプト全文・sha256 を記録する。**2026-09-26: argv に `--safe-mode` が
+加わった(D-130)ので、success / invalid_schema は `--safe-mode` 付きの設計 argv で取り直す**(D-133)。
+旧 argv を2本目の期待形として受ける分岐は作らない。取り直した success に `rate_limit_event` が現れなければ、
+(h) の「`isUsingOverage` 偽」の実物が失われるので、その事実を `.meta.yaml` に書く。**失敗の形も採る**(AR-63)。成功1件だけでは、新設した `FailureKind` 7種と判定順序が**同じ実装者が
 書いた fake に対してしか検証されない**。採取コストがほぼゼロの形を1件足す:
 **不正な `--json-schema` に対する出力**(`PARSE` の実物)。**2026-09-25 の T-029 実測(claude 2.1.282)で、
 `Error: --json-schema is not valid JSON: ...` は標準出力ではなく標準エラーに出て、標準出力は空、終了コードは 1**
@@ -584,14 +601,29 @@ class RunMeter(UsageRecorder, Protocol):
     def begin_call(self, method: str) -> None: ...       # llm_calls += 1
     def begin_invocation(self, argv_digest: str) -> InvocationScope: ...   # provider_invocations += 1(D-107)
     def end_invocation(self, model: str, turns: int | None, usage: TokenUsage | None,
-                       cost_usd: float | None) -> None: ...   # cost_usd = total_cost_usd(D-114)
-    def record_quota(self, info: RateLimitInfo) -> None: ...   # 最初の観測を start、最後を end に(D-114)
+                       cost_usd: float | None, is_error: bool | None,
+                       skills_digest: str | None) -> None: ...   # cost_usd = total_cost_usd(D-114)
+    def record_quota(self, info: RateLimitInfo) -> None: ...   # 開いている InvocationScope に属する
     def record_failure(self, kind: FailureKind) -> None: ...
 ```
 
+**`RateLimitInfo` の拡張**(`ports/metering.py`)。`rate_limit_type` / `is_using_overage: bool | None` /
+`overage_status` を足す。3つの `resetsAt`(トップレベル・`five_hour`・`seven_day`)は既に持つ。
+**`ALLOWED_STATUS` と D-110 の判定(`status != "allowed_warning"` なら真)は削除する** — 成功フィクスチャに
+`status: allowed` が出ており、この判定は `allowed` の呼び出しが `PROVIDER_ERROR` で落ちるとレート制限と誤る。
+
+**レート枠による停止の述語**(D-128、D-135)は `ports/metering.py` の純関数
+`rate_limit_stop(kind, is_error, last) -> bool` 1本に置く(Meter とログのレンダリングが同じ定義を使い、
+adapters → ports の依存の向きを保つ)。真になるのは `kind == PROVIDER_ERROR`・`is_error is True`・
+`last is not None`・`last.status == "rejected"`・`last.is_using_overage is False` のすべてを満たすときだけ。
+`is_using_overage` が `None`(キーが無い)なら偽 — 欠けたキーを「使っていない」と読まない。
+`last` は**その呼び出し自身の子プロセスが最後に出したイベント**で、Meter は失敗した子1本ごとに
+`(kind, is_error, last_rate_limit)` を保持する。並行度に関係なく呼び出し単位で評価する(AR-113a)。
+
 **レート枠は `rate_limit_event` を読むアダプタが `record_quota` で渡す**(D-114)。`Llm` Protocol を変えない
-方針なので cli は `RateLimitInfo` を観測できず、meter が最初に受けた値を `quota_at_start`、最後に受けた値を
-`quota_at_end` にする。
+方針なので cli は `RateLimitInfo` を観測できず、meter がその実行で最初に受けた値を `quota_at_start`、最後に
+受けた値を `quota_at_end` にする。届かなければ `null` とし、届かなかった呼び出しの件数を別に数える(AR-116)。
+アダプタは子1本について、最初と最後の `RateLimitInfo`・届いた件数・`isUsingOverage` が1回でも真だったかを持つ。
 
 `LlmFactory` は `Callable[[RunMeter], Llm]` になる。`Meter` が `RunMeter` を満たすので
 `UsageRecorder` の口は温存され、`Llm` Protocol は不変のまま。
@@ -611,7 +643,8 @@ class RunMeter(UsageRecorder, Protocol):
 `turns` が取れずに終わった呼び出し(`SPAWN` / `TIMEOUT` / `PARSE`)は `turns=None` / `usage=None` で
 記録し、**件数を別に数える**(AR-65 が usage について置いた規律をターンにも通す)。
 
-**並行度**。並行度 1 を凍結した以上、ロック付きの区間計算は作らない(AR-66)。並行度は
+**並行度**。並行度 1 を凍結した以上、ロック付きの区間計算は作らない(AR-66)。レート枠による停止の述語は
+並行度 1 に依存せず呼び出し単位で評価する(上記)。並行度は
 「同時に起動した子プロセスの最大数」として定数 1 を記録する。時刻は既存の `ports/clock.py` の
 `Clock.monotonic` を使う。**レート制限を失敗に倒した(D-091 撤回)ので、待機も累積待機時間も無い。**
 
@@ -623,16 +656,30 @@ class RunMeter(UsageRecorder, Protocol):
 `{"status":"unavailable","reason":"unknown_model"}` へ倒し、例外にしない**。
 
 **ログのフィールド一覧**(AR-65。要件は「項目リストは1本だけ」と定めているので、設計は散文ではなく
-名前で示す)。`Meter.finish` が出す JSON Lines の行:
-`run_id` / `started_at` / `finished_at` / `elapsed_sec` / `llm_calls` / `provider_invocations` /
-`model_turns` / `turns_by_model` / `max_concurrency` / `tokens`(4値の内訳ごとの総量)/ `tokens_by_model` /
-`estimated_cost`(`notional: true` / `computed` / `declared` / `relative_diff` / `status`)/ `prices`(出所つき、2モデル分)/
-`overhead`(`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns`)/
-`failures_by_kind`(7種)/ `invocations_without_usage` / `invocations_without_turns` /
-`ended_by_rate_limit`(真なら `resetsAt` を併記)/ `quota_at_start` / `quota_at_end`
-(後2者は `five_hour` と `seven_day` それぞれの `utilization` と `resetsAt`)。
-`overhead` は **モデル別の写像**(`tokens_by_model` / `prices` と同じ形)で、各要素が
-`per_turn_tokens` / `bucket` / `measured_at` / `cli_version` / `argv_digest` / `turns` を持つ。
+名前で示す)。`out/<deck>/meter.jsonl` に1実行あたり2行を追記する。
+
+- **開始行**(`record: "start"`): `record` / `run_id` / `execution_id` / `started_at` / `cache_mode`
+  (`fresh` / `resume` / `normal`)/ `stage` / `env_names` / `metered_env_names`
+- **終了行**(`record: "end"`。`Meter.finish` が出す):
+  - 識別: `record` / `run_id`(**列の ID**。D-124)/ `execution_id`(1回の実行の ID)
+  - 時間: `started_at` / `finished_at` / `elapsed_sec`
+  - 回数: `llm_calls` / `provider_invocations` / `model_turns` / `turns_by_model` / `max_concurrency`
+  - トークン: `tokens`(4値の内訳ごとの総量)/ `tokens_by_model` / `calls_by_model`
+  - コスト: `estimated_cost`(`notional: true` / `computed` / `declared` / `relative_diff` / `status`)/
+    `disclaimer` / `prices`(出所つき、2モデル分)
+  - オーバーヘッド: `overhead`(**モデル別の写像**。各要素が `per_turn_tokens` / `bucket` / `measured_at` /
+    `cli_version` / `argv_digest` / `skills_digest` / `turns`。`unknown` のときは `reason` と
+    `argv_digests` / `skills_digests`)
+  - 失敗: `failures_by_kind`(7種)/ `failed_invocations` / `invocations_without_usage` / `invocations_without_turns`
+  - レート枠による停止: `rate_limit_stopped_invocations`(述語が真の数)/ `ended_by_rate_limit`
+    (`value`・その実行の最後のイベントの `status`・3つの `resetsAt`。定義は D-128)
+  - レート枠: `quota_at_start` / `quota_at_end`(`status` / `rateLimitType` / `isUsingOverage` / `overageStatus` /
+    `resetsAt` / `five_hour` / `seven_day` のそれぞれの `utilization` と `resetsAt`。届かなければ `null`)
+  - overage: `overage_invocations` / `invocations_without_rate_limit_event` / `overage_check`
+    (`failed` / `unknown` / `passed`)
+  - 停止: `stop`(`exit_code` / `exit_reason`(例外クラス名)/ `kind`: `completed` / `rate_limit` / `other`)
+  - 列の集約: `sequence`(その時点までの列の集約。最後の実行の終了行が最終値。D-139。中身は下の「実行の列」)
+
 **実行ログには `material` を置かない**(D-116)。フル処理で material を独立に得る手段は無く、
 「合計 − Σ overhead×turns」で出せば AR-51 が禁じた恒等式に戻る。恒等式の判定は T-030 の較正表
 (既知長の合成プロンプト)でだけ行う。レート制限で終わった実行は待機しないので、待機時間の欄は置かない
@@ -651,7 +698,7 @@ class RunMeter(UsageRecorder, Protocol):
 > 「常に 0.0 を返す実装」なのでその目的は達するが、**2値の独立性は見かけほど高くない**。
 
 **固定オーバーヘッドの分離**(AR-41 / AR-51 / AR-76)。定数は**モデルごと**に
-`OverheadConstant(model, per_turn_tokens, bucket, measured_at, cli_version, argv_digest)` として持ち、
+`OverheadConstant(model, per_turn_tokens, bucket, measured_at, cli_version, argv_digest, skills_digest)` として持ち、
 判定は **`Σ_model (overhead_model × turns_model) + material = 報告された入力トークン合計`**
 (material が独立に分かる較正表の上でだけ判定する。D-116)。
 ADR-015 の混成でモデルごとに値が違うので、単一の `overhead × num_turns` では真になりえない。
@@ -661,7 +708,13 @@ ADR-015 の混成でモデルごとに値が違うので、単一の `overhead �
 (同一 argv では `num_turns` が動かないので、per-turn 値はこの割り算でしか分離できない)。
 **`argv_digest` が AR-51 への直接の答え** — ADR-013 が定めた argv を変えると定数が自動的に無効に
 なり、実行時に現 argv のダイジェストと突き合わせて違えば `overhead` を `unknown` として報告し
-「記録済み」と言わない。
+「記録済み」と言わない。`--safe-mode` の追加(D-130)でダイジェストは変わるが、`OVERHEAD` は空なので失う定数は無く、
+T-030 は `--safe-mode` 付きの argv で較正する。
+**`skills_digest`**(D-126、D-141): アカウント同期の skills 一覧はシステムプロンプト長を動かしうるので、
+`init` イベントの `skills` の名前を並べ替えた JSON 配列の sha256 を出所に加える(キーが無ければ固定値
+`"absent"` のダイジェスト)。アダプタが `end_invocation(..., skills_digest=...)` で渡し、Meter はモデルごとに
+観測値の集合が `{constant.skills_digest}` と一致しなければ `status: unknown`・`reason: skills_mismatch` とする
+(argv を先に比べる)。較正表にも `skills_digest` の列を足す。
 
 測定は**同一ブロックの k 回反復**(k = 1, 2, **3**)で `total(k) = overhead + k·m` を取る。
 要件は2本(短・長)を求めているが、**2点だと切片と傾きが一意に解けてしまい「差が材料の差と一致
@@ -670,15 +723,101 @@ ADR-015 の混成でモデルごとに値が違うので、単一の `overhead �
 数値表として残し、**ゲート(`command`)**はその表から切片を再計算して定数と突き合わせる —
 これでネットワーク無しに機械判定が成立する。
 
-**レート枠の記録**(2026-09-25 実測により観測可能になった)。`stream-json` の `rate_limit_event` が
-`rate_limit_info` として `status` / `rateLimitType` / `utilization` / `resetsAt` と、
-`unifiedWindows` の `five_hour` / `seven_day` を返す。**フル処理の開始時と終了時の両方**について
-両ウィンドウの `utilization` と `resetsAt` を記録し、`resetsAt` が処理中に進んだかどうかで
-「単一ウィンドウ内で完走したか」を**反証可能に**判定する。
+**レート枠の記録**。`stream-json` の `rate_limit_event` が `rate_limit_info` として `status` /
+`rateLimitType` / `utilization` / `resetsAt` / `isUsingOverage` / `overageStatus` と、`unifiedWindows` の
+`five_hour` / `seven_day` を返す。**各実行で最初と最後に届いたイベント**の値を記録し(届かなければ `null` と
+件数)、列の集約では実行ごとの `{execution_id, at_start, at_end}` を並べる(AR-116、AR-121)。
+
+#### 実行の列(ADR-018、D-124・D-128・D-129・D-132・D-136〜D-139・D-142〜D-145)
+
+- **口**(`cli.py`、**LLM を呼びうる段のサブコマンド** = cluster / recall / glossary / script / audio に共通):
+  `--fresh-run` は新しい `run_id` を採番して段キャッシュを迂回して始める。`--resume RUN_ID` は既存の列に実行を
+  1つ足す。**`--resume` できるのは列の `status` が `resumable` のときだけ**で、開始行の無い `run_id`・`completed`・
+  `not_completable` の列は即座にエラー終了する(AR-133。`completed` の列に足すと最後の exit 0 が途中の実行に
+  なって判定が反転し、追記だけのログでは戻せない)。無指定は通常のキャッシュを使う1実行だけの列
+  (`cache_mode: normal`)で、フル処理の列には数えない(NFR-4 の「前段の呼び出し 0」を壊さないため)。
+  `run_id` は実行開始時に stderr へ表示する。ingest / review / serve は LLM を呼ばないので、起動前検査も列への
+  登録もしない(D-115 の「LLM を使う段の前」に揃える。D-143)。
+- **R-3 の再現性測定**(D-142): キャッシュ迂回の2回は、`--fresh-run cluster` の**1実行だけで exit 0 まで走った列**
+  を2本使う。再開した列は測定に使わない(列の和はやり直しの分を含み、「1回分の2倍」の比較が成り立たない。
+  AR-124)。枠で止まったら、その列は捨てて新しい `--fresh-run` で取り直す。
+- **順序**: 起動前検査(NFR-8 (b)。`claude` の解決 → flock → 中身検査)→ 開始行の書き込み → 段の実行 →
+  `finally` で終了行。**検査に落ちた起動は列に登録しない**(D-132)。列の最初の `--fresh-run` が検査に落ちたとき
+  は `run_id` が生まれていないので、人は最小ホームを直して `--fresh-run` からやり直す(失うものは無い)。
+  開始行・終了行とも1回の `write` で書き `flush` + `os.fsync` する。`Meter` は開始行の時点で作る(現行
+  `cli.Pipeline` は最初の LLM 呼び出しで遅れて作るので、キャッシュだけで終わる実行が1行も書かない。これを直す)。
+- **起動前検査の差し替え口**(D-143、AR-126): `cli.main(argv, *, llm_factory=build_default_llm,
+  preflight=default_preflight)`。`default_preflight` は `adapters/claude_process.py` のモジュール関数で、呼ばれた
+  ときに `Workspace` を構築して `preflight()` を走らせる(既定値は関数オブジェクトなので import 時には何も走らない。
+  AR-73)。ゲート内の cli テストは `llm_factory` と同じく `preflight` にも fake を渡す(テストコードからの直接構築 =
+  (c) が認める opt-in と同じ経路)。**製品の入口がこの既定値のまま呼ぶこと**は、`inspect.signature(cli.main)` の
+  2つの既定値が `composition.build_default_llm` と `claude_process.default_preflight` そのものであることと、
+  (d) の入口集合が `main(argv)` 以外の引数を渡さないことを AST で判定して守る。検査の中身は `Workspace` を
+  `tmp_path` で直接走らせるテストが判定する(差し替えない。AR-72)。
+- **迂回と再開**(`pipeline/stage.py`、D-137 改訂、AR-125・AR-131): `--fresh-run` / `--resume` の実行は、
+  **`inputs_digest` の構成要素に `run_id` を加える**。これで列ごとに成果物の名前が分かれ、(1) その列が作った
+  成果物にだけヒットする(実行中に自分が作った段にも即座にヒットする)、(2) 列より前の古い成果物にも他の列の
+  成果物にもヒットしない、(3) 別の列が同じ入力で上書きすることがない(再現性の2つの割当が同時に残る)。
+  許可集合も `produced_stages` も要らない。通常の実行(`normal`)の digest は変えない。キャッシュの削除はしない
+  (教材本文を CLI のセッション記録にもう一度平文で残すため。D-086)。列ごとの成果物は人が `out/<deck>/` を
+  整理するまで残る。
+- **段の中での早期停止**(D-144、AR-127): 呼び出しの結果に `isUsingOverage` 真、または自分の子の
+  `rate_limit_event` の `status: rejected` が現れたら、**その段の残りの呼び出しを発行せず**に集計して非 0 終了する。
+  overage が始まった後の呼び出しはすべて従量課金になり、`rejected` の後の呼び出しは D-129 により再開時に
+  捨てられるので、どちらも続ける利得が無い。失敗件数は実際に発行した呼び出しについて数える(R-3 の
+  「失敗件数が実際の失敗数と一致」は保たれる)。それ以外の失敗種別は現行どおり段の呼び出しを終えてから止める。
+- **集約**(`pipeline/run_sequence.py`、純関数。入力は1つの `run_id` の開始行と終了行):
+  - 和: `llm_calls` / `provider_invocations` / `model_turns` / `turns_by_model` / `tokens` / `tokens_by_model` /
+    `invocations_without_usage` / `invocations_without_turns` / `failures_by_kind` / `overage_invocations` /
+    `invocations_without_rate_limit_event`
+  - `estimated_cost`: `computed` と `declared` はそれぞれ和で、`relative_diff` は和から計算し直す。
+    `status: recorded` はすべての実行が `recorded` のときだけ。`notional: true` と `disclaimer` を付ける。
+  - 最大: `max_concurrency`
+  - 時間: `elapsed_sec_sum`(各実行の単調時計の経過時間の和)と `wall_clock_sec`(最初の開始行の `started_at` から
+    最後の終了行の `finished_at` まで)
+  - レート枠: `quota`(実行ごとの `{execution_id, at_start, at_end}`)/ `quota_missing`(`{at_start: n, at_end: n}`)
+  - `overage_check`(和から同じ規則で判定)/ `metered_env_names`(実行ごとの和集合)
+  - `status`(D-145、AR-123・AR-133): 次の3つのどれか1つと `not_completable_reasons`。
+    - `not_completable`: 終了行の無い開始行(いま締めている実行を除く)、途中の実行の「exit 0 でもレート枠による
+      停止でもない」停止、`overage_invocations > 0`、`metered_env_names` が空でない実行、最初の実行が `fresh`
+      でない、のいずれか。
+    - `completed`: `not_completable` でなく、**最後の実行の `stage` が最終段 `audio`** で exit 0。
+      途中の実行は exit 0(段ごとに進めた場合)かレート枠による停止(失敗した呼び出しが1件以上あり、そのすべてで
+      述語が真)のどちらかであればよい(要件が禁じるのは途中の**非 0** 終了のうちレート枠以外のもの)。
+      最終段まで走っていない列を `completed` にしない。
+    - `resumable`: 上のどちらでもない(最後の実行がレート枠で止まった、または最終段以外で exit 0)。
+  - **合算はやり直しの分も数える**: D-129 により段の途中で止まった段は再開時に最初から呼び直すので、列の
+    `llm_calls` は止まらずに走った1回分より多くなる。要件が「和」を課しているので重複は除かない。
+  - 集約は対象 `run_id` の行が既知の形でなければ例外で止まる。旧形式の行を読む分岐は作らない。
+  - **読めない行**(AR-132): JSON として読めない行(電源断で途中まで書かれた行)は、**その列の最初の開始行より
+    後ろ**にあれば、その列を `not_completable`(理由 `unreadable_line:<行番号>`)にする。前にあれば、その列の行では
+    ありえないので件数 `unreadable_lines_before` だけ数える。どちらでも例外にせず、終了行の書き込みを止めない。
+    書き手は追記の前にファイル末尾が改行でなければ改行を1つ書き、途中の行と次の行を連結させない。
+
+**蓄積する情報の設計**(`meter.jsonl`)。
+
+1. **情報が失われない前提条件**
+   - [ ] 開始行を最初の LLM 呼び出しより前に fsync まで済ませて書く。
+   - [ ] 終了行を `finally` で書く。12 時間の上限は in-process の `signal.alarm` で掛ける(D-138)。
+   - [ ] 追記だけで、書き換え・切り詰め・自動削除をしない。
+   - [ ] `--resume` は `resumable` でない列(存在しない `run_id` を含む)を拒否する。
+   - [ ] 途中まで書かれた行は後続の行と連結させず、該当しうる列を `not_completable` にする(黙って読み飛ばさない)。
+   - [ ] 残る失われ方: SIGKILL・電源断では終了行が残らない。これは `not_completable` として数えられ、黙っては消えない。
+2. **ライフサイクル**: 開始行(開く)→ 終了行(閉じる)→ 最後の終了行の `sequence`(列の最終値)→ **昇格**:
+   T-020 が完走した(または完走しなかった)列の集約と実行ごとの行を `docs/test/measurements/full-run.md` へ写して
+   コミットする(本文を含まないので NFR-2 に触れない)→ **アーカイブ**: `rein cycle-close` で docs 側が
+   `docs/archive/` へ。`out/<deck>/meter.jsonl` の生の行は人が `out/<deck>/` を消すまで残る。自動ローテーション
+   は作らない(1実行2行・数 KB)。
+3. **保持層と更新サイクル**: 作業層 = `out/<deck>/meter.jsonl`(ホストごと・gitignored・1実行ごとに2行追記)/
+   証拠層 = `docs/test/measurements/full-run.md`・`reproducibility.md`(コミット。T-020 の列が閉じるたびに1回)/
+   保管層 = `docs/archive/`(サイクルを閉じるときに1回)。
+
+`meter.jsonl` は `out/` 配下なので `Pipeline.__init__` の `ensure_ignored` が既に守る。中身は件数・ID・
+ダイジェスト・環境変数**名**・レート枠の値だけで、教材本文を含まない(逐語ログ `InvocationRecord` とは別ファイル)。
 
 ### NFR-8: 外部サービスの利用が従量課金を伴わないこと
 
-ADR-013 が経路を決め、ADR-014 が境界を決めた。ここは **(a)〜(g) をどう機械判定するか**だけを書く。
+ADR-013 が経路を決め、ADR-014 が境界を決めた。ADR-017 が最小ホームの中身検査と `--safe-mode` を、ADR-018 が実行の列と overage を決めた。ここは **(a)〜(h) をどう機械判定するか**だけを書く。
 
 **モジュール構成**(新規):
 
@@ -691,7 +830,7 @@ ADR-013 が経路を決め、ADR-014 が境界を決めた。ここは **(a)〜(
 | `adapters/llm_contract.py` | 応答の純粋パーサ(ID 完全性検査を含む)。**既存 `llm_anthropic.py` の `_proposals` / `_string` / `_schema` をここへ移して共有する**(AR-67。再実装しない) |
 | `adapters/llm_claude_cli.py` | `ClaudeCliLlm`。argv 組み立て・stdin・失敗分類 |
 | `adapters/claude_process.py` | `SubprocessRunner`(実 spawn)と `Workspace`(空 cwd / 最小ホーム) |
-| `adapters/claude_failure.py` | `FailureKind` 7種と判定順序(レート制限は `PROVIDER_ERROR`) |
+| `adapters/claude_failure.py` | `FailureKind` 7種と判定順序(レート制限と overage は `PROVIDER_ERROR`) |
 | `safety/invocation_log.py` | 逐語ログの構造化レコードとマスク |
 
 **前提作業(これが無いと (a) と (d) が確定的に赤)**: `src/quiz_sift/cli.py` の
@@ -734,11 +873,37 @@ D-099 と (c) が `build_default_llm` から追い出した分岐と環境変数
 (AR-55 が (a) について指摘したのと同型の「赤くなり得ない緑」)。代わりに `Workspace` は
 **根のパスを引数に取る実クラス**(`Workspace(home_root, cwd_root)`)とし、ゲート内テストは
 `tmp_path` を根として**実物を走らせる**。ADR-014 が「ゲートで差し替えるのは `claude` の spawn だけ」と
-書いた境界はこれで保たれる。最小ホームの実体が無いサンドボックスでは、テストが最小ホームの形
-(資格情報1ファイル)を自分で作って与える。`new_cwd()` が作った一時ディレクトリは**呼び出しごとに
+書いた境界はこれで保たれる。最小ホームの実体が無いサンドボックスでは、テストが最小ホームの形を
+**T-029 の実測形**(`.claude.json`、`.claude/settings.json` = `{"theme":"dark"}`、`skills/synced/…`、
+`plugins/synced/…`、`projects/…/*.jsonl`、資格情報)で自分で作って与える。`new_cwd()` が作った一時ディレクトリは**呼び出しごとに
 後始末する**(500〜1000 回ぶんの残骸を残さない)。
 
 ゲート内の fake runner 注入は `composition` ではなく**テストコードからの直接構築**で行う。
+
+**(b) の起動前検査**(ADR-017、D-122、D-132)。`Workspace.preflight()` が次の順に行い、1つでも当たれば原因の
+相対パスと規則番号を載せた `SystemExit` の派生で終了する。**検査は読むだけで、mkdir・書き込み・修復をしない**
+(キーを削って書き直すのは製品が `HOME` 配下に書くことになり、黙って直すことにもなる)。
+
+1. 子の `PATH` で `claude` を解決する(`shutil.which`)。
+2. `home_root` がディレクトリであることを確かめ、その fd に `fcntl.flock`(D-105)。
+3. ロックを持ったまま中身を検査する:
+   - i. `.claude/CLAUDE.md` が在る(`lstat`。symlink・ディレクトリも拒否)。
+   - ii. `.claude/rules/` 配下に、再帰的に見てファイル(symlink を含む)が1つでもある。空ディレクトリは通す。
+   - iii. `.claude/settings.json` が在り、UTF-8 の JSON として読めない(`JSONDecodeError`・`UnicodeDecodeError`
+     とも拒否)/ トップレベルが object でない / キー集合が `{"theme"}` の部分集合でない(`{}` は通す)。
+   - iv. `.claude/.credentials.json` が無い。**`os.path.lexists` だけで判定し、開かない**(NFR-3)。
+
+CLI 自身が書くもの(`.claude.json`・`settings.json`・`skills/synced/`・`plugins/synced/`・`projects/`・
+`backups/`・`cache/`)は子プロセスの振る舞いであって製品の作成物ではない。ゲートでは fake runner が何も
+書かないので、`run()` の前後のホーム配下のファイル集合の差分がそのまま製品の作成物になる(ADR-014 の方式のまま)。
+
+ゲート内の `command` 判定は、`tmp_path` を根にした実物の `Workspace` と spawn を数える fake runner で置く:
+- **positive control**: 上の実測形が通り spawn が 1 回になる(何でも拒否する実装を赤にする)。
+- **拒否側**(それぞれ spawn 0 回と非 0 終了): `.claude/CLAUDE.md` / `rules/a.md` / `rules/sub/b.md` /
+  settings に `env`・`apiKeyHelper`・`hooks`・`permissions`・`enabledPlugins` / 壊れた JSON / `[]` / 資格情報なし。
+- **NFR-3 の control**: 資格情報ファイルを `chmod 000` にしても検査が通る(開いていれば `PermissionError` で落ちる)。
+- 許可キー集合 `{"theme"}` と拒否パスは要件から**テスト側にリテラルで書き写す**(製品の定数を読まない。AR-30)。
+- 検査の後、ホーム配下の作成ファイル差分が 0 件。
 
 **(a) の control は2本要る**(AR-55)。
 - **positive control**: 判定に使う実行で `build_default_llm()` が実際に呼ばれ `llm_calls ≥ 1` である
@@ -774,11 +939,30 @@ claude -p --output-format stream-json --verbose --max-turns 3
   --strict-mcp-config --mcp-config {"mcpServers":{}}
   --settings {"permissions":{"deny":[<全ツール名>]}}
   --permission-mode default
+  --safe-mode                              ← D-130。CLAUDE.md 系・ユーザメモリを読まない
 ```
 
 **argv 全体を1回通して受け付けられることを確認済み**(2026-09-25。`--exclude-dynamic-system-prompt-sections`・
 `--strict-mcp-config`・`--mcp-config` のインライン JSON・`--settings` のインライン JSON・
-`--permission-mode` のすべて)。
+`--permission-mode` のすべて)。**`--safe-mode` 付きの argv は 2026-09-25 の番兵実測で haiku だけ通した**
+(OAuth 可・`init.tools` = `["StructuredOutput"]`・`memory_paths: null`)。`claude-opus-5-5` との組み合わせは
+**未確認**で、契約フィクスチャの取り直し(D-133)で確かめる。
+
+**(e)5 の証拠**(D-130)。番兵による「CLAUDE.md 系の読み込み 0 件」はホスト実測の `artifact`。
+home-probe の実測スクリプトはリポジトリに無いので、採取経路を `tests/measurements/collect_claude_cli.py` に足し、
+判定テスト(`tests/measurements/test_claude_cli_home_probe_logs.py`)を置く。**positive control を必須にする**:
+同じ番兵に対して `--safe-mode` の**無い** argv で番兵が読まれること(無いと「0 件」は番兵が効いていないだけでも
+成立する)。番兵の後始末は元のバイト列の sha256 一致で確かめる。ゲート内の argv の形の判定((e)・(g))は
+要件から書き写した**リテラル**に `--safe-mode` を足す(`tests/measurements/test_claude_cli_logs.py` の
+`BARE_FLAGS` も同じ集合に揃える)。
+
+**(h) overage**(ADR-018、D-125・D-134・D-140)。実行ごとに `overage_invocations`(`isUsingOverage` が1回でも
+真だった子の数)と `invocations_without_rate_limit_event`(イベントが1件も届かなかった子の数。SPAWN・TIMEOUT・
+PARSE の子も含む)を数え、`overage_check` を `overage_invocations ≥ 1` なら `failed`、そうでなく
+`invocations_without_rate_limit_event ≥ 1` なら `unknown`、どちらでもなければ `passed` とする。列の集約も
+同じ規則で和から判定する。ゲート内の判定: 実物フィクスチャ(`isUsingOverage: false`)で `passed`、骨格の値だけを
+`true` に差し替えた単一ファクトリの fake で `PROVIDER_ERROR`・非 0 終了・`failed`、`rate_limit_event` を落とした
+fake で `unknown`(`unknown` を `passed` に潰す実装を赤にする negative control)。
 
 - **ツールは `StructuredOutput` の1本まで削れる**(実測)。`--allowedTools ''` は無効果だが、
   `--settings` の `permissions.deny` に**全ツール名を列挙する**と `init.tools` が
@@ -797,14 +981,14 @@ claude -p --output-format stream-json --verbose --max-turns 3
 - プロンプト本体は **stdin だけ**(`subprocess.run(input=...)` はパイプであって一時ファイルではない)。
 
 **NFR-2 のマスク**(AR-42)。**全文を後からマスクする実装にしない**。`InvocationRecord` に
-`argv` / `exit_code` / `duration_sec` / `usage`(4値)/ `failure_kind` / `rate_limited` /
-`rate_limit_evidence` / `stdin_sha256` / `stdin_len` / `stdout_masked` / `stderr_masked` を
+`argv` / `exit_code` / `duration_sec` / `usage`(4値)/ `failure_kind` / `result_is_error` /
+`rate_limit_first` / `rate_limit_last` / `rate_limit_event_count` / `overage_seen` / `stdin_sha256` / `stdin_len` / `stdout_masked` / `stderr_masked` を
 **別々のフィールドとして**持ち、ログはそのレンダリングとして生成する。こうすると「全面
 `[MASKED]` に置換する実装」が**型として表現できなくなる**。マスク自体は既存の
 `safety/log_filter.MaterialTextFilter.mask` をそのまま使い、`safety/secret_mask.py` に
 OAuth トークンの形と `.credentials.json` のパス文字列を足す。
 
-**並行度は 1(直列)で凍結する**(D-100)。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分で、R-3 の全体
+**並行度は 1(直列)で凍結する**(D-100)。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分で、1回の実行の
 上限 12 時間に収まる。並列化してもレート枠は増えないので、**枠が binding なら利得はゼロで枠に速く
 当たるだけ**。加えて並列化は最小ホームの共有による `.claude.json` 同時書き込みを持ち込む。
 `MAX_CONCURRENCY` は1箇所の定数にしておき、T-020 で枠に余裕があると分かった次サイクルで上げる。
@@ -820,8 +1004,11 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
 
 - **証拠種別**: (a)〜(e) と (g) は `command`。**`init.tools` が実際に許容集合に収まることの確認は
   `artifact`**(ゲートでは argv の形しか見えず、AR-43 と同じ自己確認の穴がここにも開くため、
-  ホスト実測を1本置いて塞ぐ)。(f) は T-020 の実測ログに対する `artifact`。
-- **What this requires of a person**: ADR-014 の最小ホームを1回セットアップすること。
+  ホスト実測を1本置いて塞ぐ)。(e)5 の読み込み 0 件は番兵のホスト実測の `artifact`。(f) は T-020 の実測ログに
+対する `artifact`。(h) は実物フィクスチャと fake に対する `command`。
+- **What this requires of a person**: ADR-014 の最小ホームを1回セットアップし、ADR-017 の中身の条件
+  (`settings.json` のキーを `{"theme"}` に保つ、`.claude/CLAUDE.md` と `rules/` を置かない)を保つこと。
+  (h) が `unknown` のとき課金画面を目視するかを判断すること。
   **サンドボックスイメージの再ビルドは本サイクルでは不要**(D-103。`anthropic` は通常依存のまま残し、
   extra 化は次サイクルに回す)。
 - **Reversibility**: **可逆**。
@@ -857,7 +1044,7 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
   「常に 0.0 を返す実装」なのでその目的は達する。
 - **`claude` CLI のバージョンが凍結できない**。ADR-001 は依存をイメージに焼くと決めたが、CLI は
   ホストに置かれ自動更新される。`--json-schema`・`usage` の4値・`rate_limit_event` の形はいずれも
-  2.1.281 での実測に依拠しており、**更新で壊れてもゲートは緑のまま**(ゲートは fake runner しか
+  2.1.281〜2.1.282 での実測に依拠しており、**更新で壊れてもゲートは緑のまま**(ゲートは fake runner しか
   見ない)。契約フィクスチャ(NFR-6)が唯一の検知手段で、それも採取し直すまでは古い契約を守る。
 - **NFR-8 は否定的証拠にとどまる**(D-087)。`apiKeySource` は D-093 により本番経路で観測できる
   ようになったが、**要件は毎回の検証を課していない**。hooks・ユーザメモリ・システム管理設定から
@@ -866,6 +1053,11 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
   ネットワークにも触れないので脅威モデル上は 0 件と等価だが、**CLI の更新で deny の列挙から漏れる
   新ツールが増えれば黙って有効になる**。ゲートは argv しか見ないのでこれを検知できず、ホスト実測の
   `init.tools`(NFR-8 (e)1 の `artifact`)を取り直したときに初めて分かる。
+- **CLI の更新が最小ホームに新しいキーを書くと、起動前検査が止まる**(ADR-017)。許可集合 `{"theme"}` は
+  T-029 時点の実測形で、広げるのは要件の改訂(`/revise`)。止まるのは安全側だが、T-020 の列の途中で起きると
+  人の判断が要る(検査に落ちた起動は列に登録しないので、列そのものは壊れない。D-132)。
+- **skills ダイジェストは名前しか見ない**(D-141)。`init` が運ぶのは skill の名前だけなので、名前が同じまま
+  説明文が変わる同期はオーバーヘッド定数の無効化に現れない。
 - **週次のレート枠が 2026-09-25 時点で 95%**(実測)。D-085 は「枠を実測せず凍結する」と決めたが、
   `rate_limit_event` により**枠を使い切らずに使用率が読める**ことが分かった。T-020 は
   7日枠がリセットされる 2026-09-28 08:00 JST 以降でなければ完走しない見込み。
@@ -883,11 +1075,21 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
   前サイクルで `L-REQ-FAILURE-MODES` を「人間が採用と判断したのにレビュアー枠を使い切っていて
   要件段階に一度も当たらなかった」と記録したのと同じ失敗を繰り返さないため。**採否そのものは
   人間が mandate で決める**ので、採らない判断なら今回の適用記録ごと落とせばよい。
-- **枠を使い切ったときの返却の「形」は実測していない**。`rate_limit_event` の構造は
-  `status: allowed_warning` の状態で観測したが、枠切れ時に `status` が何になるか、イベントが出るのか、
-  stdout が JSON のままかは未観測。D-091 撤回によりどの形でも失敗に倒れて非 0 終了するので
-  **判定は壊れない**が、JSON でない出力なら `PARSE` に分類され **`resetsAt` がログに残らない**。
-  その場合、人はリセット時刻を CLI 外で確かめて再実行する。
+- **枠を使い切ったときの返却の「形」は実測していない**(D-123、D-128)。`rate_limit_event` の構造は
+  `status: allowed` / `allowed_warning` の状態で観測し、`rejected` は実行ファイルのスキーマから読んだだけ。
+  どの形でも失敗に倒れて非 0 終了するので**1回の実行の判定は壊れない**。ただし **ADR-018 の下では、この未知が
+  T-020 の列の完走を直接左右する**: 枠切れが `rejected` の `rate_limit_event` を伴わない形(JSON でない出力で
+  `PARSE`、イベントが出ない等)なら、その停止はレート枠以外の停止として列を完走不可にし、`resetsAt` もログに
+  残らない。その場合 T-020 は複数の枠にまたがって完走できず、次サイクルで扱う(D-129)。
+- **新しいプロセスで `rate_limit_event` が毎回出るかは実測していない**。home-probe §3 は状態が**変わるたびに**
+  出す作りと読んでいる。出ない呼び出しが多ければ、(h) は T-020 で常に `unknown` になり、レート枠による停止の
+  述語も `last is None` で偽になる。T-020 の実行ログの `invocations_without_rate_limit_event` で分かる。
+- **`claude-opus-5-5` と `--safe-mode` の組み合わせは未確認**(番兵実測は haiku だけ)。契約フィクスチャの
+  取り直し(D-133)で確かめる。`--safe-mode` の下でも `init.skills` は存在した(probe §4、haiku)。一覧がモデルの
+  文脈に入ってシステムプロンプト長を動かすかは未測定で、D-126 の `skills_digest` はそのための番人である。
+- **最小ホームの `.claude.json` の中身は検査しない**(AR-130)。Console(API キー)のアカウントでログインした状態が
+  残っていた場合に OAuth より優先されるかは未検証。実行時の `apiKeySource` 検証は D-087 / Clarifications で
+  課さないと決めているので、この経路は NFR-8 の「測っていないこと」に属する。
 - **オーバーヘッド定数が日/セッションでぶれるかは未実測**。`argv_digest` は argv の変化を検知するが、
   同じ argv で値がぶれる場合は検知できない。ぶれるなら「定数」の前提が崩れ、NFR-7 の分離が
   `unknown` を報告し続けることになる。
@@ -1071,6 +1273,36 @@ T-029 のホスト実測で崩れた2つの前提(`--max-turns 1` で `error_max
 **再レビューはしていない**。blocker が無いので、規定の「blocker 修正のみを1回再レビュー」は発動しない。
 処置の文面はリードが適用したまま、誰にも読まれていない。
 
+### 2026-09-26 のサイクル(rein 0.10.0 の差分: 最小ホームの中身検査・`--safe-mode`・実行の列・overage)
+
+レンズ(`rein lens --select design` の applied 5本): L-DES-COVERAGE / L-DES-INFEASIBILITY / L-DES-NFR-HOLES /
+L-DES-UNSTATED-ASSETS / L-DES-YAGNI。5本とも何かを見つけた。`proposed` の L-DES-ADR / L-DES-FAILURE-WALK は
+今回は適用していない(採否は mandate で人間が決める)。
+
+**12 件(blocker 0 / major 7 / minor 5)。** blocker が無いので再レビューは行っていない。**処置の文面は誰にも読まれていない。**
+
+| ID | Severity | 指摘 | 処置 |
+|---|---|---|---|
+| AR-123 | major | `completed` に「最終段まで走ったか」が無く、cluster だけの列が完走になる。段ごとに進めた正当な列は `not_completable` になる | **revise_design → fixed**(D-145): 最後の実行の `stage` が `audio` で exit 0 を条件にし、途中の exit 0 を許す |
+| AR-124 | major | 再現性測定(C-003)に再開した列を使うと、和がやり直し分を含み「1回分の2倍」が赤になる | **revise_design → fixed**(D-142): 1実行だけで exit 0 まで走った `--fresh-run` の列を2本使う |
+| AR-125 | major | 同じ digest 名で上書きされ、再現性の2つの割当が同時に残らない。再開した列が他の列の上書きした中身にヒットする | **revise_design → fixed**(D-137 改訂): 迂回・再開の実行は `inputs_digest` に `run_id` を加え、列ごとに成果物を分ける |
+| AR-126 | major | 起動前検査の対象(全段か LLM 段か)が D-115 と食い違い、ゲート内の cli テストが `claude` 不在で落ちる。差し替え口が未定義 | **revise_design → fixed**(D-143): LLM を呼びうる段だけに掛け、`cli.main` の `preflight` 引数を既定値付きで置き、既定値と入口を signature / AST で判定する |
+| AR-127 | major | overage / `rejected` の後も同じ段の残りの呼び出しを続け、従量課金と捨てられる枠消費が増える | **revise_design → fixed**(D-144): その段の残りの呼び出しを発行せずに非 0 終了する |
+| AR-128 | major | 誰でも書ける祖先 `/tmp/.claude/settings(.local).json` の `env` が `--safe-mode` 下で読まれるか未測定 | **run_experiment → closed**: 2026-09-26 に実測し、**読まれない**ことを確認した(probe §4)。設計は変えない |
+| AR-129 | major | 取り直したフィクスチャに `rate_limit_event` が無いと、(h) の正例と骨格が失われる | **revise_design → fixed**(D-133 追記): 3回まで採り直し、無ければ needs-revision で止めて人間が `/revise` で決める。これまでの実呼び出しでは毎回届いている |
+| AR-130 | minor | 最小ホームの `.claude.json` の認証状態(API キーのアカウント)を検査していない | **人間の判断へ(mandate の質問)**: 実行時の `apiKeySource` 検証は D-087 で課さないと決めている。Open questions に記載 |
+| AR-131 | minor | 許可集合を終了行から作ると、実行中に作った段にヒットせず1実行で再クラスタリングが繰り返される | **revise_design → fixed**(AR-125 と同じ処置で解消。許可集合そのものが無くなった) |
+| AR-132 | minor | 途中まで書かれた1行で、そのデッキの全列の終了行の書き込みが失敗する。終了行の fsync が未規定 | **revise_design → fixed**(D-145): 読めない行は列の開始より後ろならその列を `not_completable` にし、例外にしない。追記前に改行境界を保証し、終了行も fsync する |
+| AR-133 | minor | `completed` の列にも `--resume` でき判定が反転する。最初の起動の検査落ちで再開できない。`resumable` が未定義 | **revise_design → fixed**(D-145): `--resume` は `resumable` の列だけ。最初の起動が落ちたら新しい列として始め直す(要件の文言も修正) |
+| AR-134 | minor | `skills_digest` は要件の出所に無く、根拠なく `unknown` を増やす(YAGNI) | **dispute_finding**: 2026-09-26 の実測で `--safe-mode` の下でも `init.skills` が存在した(probe §4)。一覧がモデルの文脈に入るかは未測定で、入るなら argv が変わらないまま定数がずれ、C-019 の「記録済み」が誤った数値で出る。`unknown` は較正をやり直す合図であり、誤った数値より安全側。D-126 は要件の Open questions にも書いてある |
+
+**local と判定した決定の reach**: レビュアーは、D-133・D-136・D-137 が C-003 / C-020 の証拠の成立を左右すると指摘した。
+処置後の D-133(証拠の形が変わる場合は `/revise` へ止める)、D-137(列ごとに成果物を分ける)、D-142(再現性に使う列を狭める)は、
+いずれも証拠を緩めず、claim の文面を動かさない。そのため local のままとし、mandate の画面に「聞かれなかったこと」として出す。
+D-134・D-135・D-138〜D-141 については、覆したときに動くのが内訳・判定表・記録の形だけであることを、レビュアーが反証できなかった。
+
+**未解決の dispute**: AR-134(上記)。人間が採らない判断をするなら、D-126 / D-141 と要件 Open questions の1項目を落とせばよい。
+
 ## Self-assessment (assumptions, confidence)
 
 - **Assumptions made**:
@@ -1080,10 +1312,10 @@ T-029 のホスト実測で崩れた2つの前提(`--max-turns 1` で `error_max
   - CosyVoice をホストに導入できる → **2026-09-24 に実測済み。導入でき、3音声の合成まで通した**
     (Python 3.13 のまま、上流のハードピンを外して現行版で解決。`9627cc5`)。
   - **Claude Code CLI の出力契約(`--json-schema` / `usage` の4値 / `total_cost_usd` /
-    `rate_limit_event` / `init.tools`)が、ホスト上の CLI が自動更新されても維持される**。2.1.281 で
+    `rate_limit_event` / `init.tools`)が、ホスト上の CLI が自動更新されても維持される**。2.1.281〜2.1.282 で
     実測。**イメージに焼けないので凍結できない**(ADR-001 が効かない唯一の依存)。
-  - **枠を使い切ったときに `claude` が何を返すかは未観測**。D-091 を撤回してレート制限を失敗に
-    倒したので、**この未知が基準の成否を左右しなくなった**(倒し方が未知に依存しない)。
+  - **枠を使い切ったときに `claude` が何を返すかは未観測**。D-091 の撤回で1回の実行の成否は左右しなく
+    なったが、**ADR-018 の列の完走判定は、この未知に左右される**(`rejected` を伴わない形なら列は完走不可)。
   - **Claude Pro のレート枠がフル処理を賄えるかは未検証**(D-085)。2026-09-25 時点で 7日枠が
     **95%**、リセットは 2026-09-28 08:00 JST。**T-020 はそれ以降でなければ完走しない見込み**。
   - ffmpeg / fugashi + unidic-lite がネットワーク遮断下で動く → **2026-09-22 に実測済み。動く**。
@@ -1108,7 +1340,7 @@ T-029 のホスト実測で崩れた2つの前提(`--max-turns 1` で `error_max
     fake に対する `command` だけになる。実物の契約フィクスチャは2件(成功 / `PARSE`)。`TRUNCATED` の実物は
     2.1.282 で採れず、fake だけで検証する(D-118)。
 - **Open questions / points for the human to decide**:
-  - 上の Open questions(9点)。
+  - 上の Open questions(12点)。
   - `/tasks` で分解した結果が現実的な規模に収まらない場合の、スコープ縮小の判断。
   - **2巡目の修正が独立に検証されていない**: 再招集枠は使い切った。AR-5 / AR-6 / AR-8 / N-1 / N-2 /
     N-3 の最終修正はリードが適用したままレビューを受けていない(N-1 と S-2 のテストが赤くなることは
@@ -1124,3 +1356,19 @@ T-029 のホスト実測で崩れた2つの前提(`--max-turns 1` で `error_max
   - **週次枠 95% により T-020 は 2026-09-28 08:00 JST 以降でなければ走らない**。
   - **ガードの境界を2度越えた**: `src/` と `scripts/` に、Bash のヒアドキュメントで
     PreToolUse フックを素通りして書き込んだ。どちらも是正済みだが、同じ機構で再発しうる。
+
+### 2026-09-26 のサイクルの自己評価
+
+- **Assumptions made**:
+  - `--safe-mode` は `claude-opus-5-5` でも受け付けられる。**未確認**(haiku だけ。D-133 の取り直しで確かめる)。
+  - 新しいプロセスでも `rate_limit_event` が毎回出る。**4回の実呼び出しでは毎回出た**が、状態が変わったときだけ出す作りとも読める。
+  - `inputs_digest` に `run_id` を加えても、NFR-4 の通常実行の性質は変わらない(通常の実行の digest は変えないため)。
+  - 枠切れのときは、`rejected` を持つ `rate_limit_event` が届く。**未観測**。届かなければ、T-020 の列は枠をまたいで完走できない。
+- **Confidence**:
+  - **高**: 起動前検査(ADR-017)。判定対象は実測で読まれた場所に絞った。祖先の settings が読まれないことも、2026-09-26 に実測で確かめた。
+  - **中**: 列の集約と status(D-145)。レビューの指摘で2回形を変えた。処置の文面は誰にも読まれていない。
+  - **低**: レート枠による停止の述語(D-128 / D-135)。定義は実行ファイルのスキーマから読んだもので、実物で試していない。
+- **Open questions / points for the human to decide**:
+  - AR-130: 実行時の `apiKeySource` 検証を課さない判断(D-087)を、この差分でも維持するか。
+  - AR-134 の dispute。
+  - `proposed` のレンズ L-DES-ADR / L-DES-FAILURE-WALK を採るか。今回のラウンドでは適用していない。
