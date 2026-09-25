@@ -79,6 +79,34 @@ def test_credentials_and_cookies_are_masked(captured: tuple[logging.Logger, io.S
     assert "CDP 取得に失敗した" in output
 
 
+OAUTH_TOKEN = "sk-ant-oat01-SyntheticOauthToken_0123456789-abcdefXYZ"
+CREDENTIALS_DIR = "/home/synthetic/.quiz-sift-claude-home/.claude"
+CREDENTIALS_PATH = f"{CREDENTIALS_DIR}/.credentials.json"
+
+
+def test_oauth_token_and_credentials_path_are_masked(captured: tuple[logging.Logger, io.StringIO]) -> None:
+    logger, stream = captured
+
+    logger.info("CLAUDE_CODE_OAUTH_TOKEN を受け取った: %s", OAUTH_TOKEN)
+    logger.info("stderr: Invalid token %s", OAUTH_TOKEN)
+    logger.info("stdout %s", json.dumps({"accessToken": OAUTH_TOKEN, "refreshToken": OAUTH_TOKEN}))
+    logger.info("資格情報 %s が無い", CREDENTIALS_PATH)
+    logger.info("path=%s", CREDENTIALS_PATH)
+    try:
+        open(CREDENTIALS_PATH, encoding="utf-8").close()
+    except FileNotFoundError:
+        logger.exception("資格情報を開けなかった")
+
+    output = stream.getvalue()
+    assert OAUTH_TOKEN not in output
+    assert "SyntheticOauthToken" not in output
+    assert ".credentials.json" not in output
+    assert CREDENTIALS_DIR not in output
+    assert "資格情報を開けなかった" in output
+    # 構造の外(文字列1つ)でも同じく伏せる。
+    assert mask_secrets(f"token {OAUTH_TOKEN} at {CREDENTIALS_PATH}") == f"token {SECRET_MASK} at {SECRET_MASK}"
+
+
 def test_non_secret_text_is_left_alone() -> None:
     text = "処理した問題数 3 / deck=deckA / model=claude-sonnet-5"
     assert mask_secrets(text) == text
