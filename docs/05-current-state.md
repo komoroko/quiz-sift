@@ -6,9 +6,9 @@
 ## Architecture overview
 
 - 入口は3つ。
-  - CLI `python -m quiz_sift.cli [--root] <段> <deck>`([src/quiz_sift/cli.py](../src/quiz_sift/cli.py))。段は ingest / cluster / recall / glossary / script / audio / review / serve。`pyproject.toml` にコンソールスクリプトは無い。
-  - ローカル API サーバ([src/quiz_sift/server/__main__.py](../src/quiz_sift/server/__main__.py))。
-  - Web UI([web/](../web/)、Next.js 16 / React 19)。ローカル API を呼ぶだけで、判定は Python 側(ADR-006)。
+  - CLI `python -m quiz_sift.cli [--root] <段> <deck>`(`src/quiz_sift/cli.py`)。段は ingest / cluster / recall / glossary / script / audio / review / serve。`pyproject.toml` にコンソールスクリプトは無い。
+  - ローカル API サーバ(`src/quiz_sift/server/__main__.py`)。
+  - Web UI(`web/`、Next.js 16 / React 19)。ローカル API を呼ぶだけで、判定は Python 側(ADR-006)。
 - データの流れ: `data/<deck>/` を取り込み・正規化・重複除去 → LLM でクラスタリング → 想起素材・グロッサリ・台本 → CosyVoice で音声 → `out/<deck>/…`。
   - 各段は含意判定(safety)と grounding を通る。
   - 段の結果は `pipeline/stage.StageCache` が digest ごとにキャッシュする(NFR-4)。
@@ -56,7 +56,7 @@
 ## Test / CI commands
 
 - `bash gate.sh <step>`: `lint`(ruff check)/ `format`(ruff format --check)/ `types`(mypy .)/ `test`(pytest -q)/ `docs`(mkdocs build --strict)/ `smoke`(`quiz_sift.__version__` の import)。`.rein/config.yaml` の quality_gate も同じ6ステップを呼ぶ。
-- CI([.github/workflows/ci.yml](../.github/workflows/ci.yml))は `uv sync` のあと同じ6ステップを呼ぶ。
+- CI(`.github/workflows/ci.yml`)は `uv sync` のあと同じ6ステップを呼ぶ。
 - `makefile`、`.pre-commit-config.yaml`(ruff、pre-push で mypy)。TTS の依存は `uv sync --extra tts` のときだけで、ゲートには含まれない。
 
 ## Existing documents

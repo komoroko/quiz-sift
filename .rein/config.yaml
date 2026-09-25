@@ -306,6 +306,10 @@ guard:
     - backend/
     - frontend/
     - scripts/
+    - web/            # D-148: 製品の UI
+    - gate.sh         # D-148: 品質ゲートと CI の共通入口
+    - pyproject.toml  # D-148
+    - .github/        # D-148
 
 github:
   enabled: false        # off by default: offline-safe. The plan stays the SSOT either way.

@@ -202,7 +202,8 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
   **`stop_reason` / `is_error` / `subtype` は `result` イベントからだけ読む**(D-131。`assistant` メッセージにも
   `stop_reason: tool_use` が載るので取り違えない)。
   判定順序: 起動失敗 → **overage**(`PROVIDER_ERROR`。D-125、D-134)→ タイムアウト → stdout が **`result` イベントをちょうど1つ含む JSON のイベント列**に
-  ならない(`PARSE`。**空の stdout、途中で切れて `result` の無い列を含む** — D-119、AR-100)→ `subtype` が
+  ならない(`PARSE`。**空の stdout、途中で切れて `result` の無い列を含む** — D-119、AR-100)→ 許可集合外のツール
+  (`init.tools` の不一致か途中の `tool_use`。`PROVIDER_ERROR`。D-156)→ `subtype` が
   `error_max_turns`、または `stop_reason` が `max_tokens` / `model_context_window_exceeded` のどちらか
   (`TRUNCATED`。D-102、D-120。値は Messages API の定義から取った。CLI 経由での実測は無い)→ `is_error` が真
   (`PROVIDER_ERROR`)→ スキーマ不適合(`SCHEMA`)→ ID 完全性(`INCOMPLETE_IDS`)。
@@ -1012,6 +1013,23 @@ OAuth トークンの形と `.credentials.json` のパス文字列を足す。
   **サンドボックスイメージの再ビルドは本サイクルでは不要**(D-103。`anthropic` は通常依存のまま残し、
   extra 化は次サイクルに回す)。
 - **Reversibility**: **可逆**。
+
+### 旧タスク ID との対応(2026-09-26 の /tasks)
+
+この節より上の本文と decisions の rationale は、旧サイクルのタスク ID で作業を指していることがある。今サイクルの対応は次のとおり(AR-154)。
+
+| 旧 | 新 | 内容 |
+|---|---|---|
+| T-024 | T-039 | 子プロセス境界と起動前検査 |
+| T-025 | T-040 | プロンプト・スキーマ・パーサの共有化 |
+| T-026 | T-042 | 失敗分類・overage 走査・逐語ログ・fake ファクトリ |
+| T-027 | T-043 | ClaudeCliLlm |
+| T-028 | T-044 と T-045 | 既定 LLM の切り替え / 実行の列の CLI |
+| T-029 | T-041 | 契約フィクスチャ(--safe-mode で取り直し)と番兵実測 |
+| T-030 | T-046 | オーバーヘッド定数の実測 |
+| T-020 | T-047 | フル処理(不可逆) |
+| T-031(done)の手直し | T-037、T-038 | 計測の口の修正 / 実行の列の集約 |
+| (新規) | T-032〜T-036 | 実装済みの claim を受入テストに固定する absorb(D-121、D-147) |
 
 ## Risks / trade-offs
 
