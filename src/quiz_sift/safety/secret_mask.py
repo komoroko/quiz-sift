@@ -2,9 +2,11 @@
 
 `SecretMaskFilter` をログハンドラに付けると、API キーと Cookie / Set-Cookie / セッション ID 系の値を
 伏せる。Udemy の認証情報はプログラムが保存しないが、CDP 接続はセッションクッキーを読み出せる
-(AR-28)ので、Cookie 系をマスク対象から外さない。
+(AR-28)ので、Cookie 系をマスク対象から外さない。`claude` の子プロセスのログ(NFR-8)に向けて、
+OAuth トークン(`sk-ant-oat…`)と資格情報ファイル `.credentials.json` のパスも伏せる。
 
-伏せるのは値の形ではなく、値の置かれ方で決める: 既知のキー形式(`sk-ant-…`、`Bearer …`)と、
+伏せるのは値の形ではなく、値の置かれ方で決める: 既知のキー形式(API キーと OAuth トークンの
+`sk-ant-…`、`Bearer …`)と、資格情報ファイルのパス、
 名前が認証情報らしい項目の値(`name=value`、`"name": "value"`、`Name: value` の行)、CDP の
 cookie オブジェクト `{"name": ..., "value": ...}` の値(名前を問わない)。値は引用符で囲まれて
 いてもよい(`%r` や `f"{sessionid=}"` は `sessionid='…'` を出す)。余計に伏せる向きの誤りは許し、
@@ -25,7 +27,10 @@ _QUOTED_VALUE = r"'(?:[^'\\\r\n]|\\.)*'" + r'|"(?:[^"\\\r\n]|\\.)*"'
 _QUOTED_VALUE_Q = r"""(?P<q>["'])(?:(?!(?P=q))[^\\\r\n]|\\.)*(?P=q)"""
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # API キー(sk-ant-api…)と OAuth トークン(sk-ant-oat…)。
     (re.compile(r"sk-ant-[\w-]+"), SECRET_MASK),
+    # 資格情報ファイルのパス(`~/.claude/.credentials.json` など)。ディレクトリ部分ごと伏せる。
+    (re.compile(r"""[^\s'"=:]*\.credentials\.json"""), SECRET_MASK),
     (re.compile(r"(?i)\b(bearer\s+)[\w.~+/-]+=*"), rf"\g<1>{SECRET_MASK}"),
     # CDP の cookie オブジェクト: 名前と値が別の項目に分かれている。名前が認証情報らしくない
     # cookie もセッションを担いうるので、名前を問わず値を伏せる。
