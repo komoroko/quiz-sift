@@ -1,51 +1,1413 @@
-# .rein/plan.yaml — the EXPECTED MODEL: what this cycle is supposed to do. Frozen with the mandate;
-# after that, changing it goes through `rein revise --to tasks`, which invalidates the
-# downstream gates in a chain.
-#
-# Two sections carry the whole traceability thread, and neither works without the other:
-#
-#   /req    → claims.  One per `R-N` / `NFR-N` heading in docs/10-requirements.md. The heading
-#             is the checklist; the claim is what it MEANS, stated so that it could be false.
-#   /tasks  → tasks.   The DAG. Each task names the claims it answers.
-#
-# `rein dag --trace` walks requirement → claim → task and blocks on either break: a heading no
-# claim covers, or a claim citing a heading that does not exist. With neither side filled it
-# reports `unknown` and exits 2 — a check with nothing to check is not a pass.
-
 cycle:
   id: quiz-sift
-  # The commit this cycle branches from. CI re-derives it from the pull-request event and
-  # refuses to take this field's word for it (plan §17.3) — it is here for humans and for
-  # offline runs.
-  base_commit: "0000000000000000000000000000000000000000"
+  base_commit: '0000000000000000000000000000000000000000'
   branch: build/quiz-sift
-
-# What the implementation is supposed to do. One claim, one checkable statement.
-claims: []
-#  - id: C-001
-#    requirement_ids: [R-1]
-#    statement: <one behaviour, stated so that it could be false>
-#    risk: high                       # low | medium | high | critical
-#    domains: [<domain>]
-
-# The task DAG. `kind` drives orchestration: layers, parallelism, and merge order derive from
-# `blocked_by`, in code rather than by agent discretion.
+claims:
+- id: C-001
+  requirement_ids:
+  - R-1
+  statement: 構造化ファイルから100〜200問を取り込むと、取り込めた全問の問題文・選択肢4件・正解が欠落なく保持され、既習フラグは個別指定→セット指定の順で解決されどちらも無い場合のみ unknown として記録され、不正な問題は個別に列挙され、正常系フィクスチャに対する除外件数は 0 で、公式解説の有無の件数が報告される。
+  risk: high
+  domains:
+  - ingest
+- id: C-002
+  requirement_ids:
+  - R-2
+  statement: Udemy のページからヘッドレスブラウザで抽出すると、成功件数と失敗箇所が報告され、受験者の選択と正解が異なる問題を3件以上含むゴールデンセット10件に対する正解ラベル一致率が 100% で、正解判定の根拠の要素種別が全問で同一であることが機械判定される。
+  risk: high
+  domains:
+  - ingest
+- id: C-003
+  requirement_ids:
+  - R-3
+  statement: 問題群は排他クラスタへまとめられ、M/N・未分類比率・最大クラスタ比率が記録され、既知5グループのフィクスチャに対し最大クラスタ比率が 50% を超えず「その他」比率が 20% 以下であり、各クラスタに全問題 ID の一覧と要約が付き、要約の主要な語句がそのクラスタの問題文中に実在する。キャッシュを迂回した2回の再クラスタリングについて割当一致率が記録され、その2回の llm_calls(Protocol 呼び出し数であって子プロセス数ではない)が1回分の2倍になる。外部 LLM 呼び出しに失敗があった実行は下流ステージへ進まず非 0 終了する。失敗の種別は SPAWN / TIMEOUT / PARSE / SCHEMA / TRUNCATED / INCOMPLETE_IDS / PROVIDER_ERROR の7種で、レート制限と isUsingOverage が真の呼び出しは PROVIDER_ERROR として失敗に数えられ、1回の実行の実経過時間が12時間を超えると非 0 終了し、それまでに rate_limit_event が届いていれば最後の resetsAt がログに残る。PARSE は stdout が result イベントをちょうど1つ含む JSON のイベント列にならないことで判定し終了コードと stderr を使わず、TRUNCATED は subtype が error_max_turns か stop_reason が max_tokens / model_context_window_exceeded のときに限る。渡した問題 ID のうち応答に現れなかった ID が1件以上ある呼び出しは失敗とする。再試行は行わない。実行のサマリに未分類比率・最大クラスタ比率・失敗件数の3値が出力され、失敗件数が実際の失敗数と一致する。
+  risk: high
+  domains:
+  - analysis
+- id: C-004
+  requirement_ids:
+  - R-4
+  statement: 各クラスタの想起キー・答え・識別ポイントが生成され、想起キーと識別ポイントが参照する誤答選択肢は元データに実在し、同一の想起キーが複数クラスタで使われず、全構成要素が他クラスタにも出現するようなキーが 0 件で、識別ポイントは誤答選択肢の丸写しではない。
+  risk: high
+  domains:
+  - analysis
+- id: C-005
+  requirement_ids:
+  - R-5
+  statement: 専門用語のグロッサリが生成され、公式解説との矛盾件数が 0 であり、照合対象が 0 件の場合は合格ではなく照合対象なしとして記録され、音声は想起素材とは別ファイルになる。
+  risk: medium
+  domains:
+  - analysis
+- id: C-006
+  requirement_ids:
+  - R-6
+  statement: 台本は『想起の問いかけ→間→答え→識別ポイント』の順で構成され、選択肢ラベルの4件並列提示(記号・番号・かなを問わない)を含まず、『間』は機械可読なマーカーとして表現され、推定再生時間3分を超えたクラスタは打ち切られず分割または再生成のうえ列挙される。
+  risk: medium
+  domains:
+  - content
+- id: C-007
+  requirement_ids:
+  - R-7
+  statement: 全クラスタ分の音声が mp3 または m4a で書き出され、先頭と末尾を除く位置に前後を有音区間に挟まれた3秒以上の無音区間が機械判定で確認でき、ゼロ埋め連番のファイル名と m3u により端末のソート順で意図した順に並び、記録された言語と TTS のボイス設定が一致し、失敗クラスタは列挙される。
+  risk: high
+  domains:
+  - audio
+- id: C-008
+  requirement_ids:
+  - R-8
+  statement: Web UI 上の4択出題で選択・正誤・所要時間が永続記録され、選択肢の内容または ID で同定した入力を問題ごとに異なるシャッフル並びの下で与えたとき全問正解入力が正答率100%・全問誤答入力が0%となり、既習フラグ別の正答率と、hold-out 不在とテスト効果の両方を明示したレポートが出力される。
+  risk: high
+  domains:
+  - measurement
+- id: C-010
+  requirement_ids:
+  - R-10
+  statement: クラスタが誤答率の降順に並んだ再生リストが m3u またはトラック番号付きファイル名として出力され、全問正解時は空リストではなく『該当なし』が明示され、最終学習日時と誤答回数が永続記録される。
+  risk: medium
+  domains:
+  - scheduling
+- id: C-011
+  requirement_ids:
+  - R-11
+  statement: 2セット以上の教材を同時に保持しても問題が別セットのクラスタへ混入せず、学習記録とレポートがセット単位で分離され、セット単位で既習/初見を指定できて問題個別の指定がそれを上書きし、日本語本文に英語用語が混在しても TTS へ渡せる。
+  risk: medium
+  domains:
+  - data
+- id: C-012
+  requirement_ids:
+  - R-12
+  statement: ローカル起動した Web UI からテストの実施と結果の閲覧ができ、回答はブラウザ内ストレージではなくサーバ側の学習記録ストアへ永続化され、そのストアは CLI と UI の双方から読み書きでき所在と形式が一箇所で定義されている。
+  risk: high
+  domains:
+  - ui
+- id: C-013
+  requirement_ids:
+  - NFR-1
+  statement: 想起素材・台本・グロッサリ・クラスタ要約が主張する内容が正解ラベルまたは公式解説と矛盾する場合、成果物を出力せずエラー終了する。判定は LLM 含意判定で行い、言い換えに対する誤検出が 0 件で、ミューテーションに対する検出率が記録される。
+  risk: critical
+  domains:
+  - safety
+- id: C-014
+  requirement_ids:
+  - NFR-2
+  statement: 取り込んだ実教材の本文が Git の追跡対象ファイル・コミット・ログ出力のいずれにも含まれない。テスト用の合成フィクスチャはこの対象外である。
+  risk: critical
+  domains:
+  - security
+- id: C-015
+  requirement_ids:
+  - NFR-3
+  statement: 外部サービスの認証情報(API キー、Udemy のパスワードとセッションクッキーを含む)がリポジトリに平文で存在せず、ログ・エラーメッセージにも出力されない。
+  risk: critical
+  domains:
+  - security
+- id: C-016
+  requirement_ids:
+  - NFR-4
+  statement: 各段階の中間成果物が永続化され、途中段階から再実行したときそれより前の段階の llm_calls と provider_invocations(NFR-7 の定義。HTTP API・CLI サブプロセスの別を問わない)がどちらも 0 になる。R-3 の再現性測定はこの対象外とし、ホスト上での実測ログを artifact として記録する。
+  risk: high
+  domains:
+  - pipeline
+- id: C-017
+  requirement_ids:
+  - NFR-5
+  statement: uv で依存が同期でき、ruff・mypy strict・pytest・pre-commit が全て通り、GitHub Actions の検査 run ステップがbash gate.sh <step> の形をとってその <step> 集合が quality_gate の command ステップ集合と一致し、同じコマンド列が品質ゲート上でローカルに green になり、mkdocs build が警告なく完了し、取り込んだ設定が外部パスを参照しない。
+  risk: high
+  domains:
+  - infra
+- id: C-018
+  requirement_ids:
+  - NFR-6
+  statement: 品質ゲートのコマンドステップがネットワーク接続なしのサンドボックスで成功する。
+  risk: high
+  domains:
+  - infra
+- id: C-019
+  requirement_ids:
+  - NFR-7
+  statement: 100〜200問のフル処理1回(同じ run_id で連なる実行の列。各実行は開始時に列へ登録され終了記録の無い登録はレート枠以外の停止と数えられ、途中の非0終了はその実行で失敗したすべての呼び出しが、result が is_error 真で自身の子プロセスが最後に出した rate_limit_event が status rejected かつ isUsingOverage 偽である場合に限り、列全体で isUsingOverage 真の呼び出しが 0 件であることも完走の条件とし、それ以外の停止を含む列は完走に数えられず、最後の実行が exit 0 で完走。回数・トークン・コストは和、並行度は最大、経過時間は実行時間の和と全体の壁時計の両方、使用率と3つの resetsAt は各実行で最初と最後に届いた rate_limit_event の値で届かなければ null と件数)について、実行ごとの値と列の合算値として、経過時間・llm_calls(Protocol 呼び出し数)・provider_invocations(子プロセス起動数。分割呼び出しを個別に数え、再試行はしない)・model_turns(モデル往復回数、num_turns の総和。レート枠を消費するのはこれ)・並行度・4値トークンの内訳ごとの総量・notional コスト・レート制限で終了したか(終了した場合は resetsAt)・および開始時と終了時の両方について five_hour と seven_day 両ウィンドウの utilization と resetsAt が、1つのログへ実行ごとに記録される。失敗した呼び出しのトークンも成否の判定より先に記録され、usage が取れなかった呼び出しは件数を別に数える。notional コストは4値トークンと出所を持つ2モデル分の単価表からの自算値と、呼び出し経路が自己申告した total_cost_usd の両方、およびその相対差として記録され、いずれかの単価が 0 である間は記録済みとして報告しない。呼び出し経路自身の固定オーバーヘッドはモデルごとに1ターンあたりの定数として持ち、既知長の合成プロンプトを k=1,2,3 回反復した較正表の上で Σ_model(overhead_model × turns_model) + material が報告された入力トークン合計に一致し、material は合計からの差し引きで求めない(フル処理の実行ログには material を置かない)。その定数は測定日・CLI バージョン・計上先のトークンバケツ・argv のダイジェストを出所として持ち、現 argv のダイジェストと違えば unknown と報告する。出力には notional の語が含まれ、実課金額を主張しない。
+  risk: medium
+  domains:
+  - observability
+- id: C-020
+  requirement_ids:
+  - NFR-8
+  statement: 本プロダクトの製品コードの実行が従量課金される外部サービス経路を取らない(ハーネス自身の LLM 利用は対象外)。新規インタプリタで、親環境に metered 認証変数が入っており anthropic が import 可能な状態で既定構成を1回走らせた後に anthropic が sys.modules に現れず(import 不能な場合は skip せず失敗。選択点を SDK アダプタへ差し替えるとこの判定が赤くなる negative control を伴う)、子プロセスへ渡す環境が HOME / PATH / LANG / TZ の4つと一致し HOME は人間が事前に用意した専用の最小ホームを指して製品がその配下に作成したファイルが 0 件であり、起動前検査が .claude/ 直下の CLAUDE.md・.claude/rules/ 配下のファイル、トップレベルのキーが {theme} の部分集合でない .claude/settings.json、資格情報ファイルの不在のいずれかでエラー終了し(資格情報は開かない)、既定 Llm の選択点が composition.build_default_llm() ただ1つでその本体が return 文1つかつ右辺がクラス名の直接呼び出しで分岐も動的解決も環境変数参照も含まず、製品として到達可能な入口すべての import グラフに metered API へ HTTP を発行しうるモジュールが存在せず、子プロセスの argv が有効ツールの集合を StructuredOutput ただ1つに絞りかつ権限バイパス指定を含まずかつ外部 MCP 設定を読まない指定を含みかつ作業ディレクトリがその実行のために作った空ディレクトリでありかつ --safe-mode を含み(番兵を置いた実 CLI で CLAUDE.md 系の読み込みが 0 件であることをホスト実測で示す)、出力形式が stream-json で max-turns が 3 以上であり、列挙した 13 個の metered 認証変数をフル処理の列のすべての実行が持たない状態で完走し、rate_limit_event の isUsingOverage が真の呼び出しは PROVIDER_ERROR として失敗に数えられ非 0 終了し、rate_limit_event が届かなかった呼び出しが1件以上あればこの判定を unknown と報告する。
+  risk: high
+  domains:
+  - pipeline
+  - infra
+decisions:
+- id: D-001
+  subject: サイクル1で実装する範囲
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 案C(ほぼ全部)を選択。ただし承認前の縮小で R-9(音声回答と AI 採点)を落とし、取り込み自動化・グロッサリ・復習スケジューリング・複数デッキ・Web UI を含む11要件(R-9 は欠番)とする。アナリストの推奨(案A)は採らない。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-5
+  - R-10
+  - R-11
+  - R-12
+- id: D-002
+  subject: 効果測定のための問題の hold-out 分割
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 分割しない。全問を教材に使い、効果の判定は主観に委ねる。結果として、未見問題への転移(中心仮説)は本サイクルでは支持も反証もできない。
+  requirement_ids:
+  - R-8
+- id: D-003
+  subject: サイクル1の acceptance をどこで切るか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 測定器の完成まで。実際の学習と実測は次サイクル。external evidence の待ちは発生させない。この帰結として、実 CI の green は NFR-5 の対象外になる(AR-6)。
+  requirement_ids:
+  - R-8
+  - NFR-5
+- id: D-004
+  subject: 圧縮率・未分類比率・クラスタ割当一致率の合格ライン
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実データの圧縮率には合格ラインを設けず、記録することだけを要件とする。ただし既知5グループの固定フィクスチャに対しては、最大クラスタ 50% 以下・「その他」20% 以下の下限を課す(AR-2 の2巡目)。
+  rationale: 実測前に閾値を置くと意味のない数値を後から緩めることになる。記録を要件とし、閾値は次サイクルで数値を見てから決める。退化ガードは閾値ではなく下限であり、これとは別に置いた。
+  requirement_ids:
+  - R-3
+- id: D-005
+  subject: 『想起キー』の定義
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 問題文に現れ、そのクラスタの正解を一意に指し示す語・状況・条件の組。『一意に指し示す』は、他クラスタ出現率の記録と同一キーの重複禁止で観測可能にする(AR-14)。
+  rationale: 定義が変わると R-4 の生成ロジックと受入基準3本の作り直しで済み、claim の文面(想起素材が生成され、元データに実在する)は変わらない。
+  requirement_ids:
+  - R-4
+- id: D-006
+  subject: 台本が誤答選択肢の中身にどこまで触れてよいか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 中身には比較の形で触れてよいが、選択肢のラベル列挙はしない。ラベル列挙とは記号・番号・かなを問わず4件を並列提示する形を指し、その不在を non-goal『単なる読み上げ』の機械判定基準とする(AR-12)。
+  requirement_ids:
+  - R-6
+- id: D-007
+  subject: Udemy からの取り込み方式と、規約上の可否の前提
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 拡張またはスクリプトで自動抽出する。規約上の可否は本人が確認済みで、個人利用の範囲で行うという前提を記録して進める。本ループはこの解釈を独立に検証していない。
+  requirement_ids:
+  - R-2
+- id: D-008
+  subject: LLM・TTS・音声認識の調達方法
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 差し替え可能なインタフェースの背後に置く。LLM はサブスクリプション認証の Claude Code CLI(claude -p)経由、TTS はローカル OSS(ADR-004)。2026-09-25 に、従量課金の禁止(D-084)を受けて「クラウド API を利用し」から書き換えた。
+  rationale: 差し替え可能なインタフェース越しに使う限り、提供元や呼び出し経路の変更は adapters 1箇所の差し替えで済み、claim も受入基準も動かない。実際、2026-09-25 の経路変更で ports/llm.py の Protocol と TokenUsage の4値はどちらも変わっていない。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-6
+  - R-7
+  - R-9
+- id: D-009
+  subject: クラスタが排他分割か多重所属可か
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 排他分割とし、分類できない問題は『その他』クラスタへ入れて比率を記録する。多重所属は要求がないため作らない。
+  rationale: 排他分割から多重所属へ広げるのはデータ構造と集計の変更で、R-3 の受入基準の文言のみが動く。1問が2つのパターンを問う場合の扱いは『その他』クラスタと要約で吸収できる。
+  requirement_ids:
+  - R-3
+- id: D-010
+  subject: 1クラスタあたりの台本長の上限と、超過時の扱い
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 推定再生時間3分を上限の初期値とし、実測後に見直す。超過したクラスタは打ち切らず分割または再生成し、列挙する。文字数での定義は言語によって再生時間が3倍変わるため採らない(AR-18)。
+  rationale: 上限値の見直しは数値の書き換えのみ。超過時に打ち切らない方針は受入基準の追加であって、既存の基準を緩めない。
+  requirement_ids:
+  - R-6
+- id: D-011
+  subject: 音声学習の形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 一問一答形式(想起の問いかけ→間→答え→識別ポイント)を基本形式とする。
+  rationale: 台本生成タスク1つの作り直しで済み、claim の文面は変わらない。複数形式を比較する設計にするとスコープが広がるが、それは次サイクルの判断。
+  requirement_ids:
+  - R-6
+- id: D-012
+  subject: 提供形態
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Python CLI(生成パイプライン)+ Next.js/React のローカル Web UI(テスト出題と閲覧)。Chrome 拡張と携帯ネイティブアプリはスコープ外。
+  requirement_ids:
+  - R-12
+- id: D-013
+  subject: サイクル1で扱う教材の規模
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 100〜200問(模擬試験2〜3回分)。
+  requirement_ids:
+  - R-1
+  - NFR-7
+- id: D-014
+  subject: 教材と音声の言語
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 教材によって日本語・英語の両方を扱う。セットごとに言語を記録し、音声生成時に参照する。日本語本文に英語のサービス名が混在することを前提とする。
+  requirement_ids:
+  - R-7
+  - R-11
+- id: D-015
+  subject: サイクル1で使う教材の既習度
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 一部既習・一部初見。問題ごとに既習フラグを持ち、レポートで集計を分ける。フラグはセット単位で指定でき、問題個別の指定がそれを上書きする。どちらも無い場合に限り unknown として記録する(AR-8 の2巡目)。
+  requirement_ids:
+  - R-1
+  - R-8
+- id: D-016
+  subject: 生成した音声を携帯端末へ届ける経路
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: ローカルにファイル出力し、携帯端末へは手動転送する。ポッドキャスト RSS・クラウド同期・ストリーミングはスコープ外。
+  requirement_ids:
+  - R-7
+- id: D-017
+  subject: Must として課す非機能要件の集合
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 誤学習の防止・教材データの保護・認証情報の保護・段階的な再実行性の4件を Must とする。処理コストの可視化は Should。
+  requirement_ids:
+  - NFR-1
+  - NFR-2
+  - NFR-3
+  - NFR-4
+  - NFR-7
+- id: D-018
+  subject: 開発基盤の構成
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: PyProjectTemplate に準拠する。uv・ruff・mypy strict・pytest・pre-commit・GitHub Actions・mkdocs を用い、Python は 3.13 系。取り込む設定はリポジトリ内に写し、ホストの外部パスを参照しない(AR-16)。
+  requirement_ids:
+  - NFR-5
+- id: D-019
+  subject: 品質ゲートの構成(何を green の証拠とするか)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: D-018 の回答に従い、.rein/config.yaml の quality_gate を lint(ruff check)・format(ruff format --check)・types(mypy)・test(pytest)・docs(mkdocs build --strict)・review・smoke に差し替えた。現行の pytest tests/ と compileall は削除。AR-15 の実測で配布イメージがツールを欠いていたため、.rein/oci/quiz-sift/Containerfile を作ってダイジェストを再ピンした(2026-09-22、5ステップすべて green)。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-020
+  subject: Udemy 抽出を Chrome 拡張で行うかスクリプトで行うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: スクリプト(ヘッドレスブラウザ)で行う。Chrome 拡張は作らない。認証情報の取り扱いは NFR-3 の対象に含める(AR-10)。
+  rationale: 提供形態が CLI + Web UI に決まった(D-012)ため、拡張はビルド対象を1つ増やすだけで同じ抽出結果を得る。実装1箇所の選択で、claim も受入基準も動かない。
+  requirement_ids:
+  - R-2
+- id: D-021
+  subject: NFR-7 のコスト上限値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 初回のフル処理を実測するまで上限を置かない。次サイクルで設定する。2026-09-25 に、上限の対象を金額からサブスクリプションのレート枠へ書き換えた(D-084 により notional コストには課金上の意味が無く、実際に処理を止めるのはレート枠であるため)。notional コストは自算値と申告値の両方を根拠として記録する(AR-24、D-089)。
+  rationale: 本サイクルでは記録だけを要件としており、上限を後から加えるのは受入基準の追加であって既存の基準を動かさない。上限の対象を金額からレート枠へ移すのも、置く上限が無い本サイクルでは記録項目の変更にとどまる。
+  requirement_ids:
+  - NFR-7
+- id: D-022
+  subject: 台本の『間』の表現形式と、音声上の無音区間の下限
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 『間』は SSML の break 相当の機械可読マーカーで表現し、音声上は先頭と末尾を除く位置に、前後を有音区間に挟まれた3秒以上の無音区間を要求する(AR-7 の2巡目)。
+  rationale: マーカー形式と秒数の変更は台本生成と音声化の実装内の話で、claim の骨格(無音区間が存在することを機械判定する)は変わらない。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-023
+  subject: 学習記録ストアの所在と所有者
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: サーバ側に置き、CLI と UI の双方から読み書きする。ブラウザ内ストレージのみに保持する実装は採らない(AR-11)。
+  rationale: 保存先の実装(ファイルか埋め込み DB か)の変更は1タスクで済む。ブラウザ内ストレージを採らないことは要件に書いたが、サーバ側のどこに置くかは実装の選択。
+  requirement_ids:
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-024
+  subject: NFR-1 の矛盾判定機構
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: LLM による含意判定とする。文字列一致は、言い換えを前提とする R-4 に対してほぼ常にエラー終了を起こすため採らない(AR-9)。
+  rationale: 判定器の実装を差し替えても、要件が課す3つの検証(仕込んだ矛盾の検出・言い換えの誤検出0・ミューテーション検出率の記録)は変わらない。判定機構は測られる側であって、測る基準ではない。
+  requirement_ids:
+  - NFR-1
+- id: D-025
+  subject: 再生順を携帯端末へ届ける形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: ゼロ埋め連番のファイル名と m3u プレイリストの両方を出力する(AR-13)。
+  rationale: m3u とファイル名連番はどちらも出力形式の選択で、claim の骨格(端末のソート順で意図した順に並ぶ)は変わらない。
+  requirement_ids:
+  - R-7
+  - R-10
+- id: D-026
+  subject: R-2 の正解ラベルの正確性を何で検証するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 人手で正解を確認した10件のゴールデンセットに対する一致率 100% を基準とし、その10件に受験者の選択と正解が異なる問題を3件以上含める。あわせて正解判定の根拠の要素種別が全問で同一であることを機械判定する(AR-3 の2巡目)。
+  rationale: ゴールデンセットの件数を増減しても、検証するという要件そのものは変わらない。10件は最初の測定のための初期値。
+  requirement_ids:
+  - R-2
+- id: D-027
+  subject: Should / Could 要件の claim を acceptance がどう扱うか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 全 claim が acceptance の判定対象。Priority は着手順序のみを表し、未達を許す指定ではない。範囲を削る場合は mandate の承認前に要件ごと落とす(AR-1)。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-3
+  - R-4
+  - R-5
+  - R-6
+  - R-7
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-028
+  subject: R-9(音声出題と口頭回答の AI 採点)を本サイクルに含めるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 含めない。承認前の縮小で要件ごと落とす。R-7 の学習用音声は答えを含むため出題に使えず、残すには出題専用音声の生成が必要で実質1要件分の増加になる(AR-22)。R-9 は欠番として残す。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-029
+  subject: レビューレンズ L-REQ-FAILURE-MODES を採用するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 採用する。ただし /req のレビュアー再招集枠は使い切っているため、要件段階では適用されない。適用は design / tasks / code から始まる。
+  requirement_ids:
+  - R-2
+  - R-7
+- id: D-030
+  subject: R-3 の再現性測定(キャッシュ迂回の2回実行)をどの証拠種別で判定するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: artifact 判定とし、ホスト上での1回の実測ログをテストプランに記録する。command はネットワーク遮断のサンドボックスでスタブを使うため一致率が常に100%になり測る意味が消え、external は D-003(evidence 待ちを発生させない)と衝突する。
+  rationale: 証拠種別の割り当ては /tasks が決める判定方法の選択であり、claim の文面(一致率が記録される)も受入基準も動かさない。
+  requirement_ids:
+  - R-3
+  - NFR-4
+- id: D-031
+  subject: pre-commit を品質ゲートに含めるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 含めない。ruff と mypy を直接ゲートのステップとして置き、pre-commit はホストのコミット時と CI に任せる。
+  rationale: 'pre-commit はフックを GitHub から clone するため network_profile: none では動作しない。同じ検査がゲート上で走る以上、NFR-5 の (b) は満たされ、claim も受入基準も動かない。'
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-032
+  subject: サンドボックスイメージをどこの Containerfile から作るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'プロジェクト所有の .rein/oci/quiz-sift/Containerfile を作り、quality プロファイルの dockerfile: で指す。'
+  rationale: '.rein/oci/python/ は rein.lock が追跡する材料化テンプレートで、編集すると tree が drift し、--profile python はパッケージ同梱の原本を黙ってビルドして編集を含まないイメージを作る。スキーマが dockerfile: を用意しているのがこの経路。イメージの中身が変わっても claim は動かない。'
+  requirement_ids:
+  - NFR-6
+- id: D-033
+  subject: 品質ゲートの smoke ステップの中身
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'CLI の入口が決まる /design まで placeholder(true, required: false)のまま置き、入口が決まった時点で実コマンドへ差し替えて required: true にする。config.yaml は mandate で凍結されるため、差し替えは承認前に行う。'
+  rationale: 入口が存在しない段階で smoke を required にしても、検査するものが無い。差し替えは承認前に行うので凍結後の変更にはならず、claim も受入基準も動かない。
+  requirement_ids:
+  - NFR-5
+- id: D-034
+  subject: 製品の実行時依存をネットワーク遮断の品質ゲートへどう届けるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: サンドボックスイメージに焼く。Containerfile で uv sync --frozen し、ffmpeg・fugashi+unidic・node+Playwright を入れる。依存を変えるたびにイメージ再ビルドとダイジェスト再ピンが要り、それは凍結環境の変更なので mandate 承認前に行う(ADR-001)。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-035
+  subject: LLM プロバイダと ports の粒度
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Anthropic 1社、モデルは claude-opus-5。ports はタスク別メソッド(classify_clusters / summarize / check_entailment 等)とし、mypy strict の下で呼び出し側の誤用が落ちる形にする(ADR-002)。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+  - R-6
+  - NFR-1
+  - NFR-7
+- id: D-036
+  subject: クラスタリングの方式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: LLM に直接分類させ、排他分割と『その他』は後処理で強制する。埋め込み方式は割当一致率が構造的に100%近くなり、R-3 の受入基準1本の意味が変わるため採らない(ADR-003)。
+  requirement_ids:
+  - R-3
+- id: D-037
+  subject: TTS プロバイダ
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: ローカル OSS の CosyVoice(Apache-2.0)。文内の日英コードスイッチを扱えることが決め手。SSML break は無いので『間』は自前で PCM 無音を挿入する。結果として TTS の課金が無くなり、R-7 は不可逆点を持たない(ADR-004)。
+  requirement_ids:
+  - R-7
+  - R-11
+  - NFR-7
+- id: D-038
+  subject: 学習記録ストアの実体
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: SQLite(stdlib の sqlite3)。WAL モードで CLI と server の同時アクセスを扱う(ADR-005)。
+  requirement_ids:
+  - R-8
+  - R-10
+  - R-11
+  - R-12
+- id: D-039
+  subject: 採点・シャッフル・レポートをどちらの言語に置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: '全部 Python 側。Web UI は presentation を表示して OptionId を送るだけ。回答の受け口は submit(question_id, chosen: OptionId) のみとし、表示位置インデックスを受け取る API を存在させない。これで AR-4 の裏切り実装はコード上の経路が無くなる(ADR-006)。'
+  requirement_ids:
+  - R-8
+  - R-12
+- id: D-040
+  subject: Udemy 抽出の方式と認証情報の持ち方
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人がログイン済みの Chrome をデバッグポート付きで起動し、そこへ CDP 接続する。パスワードもセッションクッキーもプログラムが持たないので NFR-3 の対象から消える。ただし実アクセスの不可逆性(アクセス履歴・ボット検知)は残る(ADR-007)。
+  requirement_ids:
+  - R-2
+  - NFR-3
+- id: D-041
+  subject: 台本が3分を超えたときの対処
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 台本のみを分割し、1クラスタが複数トラック(012a_, 012b_)になる。クラスタを割ると R-3 の M が動き、退化ガードの測定対象が崩れるため採らない(ADR-008)。
+  requirement_ids:
+  - R-6
+  - R-3
+  - R-7
+  - R-10
+- id: D-042
+  subject: 含意判定が uncertain を返したときの挙動
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: contradicted と同じくエラー終了させ、成果物を書かない。誤学習は本人が気づけない種類の失敗なので、判定できないものを通すリスクを取らない(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-043
+  subject: NFR-1 の誤検出0・検出率の検証方法
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 手書きフィクスチャのみ。録画再生は採らない。測れるのは判定器のパースとしきい値ロジックであって、モデルの判定能力ではない — この限界を承知のうえでの判断(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-044
+  subject: ミューテーション検出率の合格ライン
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 置かない(記録のみ)。結果として、検出率が低くても『矛盾件数 0』は成立しうる。この穴は人間が承知のうえで残し、design の Open questions に記録した(ADR-009)。
+  requirement_ids:
+  - NFR-1
+- id: D-045
+  subject: 語句の実在性判定の実装
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 形態素解析(fugashi + unidic-lite)。大文字略語とカタカナ列のヒューリスティックを併用する(実測で S3 が S/3 に割れたため必須)。文字 n-gram は日本語で過剰に緩く、AR-14 が塞いだ穴を開け直すため採らない。サンドボックスイメージが数百 MB 増える(ADR-010)。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+- id: D-046
+  subject: 問題データとデッキ manifest の形式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 問題データは JSONL(機械が書き、行単位のエラー報告と相性がいい)、manifest は YAML(人が書き、コメントが書ける)。PyYAML は明示的な依存として宣言する(ADR-011)。
+  requirement_ids:
+  - R-1
+  - R-2
+  - R-11
+- id: D-047
+  subject: R-12 の受入基準の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: CI とサンドボックスイメージに node と Playwright を入れ、E2E を command として毎回走らせる。ネットワーク遮断下でブラウザが起動するかは未検証で、崩れたら artifact へ落とすことになる(ADR-012)。
+  requirement_ids:
+  - R-12
+  - NFR-5
+  - NFR-6
+- id: D-048
+  subject: R-2 のゴールデンセット10件の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 合成 HTML フィクスチャに対する抽出器のテストを command、実教材10件の一致率をホストでの artifact 実測とする。実教材は NFR-2 によりコミットできずサンドボックスから読めないため。
+  requirement_ids:
+  - R-2
+  - NFR-2
+- id: D-049
+  subject: グロッサリ音声の連番系列と再生リスト
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 別ディレクトリ・別連番(g001_)で出し、専用の m3u をもう1本出す。想起素材の再生リストには混ぜない。台本に解説が混ざるのと同じ交絡を避けるため。
+  requirement_ids:
+  - R-5
+  - R-7
+  - R-10
+- id: D-050
+  subject: 重複問題の『ほぼ同一』の判定
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 正規化(空白畳み込み・NFKC・記号除去)後の完全一致に加え、difflib.SequenceMatcher の ratio 0.95 以上を『ほぼ同一』とする。
+  rationale: 距離関数としきい値の変更は ingest/dedup.py 1ファイルとそのテストで済み、claim の文面(重複が検出され件数が報告される)は動かない。
+  requirement_ids:
+  - R-1
+- id: D-051
+  subject: 識別ポイントの丸写し判定のしきい値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 誤答選択肢との最長共通部分列区間を除いた残りが全体の 30% 以上あることを要求する。
+  rationale: 定数の変更のみ。判定の構造も claim も動かない。
+  requirement_ids:
+  - R-4
+- id: D-052
+  subject: 再生時間推定の初期レート
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 日本語 7.0 文字/秒、英語 2.5 語/秒を初期値とし、初回実測後に見直す(D-010 が見直しを前提としている)。
+  rationale: 定数の変更のみ。推定式の構造も受入基準も動かない。
+  requirement_ids:
+  - R-6
+- id: D-053
+  subject: 無音判定のしきい値と最小継続長
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 挿入する無音は 3.3 秒、判定のしきい値は −50 dBFS 未満が 3.0 秒以上。実測(2026-09-22)で 3.000 秒の無音を mp3 にエンコードし直すと 2.992 秒になったため、3.0 秒ちょうど挿入する実装は受入基準『3 秒以上』を通らない。挿入側に余裕を持たせ、判定側は基準どおりに置く。
+  rationale: 定数の変更のみ。区間列を返す判定の構造は動かない。挿入側の余裕は実測値から決めたもので、TTS やエンコーダを変えたら測り直す。
+  requirement_ids:
+  - R-7
+- id: D-054
+  subject: 誤答率が同率のときの並び順
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 最終学習日時が古い順 → クラスタ ID 昇順。決めないと出力が非決定的になりテストが書けない。
+  rationale: 比較関数の変更のみ。受入基準(誤答率の降順に並ぶ)は動かない。
+  requirement_ids:
+  - R-10
+- id: D-055
+  subject: .gitignore 対象判定の実装
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 自前の fnmatch ベースのパターン評価器を書く。git check-ignore はサンドボックスに git が無いため使えず、その判定のテストがゲートで走らなくなる。
+  rationale: safety/gitignore_guard.py 1ファイル。判定が command 証拠であることは保たれるので、何が証拠かは動かない。
+  requirement_ids:
+  - NFR-2
+  - R-2
+- id: D-056
+  subject: 専門用語の抽出方法
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 形態素解析の名詞句抽出に、大文字略語(S3, IAM)とカタカナ列のヒューリスティックを併用する。実測(2026-09-22)で fugashi + unidic-lite は S3 を S と 3 に分割したため、AWS のサービス名を扱うにはヒューリスティックが補助ではなく必須である。
+  rationale: glossary/extract_terms.py 1ファイル。D-045 で形態素解析を焼くと決まった以上、追加の依存は増えない。
+  requirement_ids:
+  - R-5
+- id: D-057
+  subject: 音声の出力形式
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: mp3。無音構造判定はエンコード後の mp3 をデコードして行う(受入基準の文言どおり)。ffmpeg をイメージに焼く。
+  rationale: 形式の変更は adapters と audio/silence.py のデコード経路の差し替えで済む。判定の構造は動かない。
+  requirement_ids:
+  - R-7
+- id: D-058
+  subject: ステージ成果物の置き場と上書きポリシー
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: out/<deck>/<stage>/ にコンテンツアドレス方式((inputs_digest) -> artifact)で置く。同じ入力なら同じパスなので、上書きが破壊にならない。
+  rationale: pipeline/stage.py のレイアウト変更で済み、NFR-4 の受入基準(前段の呼び出し0)は動かない。
+  requirement_ids:
+  - NFR-4
+- id: D-059
+  subject: デッキ ID の可変性
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 不変として扱う。後から変えると学習記録のパーティションキーが動き、移行が要る。
+  rationale: 設計上の取り決めであり、実装は複合キーの型で表現される。claim も受入基準も動かない。
+  requirement_ids:
+  - R-11
+- id: D-060
+  subject: 日英混在テキストを TTS へどう渡すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 分割せずそのまま渡す。CosyVoice が文内コードスイッチを扱うため(D-037)。SSML の lang マークアップは使わない。
+  rationale: アダプタ内の選択。1ファイル内に2言語が現れないので、R-7 の『記録された言語とボイスの一致』の判定も単数のまま保たれる。
+  requirement_ids:
+  - R-11
+  - R-7
+- id: D-061
+  subject: 形態素解析の辞書を unidic と unidic-lite のどちらにするか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: unidic-lite。実測で AWS 教材相当の日本語文を正しく分割できることを確認した。フル unidic は数百 MB 大きく、この用途で差が出る根拠が無い。
+  rationale: 辞書の差し替えは Containerfile の1行と grounding のテスト再実行で済み、claim も受入基準も動かない。ただしイメージ再ピンを伴うので承認前に確定する。
+  requirement_ids:
+  - R-3
+  - R-4
+  - R-5
+  - NFR-6
+- id: D-062
+  subject: R-7『生成した mp3 に無音区間がある』の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: artifact に落とす。CosyVoice は pip で入らず(実測)、torch を含めるとイメージが数 GB 級になるため、ゲートに重みを置かない。ゲートでは合成 PCM に対する detect_structure を command として走らせ、実 mp3 はホストで1回実測して記録する。回帰検知を失う代償を承知のうえでの判断(AR-3 / ADR-012)。
+  requirement_ids:
+  - R-7
+  - NFR-6
+- id: D-063
+  subject: R-12『ブラウザからテストを実施・閲覧できる』の証拠種別
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: artifact に落とす。node_modules・next build・PYTEST_DISABLE_PLUGIN_AUTOLOAD・uid とブラウザ配置・2プロセス起動の5点が遮断下で塞がっており、承認前に解ける見込みが無い。ゲートでは API 契約テストを command として走らせ、ブラウザ動作はホストで E2E を1回走らせて記録する(AR-2 / ADR-012)。
+  requirement_ids:
+  - R-12
+  - NFR-5
+  - NFR-6
+- id: D-064
+  subject: NFR-5 (d)『CI の run と同一のコマンド列がゲートで緑』の成立させ方
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 'gate.sh(リポジトリ直下。scripts/ は guard.paths に含まれ承認前に書けない)を作り、CI の run もゲートの argv も同じスクリプトを呼ぶ。要件 NFR-5 (d) を『検査を行う run ステップの <step> 集合が quality_gate の command ステップの集合と一致する』に書き換えた — 部分集合で真だと CI から検査を1本落としても緑になるため。環境を用意する run ステップとuses: のアクションは対象外(AR-6 / S-2)。'
+  requirement_ids:
+  - NFR-5
+- id: D-065
+  subject: 台本を分割するときの最小単位
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 1問分のセグメント列(Prompt, Pause, Answer, Discrimination?)を最小単位とし、問の境界でしか割らない。Prompt|Pause|Answer を最小単位にすると最後の Answer の直後が正当な境界になり、Discrimination だけのパート(Pause を含まない)が作れて AR-8 の穴が復活する。どのパートも Pause を1つ以上含み Prompt で始まることをテストで固定する。1問分でも3分を超える場合は分割せず再生成側へ倒す(AR-8 / S-3)。
+  requirement_ids:
+  - R-6
+  - R-7
+- id: D-066
+  subject: 品質ゲートの smoke ステップが赤いまま mandate を開けること
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: '既知の赤として rein baseline measure --freeze で凍結する。smoke は CLI の入口を叩くが、CLI は src/ に住み、src/ は guard.paths にあるので承認まで書けない。config.yaml は承認で凍結されるため『承認前に緑にする』ことが原理的にできない順序になっている。required: false なので DoD はブロックしない(AR-20)。'
+  requirement_ids:
+  - NFR-5
+- id: D-067
+  subject: R-2 の selector_kind をどう決めるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実行時にどの抽出規則が実際にマッチしたかから導出し、フォールバック枝ごとに別の値を返す。定数にすると『全問で同一種別』の判定が恒真式になる。加えて、集合サイズが 2 になって赤くなる negative control フィクスチャを置く。
+  rationale: 抽出器の内部実装。claim の文面(根拠が目視で追跡できる)も受入基準の文言も動かないが、判定が恒真式かどうかという意味では証拠能力そのものなので、negative control とセットで初めて local と言える。
+  requirement_ids:
+  - R-2
+- id: D-068
+  subject: 出題のシャッフル seed の導出元
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: セッション ID × 問題 ID。問題 ID だけだと同じ問題がいつ出題しても同じ順列になり、事前で位置を覚えた人が事後でも当てられる。同一問題の2セッションで presentation が異なることを機械判定する。
+  rationale: seed の導出は scoring/session.py 1ファイル。受入基準の文言(事後テストではシャッフルされる)は動かず、その目的を満たす形に直しただけ。
+  requirement_ids:
+  - R-8
+- id: D-069
+  subject: ports/browser.py と LLM レスポンスキャッシュを置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: どちらも置かない。抽出器を HTML 文字列の純粋関数にした時点でテスト容易性は得られており、D-008 が挙げるのは LLM・TTS・音声認識でブラウザは入っていない。LLM レスポンスキャッシュはどの要件も強制しておらず、置くと R-3 の『2回の実行で API 呼び出しが2倍』基準がそれを検出するために存在することになる。
+  rationale: どちらも足す方向なら後からできる。落とすことで壊れる受入基準は無い。
+  requirement_ids:
+  - R-2
+  - R-3
+  - NFR-4
+- id: D-070
+  subject: inputs_digest の構成要素
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 前段成果物の内容 + プロンプトテンプレートの digest + モデル ID + 生成パラメータ。ステージ実装コード自体は入れない。前者が欠けるとプロンプトを直しても旧成果物がキャッシュヒットで返り、後者を入れると無関係な編集で全ステージが再実行されてコストが毎回乗る。
+  rationale: pipeline/stage.py の digest 関数。NFR-4 の受入基準(前段の呼び出し0)は動かない。
+  requirement_ids:
+  - NFR-4
+- id: D-071
+  subject: 学習記録へのアクセス経路
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: DeckScopedStore(deck_id) 経由に限定し、生の接続を store/location.py の外に出さない。deck_id 列だけだと WHERE を1本書き忘れた集計クエリが型検査にも mypy strict にも引っかからず、2デッキ分を合算する。
+  rationale: store/ の内部設計。R-11 の受入基準(記録がセット単位で分離される)の文言は動かず、それを構造で保証する形にしただけ。
+  requirement_ids:
+  - R-11
+  - R-8
+  - R-10
+- id: D-072
+  subject: Web UI と API のオリジンとサーバのスレッドモデル
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: Next.js の rewrites で同一オリジンに寄せ、ThreadingHTTPServer を使い、SQLite の接続はリクエストごとに開いて閉じる。out/ の配信は読み取り専用エンドポイント1本。BaseHTTPRequestHandler は preflight の OPTIONS に 501 を返すので、そのままでは回答の送信が失敗する。
+  rationale: server/ の内部設計。R-12 の受入基準の文言は動かない。
+  requirement_ids:
+  - R-12
+- id: D-073
+  subject: R-10 の復習用再生リストと R-7 の連番の共存
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: out/<deck>/review/ の別系列へ複製(可能ならハードリンク)して誤答率順の連番を振る。out/<deck>/audio/ の改名は R-7 の『ファイル名昇順で意図した順に並ぶ』を壊す。グロッサリが D-049 で採っているのと同じ形。
+  rationale: 出力レイアウトの選択。両方の受入基準が同時に成立する形を選んだだけで、文言は動かない。
+  requirement_ids:
+  - R-10
+  - R-7
+- id: D-074
+  subject: サンドボックスイメージへ依存を焼く手段
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: uv.lock から uv export で導出した requirements.txt を .rein/oci/quiz-sift/ に置き、Containerfile はそれを COPY して uv pip install する。lock を直接 COPY できないのは rein oci build のビルドコンテキストが Containerfile のディレクトリだから。派生物が lock と一致していることを tests/test_gate_environment.py が検査する。
+  rationale: ビルド手段の選択。ADR-001 の決定(依存をイメージに焼く)は動かず、その実現方法を1つに決めただけ。一致検査があるので、手で編集された版が黙って焼かれることはない。
+  requirement_ids:
+  - NFR-6
+  - NFR-5
+- id: D-075
+  subject: 外部 API 呼び出しに失敗があった実行をどう扱うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 下流ステージへ進ませず非0終了する。サマリに未分類比率・最大クラスタ比率・失敗件数の3値を出し、失敗スタブに対する command 証拠を1本置く。
+  rationale: 『外部呼び出しが失敗した』という事実についての規則であって、圧縮の質についての閾値ではないので D-004(実データに合格ラインを置かない)と衝突しない。R-7 の SynthesisReport が既に同じ形。要件 R-3 に基準として書き足したが、これは基準の追加であって既存基準の軟化ではない。
+  requirement_ids:
+  - R-3
+- id: D-076
+  subject: artifact 実測(5本)の実行主体
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人が事前にホスト環境を用意し(CosyVoice の導入、npm ci、next build)、実測コマンドはループが実行する。external にはしない — D-003 が evidence 待ちを発生させないと決めているため。セットアップ手順は /tasks で決め、該当タスクの前提条件として明記する(N-2)。
+  requirement_ids:
+  - R-7
+  - R-12
+  - R-2
+  - R-3
+  - NFR-2
+- id: D-077
+  subject: gate.sh をリポジトリのどこに置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: リポジトリ直下。当初 scripts/ に置いたが、scripts/ は guard.paths に含まれ mandate 未承認では書き込みが拒否される。Bash のヒアドキュメントで書いたため PreToolUse フックを素通りしていた(src/ に続いて2回目)。直下へ移して境界を戻した(N-3)。
+  requirement_ids:
+  - NFR-5
+- id: D-078
+  subject: src/quiz_sift/** に書き込むタスクの DAG 上の位置(T-007 への依存を宣言するか)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-001〜T-004 に blocked_by:[T-007] を足し、T-007 を DAG の単一ルートにする。T-007 の受入基準 A-1 が作る src/quiz_sift/__init__.py が無いと quiz_sift は名前空間パッケージになり、bash gate.sh types(mypy .)が同じファイルを domain.ids と quiz_sift.domain.ids の二重に解決して全チェックを中断する。src/quiz_sift/** に書き込むタスクは 20 本あり、そのすべてが types の緑をこのファイルに依存している。初版 DAG は T-001〜T-004 と T-007 を同格ルートに置いたため T-001 がこの赤で blocked になり(2026-09-22、実測 $4.83/18分)、消費順では T-007 が5番目なので再実行しても手前の4タスクが同じ赤を踏む。消費順はループの裁量だが、これは DAG の欠落辺なので /revise で直した。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-079
+  subject: T-007 の受入基準 A-4 が要求する実測ログ docs/test/measurements/pre-commit.md をどの scope に置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-007 の scope.include に足す。A-4 は「pre-commit run --all-files の実測ログが docs/test/measurements/pre-commit.md に記録され、記録された終了コードが 0 である」ことを tests/measurements/test_pre_commit_log.py で判定するが、そのログの置き場が scope に無かった。書けば scope_violation、書かなければ判定テストが赤のままで gate.sh test が全タスク分赤くなる。同種の成果物を持つ T-019(golden-set.md, extraction-run.md) / T-020(full-run.md, reproducibility.md, audio-silence.md) / T-021(gitignore-equivalence.md, ui-e2e.md) はいずれも自分の docs/test/measurements/*.md を scope に持っており、T-007 だけの抜けだった。判定方法も基準も変えず、抜けていた1パスを足すだけに留める。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-080
+  subject: T-021 の受入基準 A-2 が要求するスクリーンショットをどの scope のどのパスに置くか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-021 の scope.include に docs/test/measurements/ui-e2e/ を足し、PNG をそこへコミットする。当初 out/ui-e2e/ に置いたが、これは T-021 自身(kind が integration で、リポジトリルートで走る)でしか緑にならない。parallel タスクは git worktree add の追跡ファイルだけのチェックアウトで走るので out/ が存在せず、DoD の test ステップ(pytest -q で全スイート)が tests/measurements/test_host_check_logs.py::test_ui_e2e_passed_and_screenshots_exist で以降の全タスク分赤くなる。T-018 が実際にこれで blocked になった。品質プロファイルが worktree を bind マウントするため gitignore 対象もサンドボックスから見えること自体は実測で確かめてあるが、見えるかどうかはそのタスクがどの木で走るかに依存し、判定の緑が環境に依存するのは証拠として弱い。判定方法も基準の文言も変えず、抜けていた1パスを足すだけに留める。同じ形の欠落は D-079(T-007 の pre-commit.md)に続いて2件目。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+- id: D-081
+  subject: T-021 の E2E をどのデータに対して走らせるか(コミットされるスクリーンショットに教材本文が写る経路)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 架空のデッキに対してのみ走らせる。実教材から取り込んだデッキに対して走らせてはならない。D-080 でスクリーンショットが追跡対象になるため、実データに対する E2E は NFR-2(実教材の本文を Git 追跡対象のファイルに入れない)を画像として破る経路になる。初回の実測は架空の4問のデッキで走っており偶然この制約を満たしていたが、T-019 / T-020 が out/ に実データを置いた後に E2E を回し直すと次は破れる。制約として plan に書き、偶然に頼らない。
+  requirement_ids:
+  - NFR-2
+  - R-12
+- id: D-082
+  subject: コミットするスクリーンショットを、レビューの coverage 上どう扱わせるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-021 に受入基準 A-3 を足し、evidence.kind を artifact にして PNG 4枚のパスを1本ずつ正確に名指す。rein 0.9.5 では、artifact 基準がパスを正確に名指したバイナリは review.yaml の evidence_files に記録され、coverage を insufficient にしない。宣言の無いバイナリは従来どおりブロックし、ディレクトリの artifact は配下を免除しない(ディレクトリの実在を主張しているだけで、そこに落ちた何かが証跡であるとは言っていない)ため、ファイル名を1本ずつ書く必要がある。0.9.4 ではこの逃げ道が無く、バイナリ1つで coverage が insufficient になり、critical な変更では受入がブロックされ、その処方箋(scope から切り出す)は実行不可能だった。upstream に issue 79 として起票し 0.9.5 で修正された。A-2(終了コード 0・手順・パスの実在をログから判定する command 基準)はそのまま残す — A-3 が引き受けるのは「バイナリが証跡である」という宣言だけ。
+  requirement_ids:
+  - R-12
+- id: D-083
+  subject: レビュー予算 review_policy.budgets.max_diff_bytes を既定の 512 KiB のままにするか引き上げるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 1 MiB(1048576)へ引き上げる。この変更は 23 タスク分で source 417.5 KB + test 422.5 KB になり、T-003 / T-006 / T-019 / T-020 が critical なので composition の設定によらず丸ごと1回読まれる。段ごとの実測では、blind extractor が受け取る source 半分は 417,852 バイトで既定に収まり、超えるのは source と tests の両方を受け取る security reviewer の 840,373 バイトだけ。rein 0.9.4 ではロックファイルの本文が畳まれる前に測られていて 0.99 MB と出ていたが(upstream に issue 78 として起票、0.9.5 で修正)、畳んだ後の 0.84 MB は水増しではなく1回の launch に実際に渡る量なので、実体のある超過として引き上げで応じる。もう一方の出口である「claim を削ってサイクルを分割する」は、20 タスクが既に done でマージ済みの時点では cycle-close して切り直す作業になり、割に合わない。これはこのアダプタのコンテキスト窓についての主張であって、人が一度に読める量についての主張ではない — 受入側に上限は無いままで、そこは変えていない。
+  requirement_ids:
+  - NFR-5
+- id: D-084
+  subject: LLM の利用が従量課金(metered API billing)を伴ってよいか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 伴ってはならない。既定の呼び出し経路を Claude Code CLI(claude -p、サブスクリプション認証)へ移す。Anthropic SDK アダプタはコードに残し、既定の組み立てから外すだけとする。実測(2026-09-24)で --json-schema による構造化出力、usage の4値トークン返却、total_cost_usd の取得がいずれも成立することを確認済み。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-085
+  subject: Claude Pro のレート枠がフル処理1回(LLM 呼び出し 500〜1000 回)を賄えるかを mandate 凍結前に実測するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 実測しない。未検証のまま Open questions と Self-assessment に記録して凍結し、T-020 を走らせた時点で判明させる。賄えなかった場合の処置(上位プランへの移行 / 複数ウィンドウへの分割 / 呼び出し回数の削減)はいずれも NFR-7 の「1回のフル処理」の定義か NFR-1 の照合対象か R-3 の受入基準を動かすため、その時点で /revise へ戻ることを承知のうえで凍結する。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-086
+  subject: 教材本文が Claude Code のセッション記録(~/.claude/projects/**/*.jsonl)にホスト上へ平文で残ることを許容するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: そのまま許容する。保持期間の設定(cleanupPeriodDays、バイナリに実在することを確認済み)も触らない。NFR-2 の criterion(リポジトリと本プロダクトが書き出すファイル)は破らないが、教材本文の第三の平文コピーがホームディレクトリに蓄積されることを保護境界の定義として NFR-2 に明記する。
+  requirement_ids:
+  - NFR-2
+  - NFR-8
+- id: D-087
+  subject: NFR-8(従量課金を伴わない)の証拠をどこまで要求するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 静的検査と環境変数遮断のみ((a)〜(d))。実行時に stream-json の init イベントが返す apiKeySource を毎回検証すれば肯定的証拠になる(2026-09-24 に実測、値は none)が、本サイクルでは課さない。結果として NFR-8 は「metered 経路を取らなかった」の否定的証拠にとどまり、ホスト側設定(apiKeyHelper、~/.claude.json)経由で metered 経路に入る可能性は製品コードでは塞げない。実際に課金が発生しなかったことの確認は課金画面の目視であり Out of scope(D-003 により external evidence の待ちは作れない)。
+  requirement_ids:
+  - NFR-8
+- id: D-088
+  subject: T-020 の不可逆ゲートの根拠が、LLM API の課金の消滅によって失われることへの対応
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 根拠を「教材本文がホストの Claude Code セッション記録に書かれること(D-086)」と「サブスクリプションのレート枠の消費」に差し替え、operator_surface の reversible=false と rein approve T-020 を残す。人間承認の回数は変えない。
+  requirement_ids:
+  - NFR-2
+  - NFR-7
+  - NFR-8
+- id: D-089
+  subject: notional コストを自算値と申告値のどちらで記録するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 両方を記録し、両者の差分をログから追跡できるようにする。
+  rationale: 覆しても pipeline/meter.py 1タスクぶんで、claim も受入基準も動かない。両方を要求するのは、片方だけだと AR-24 の「常に 0.0 を返す実装」と、新たに生じる「申告値をそのまま転記する実装」のどちらかが必ず通るため。JSON のフィールド名や差分の出し方といった実装細部はループが決める。
+  requirement_ids:
+  - NFR-7
+- id: D-090
+  subject: Anthropic SDK アダプタを依存としてどう残すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: pyproject.toml の optional extra として残す(通常依存にも、依存から外してデッドコードにもしない)。2026-09-25 に D-103 がこれを今サイクルについて覆した — 本サイクルは通常依存のままとし、extra 化は次サイクルに回す。
+  rationale: 覆しても pyproject.toml・adapters/llm_anthropic.py・サンドボックスイメージの requirements.txt の1タスクぶんで、claim も受入基準も動かない。依存から完全に外すと llm_anthropic.py が未解決 import になって NFR-5 (b) の ruff・mypy strict が赤くなり、通常依存のまま残すと NFR-8 (a) の「実行時に import されない」を保証するコードが要るうえ security.dependency_audit の対象であり続ける。extra なら mypy の overrides で ignore_missing_imports を当該モジュールにだけ限定でき、その経路は既に設計にある。
+  requirement_ids:
+  - NFR-5
+  - NFR-8
+- id: D-091
+  subject: CLI 経路のレート制限到達を「失敗」として扱うか「待機」として扱うか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 失敗として扱う(2026-09-25 に、当初のループ判断「待機して継続」を人間が撤回して差し替えた)。レート制限は特別扱いせず PROVIDER_ERROR として失敗に数え、下流へ進まず非 0 終了し、resetsAt をログに残す。人が枠のリセット後に再実行する。撤回の理由は、設計レビューの2巡目で「レート制限と判定できる既知の値が1つも無い」ことが判明したため — 観測できた status は allowed_warning だけで、これは成功した呼び出しにも付いてくる。これを除外するとホワイトリストが空になり、RateLimited の枝に到達する入力が存在しないまま「待機して継続」という成立条件の無い基準を凍結することになる。NFR-4 の段階キャッシュが「完了した段は呼び直さない」を既に保証しているので、再開に新しい仕組みは要らない。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-092
+  subject: NFR-8 (e)1「有効ツールの集合が空」が CLI 2.1.281 で表現できないことへの対応
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 許容集合の列挙へ書き換える。init イベントの tools 配列が、要件が列挙する 19 本の許容集合の部分集合であることを求める。2026-09-25 の実測で --allowedTools '' は無効果(28 本のまま)、--settings の permissions.deny で Bash / Read / Write / Edit / NotebookEdit / Task / TaskStop / WebFetch / WebSearch の9本は確実に消えるがセッション管理系 19 本が残ることを確認した。AR-30 で拒否リストをやめたのと同じ形にすることで、CLI の更新で新しい危険なツールが増えた場合も検出できる。
+  requirement_ids:
+  - NFR-8
+- id: D-093
+  subject: 本番経路の出力形式
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 'stream-json(--output-format stream-json --verbose)と --max-turns 3 以上を既定とする。2026-09-25 の実測で --max-turns 1 では構造化出力にターンが足りず error_max_turns で result が null になること、3 なら --json-schema と併用して成功することを確認した。これにより init イベントの tools と apiKeySource、および rate_limit_event(status / rateLimitType / utilization / resetsAt / unifiedWindows)が本番経路で観測できる。--output-format json では3つとも取れない。 [2026-09-25 追記: --max-turns 1 で error_max_turns になるという観測は claude 2.1.282 では再現しない(T-029 実測)。D-118 / ADR-016 を参照]'
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-094
+  subject: NFR-8 (b) の最小ホームと NFR-3(資格情報を読まない・コピーしない)の矛盾
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 人間が事前に用意する(ADR-014 Option C)。HOME=~/.quiz-sift-claude-home claude /login を人間が1回走らせ、製品は固定パスを HOME に渡して .claude/.credentials.json の存在を確かめるだけにする。置くのは人間なので製品は資格情報を読みもコピーもせず、NFR-3 と真正面から整合する。使い捨てホーム + symlink 案は、トークン更新の書き戻しで実ホームのログインが壊れうること(未実測)と、教材本文がセッション記録に残らなくなって D-088 が据えた不可逆ゲートの根拠が消えることから採らない。
+  requirement_ids:
+  - NFR-8
+  - NFR-3
+- id: D-095
+  subject: 既定モデル
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 混成(ADR-015)。classify_clusters と summarize_cluster は claude-opus-5-5(2026-09-25 に D-117 で 5 から引き上げ)、generate_recall / describe_term / check_entailment は claude-haiku-4-5。呼び出し回数の 95% 以上を占める側を Haiku にすれば枠の消費は Haiku 全面にほぼ等しく、圧縮の質が効く分類・要約には Opus を残せる。Opus 5 が Pro プランで使えることは 2026-09-25 に実測で確認した。
+  requirement_ids:
+  - NFR-7
+  - R-3
+  - R-4
+  - R-5
+  - NFR-1
+- id: D-096
+  subject: NFR-8 (b) の「最小ホームの内容が1ファイルだけ」の判定時点
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 「製品が HOME 配下に作成したファイルが 0 件であること」と読み替える。claude は .claude.json・.claude/projects 配下のセッション記録・statsig を必ず書くため、文字どおりの1ファイル判定は2回目の起動から必ず偽になる。測る対象は製品の振る舞いであって CLI の振る舞いではない。
+  requirement_ids:
+  - NFR-8
+- id: D-097
+  subject: マスク後の逐語ログに、LLM が言い換えた教材由来テキスト(クラスタ要約・想起素材)が残り Git 追跡対象に入ること
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 許容する。NFR-2 の criterion は「取り込んだ実教材の本文」を対象としており違反ではない。応答本文まで伏せると、不可逆ゲートで人が読む証拠から LLM の応答そのものが消え、AR-42 が恐れた「証拠が空」に近づく。保護境界の定義に明記する。
+  requirement_ids:
+  - NFR-2
+- id: D-098
+  subject: ID 完全性の検査を分類以外のメソッドにも課すか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 分類(classify_clusters)だけに課す。他の4メソッドは1問・1語・1対を扱うので「渡した ID の集合」が自明であり、空応答はスキーマ不適合か値の検査で落ちる。要件の対象を広げない。
+  requirement_ids:
+  - R-3
+- id: D-099
+  subject: composition.build_default_llm() の右辺に入れ子のクラス呼び出しを許すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 許さない。右辺はクラス名の直接呼び出し1つに限る。llm_calls の計数はデコレータ(MeteredLlm)ではなくアダプタ内部に置く。
+  rationale: 覆しても composition.py と計数の置き場所というアダプタ1タスクぶんで、claim も受入基準も動かない。入れ子を許すと NFR-8 (c) の AST 判定が「どこまでが選択点か」を決められなくなり、AR-31 が突いた抜け道が戻る。
+  requirement_ids:
+  - NFR-8
+- id: D-100
+  subject: LLM 呼び出しの並行度
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 1(直列)で凍結し、MAX_CONCURRENCY を1箇所の定数として置く。
+  rationale: 覆してもアダプタとメーターの1タスクぶんで claim は動かない。500〜1000 回 × 3.4〜4.2 秒 = 28〜70 分は R-3 の全体上限 12 時間に収まり、並列化してもレート枠は増えないので枠が binding なら利得はゼロで枠に速く当たるだけ。加えて並列化は最小ホームの共有による同時書き込みを持ち込む(累積待機時間は D-091 撤回で無くなった)。T-020 で枠に余裕があると分かった次サイクルで定数を上げるのは、証拠の追加であって基準の緩和ではない。
+  requirement_ids:
+  - NFR-7
+- id: D-101
+  subject: 失敗した呼び出しの再試行方針
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 再試行しない(2026-09-25 に改訂)。どの失敗種別も1回で確定する。D-091 がレート制限を失敗に倒したことで、再試行する対象が1つも残らなくなった。
+  rationale: 覆してもアダプタ1ファイルぶん。再試行を入れると R-3 の「失敗件数が実際の失敗数と一致する」の意味が壊れる。この決め方により provider_invocations が llm_calls を超える要因はチャンク分割だけになり、2語の差が常に説明可能になる。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-102
+  subject: error_max_turns(--max-turns が足りず構造化出力が届かなかった場合)をどの失敗種別に落とすか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: TRUNCATED として数える。応答の切り詰めと同じ箱に入れる。
+  rationale: 覆してもアダプタ1ファイルぶんで claim は動かない。処置が同じ(バッチサイズか --max-turns を見直す)ものを同じ箱に入れるほうが、失敗件数の内訳が次サイクルの判断材料になる。識別材料は subtype の値 error_max_turns と stop_reason。error_max_turns は要件作成時に観測したが、claude 2.1.282 では --max-turns 1 でも再現しない(T-029 実測。D-118)。
+  requirement_ids:
+  - R-3
+- id: D-103
+  subject: anthropic の optional extra 化とサンドボックスイメージの再ビルドを、このサイクルでやるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: やらない。本サイクルは anthropic を通常依存のまま残し、pyproject.toml・uv.lock・requirements.txt・イメージのダイジェスト・config.yaml を動かさない。extra 化と再ビルドは次サイクルに回す。
+  rationale: mandate が凍結する環境(config.yaml のイメージダイジェスト)を動かす判断なので reach は mandate。承認前に extra 化するとイメージから anthropic が消え、現行の cli.py と、AnthropicLlm を import する tests/ports/test_protocols.py・tests/safety/test_entailment.py が import 時点で落ちる。全タスクの test ステップがベースラインから赤になり、切り替えタスクが入るまで build が1本も進まない。承認後に extra 化するとイメージの再ピンが凍結後の config.yaml 変更になる。承認前に製品側を先に直す案はゲート規則1に触れる。NFR-8 (a) は sys.path に置くスタブで import 可能性を満たすので、イメージに実 SDK があってもなくても判定は変わらず、(d) は静的走査なので依存宣言に左右されない。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
+  - NFR-8
+- id: D-104
+  subject: FailureKind をどのモジュールに置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: ports/metering.py に置く。adapters/claude_failure.py は判定表と判定順序だけを持つ。
+  rationale: RunMeter.record_failure が FailureKind を引数に取るので、adapters に置くと ports が adapters を import する逆向きの依存になる。覆しても2ファイルの import 先が変わるだけで claim は動かない。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-105
+  subject: 最小ホームのプロセス間ロックをどう取るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 最小ホームのディレクトリ自身の fd に fcntl.flock を掛ける。ロックファイルは作らない。取得できなければ待たずにエラー終了する。
+  rationale: 設計は当初「HOME 配下のロックファイル」と書いていたが、それは NFR-8 (b) の「製品が HOME 配下に作成したファイルが 0 件」を製品自身が破る。ディレクトリ fd への flock は Linux で成立し、ファイルを作らない。覆してもアダプタ1ファイルぶん。
+  requirement_ids:
+  - NFR-8
+- id: D-106
+  subject: init.tools が StructuredOutput 以外を含む呼び出しと、許容外のツール使用が現れた呼び出しを、どの失敗種別に落とすか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: PROVIDER_ERROR として数える。種別は7種のまま増やさない。
+  rationale: R-3 が種別を7種に固定しているので新設できない。どちらも「呼び出し経路が契約の外で振る舞った」事実で、PARSE・SCHEMA・TRUNCATED・INCOMPLETE_IDS のどれの定義にも当たらない。逐語ログに理由を残すので、件数の内訳からは区別できなくても記録からは区別できる。覆しても判定表1行ぶん。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-107
+  subject: オーバーヘッド定数の argv_digest を、実行時の argv とどう突き合わせるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: アダプタが begin_invocation に現 argv のダイジェスト(プロンプト・スキーマ本文を除いた形)を渡し、Meter.finish がモデル別の定数の argv_digest と比べる。違えばそのモデルの overhead を unknown と報告する。
+  rationale: 設計の RunMeter は begin_invocation() を無引数で書いていたが、それでは meter が現 argv を知る経路が無く、AR-51 への答えである「argv が変われば定数が自動的に無効になる」が実装できない。pipeline が adapters を import しない向きを保てる唯一の渡し方。
+  requirement_ids:
+  - NFR-7
+- id: D-108
+  subject: T-029 / T-030(ホストでの実 CLI 実測)を不可逆ゲートにするか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'しない。reversible: true とする。'
+  rationale: 送るのは合成プロンプトだけで教材本文がセッション記録に残らない(D-088 が T-020 を不可逆にした理由 (i) に当たらない)。レート枠の消費は数回〜十数回で、T-020 の 500〜1000 回とは桁が違う。承認点を増やすと、同じ判断を2回訊くことになる。実行の時期を人が選ぶ仕組みはタスクには無い — T-029 は最初の rein build で着手されるので、人は最小ホームを用意し週次枠のリセット(2026-09-28 08:00 JST)を待ってから rein build を起動する。枠切れで落ちれば PROVIDER_ERROR として blocked になり、それ自体が枠切れ時の形の観測になる。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-109
+  subject: 計測(NFR-7)の作り直しを、T-002 を開き直して行うか新規タスクで行うか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 'T-002 は keep(done のまま、計画の記述も変えない)とし、作り直しは新規タスク T-031(blocked_by: T-002)で行う。T-002 の A-2 / A-3 が名指す estimated_cost と test_meter_records_run_fields / test_token_breakdown_and_price_provenance は T-031 が置き換える。'
+  rationale: rein task reset T-002 は、done の依存タスク11本が未完了タスクの下流に取り残されるとして拒否した。これは正当な拒否で、11本はいずれも Llm ポート越しにしか計測に触れず、作り直しで振る舞いが変わらない。T-002 の operator_surface が名指す ANTHROPIC_API_KEY は、残る SDK アダプタについては今も真で、製品経路から到達しないことは T-028 の operator_surface と NFR-8 (a)(d) が示す。
+  requirement_ids:
+  - NFR-7
+- id: D-110
+  subject: ended_by_rate_limit をどう判定するか(D-091 撤回後、レート制限を識別する既知の値が無い)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 実行を止めた失敗が PROVIDER_ERROR で、その呼び出しの最後の rate_limit_event の status が allowed_warning 以外(イベントはあるが既知の許可状態でない)のとき真とする。status と resetsAt は真偽に関わらず生のまま記録する。
+  rationale: レート制限は特別扱いしない(D-091 撤回)ので、この値は処置を分けず、人が再実行の時期を読むための表示にしか使わない。誤判定しても挙動は変わらず、生の値が併記されるので人が読み直せる。枠切れ時の実際の形は未観測で、T-020 の最初の到達で分かる。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-111
+  subject: モデルごとのレート枠の重み(AR-59)をどこで測るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 独立のタスクにせず、T-030 のオーバーヘッド実測の呼び出し群の前後で utilization を読み、モデル別の差分を実測表に記録する。受入基準にはしない(AR-93。どの claim も要求していない)。
+  rationale: オーバーヘッドの実測は既に2モデルを数回ずつ叩くので、前後の rate_limit_event を読むだけで同じデータが取れる。別タスクにすれば枠を二重に使う。どの claim もこの値を要求していないので、記録だけにとどめる。
+  requirement_ids:
+  - NFR-7
+- id: D-112
+  subject: レビュー予算 max_diff_bytes を CLI 移行の8タスクに合わせて引き上げるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 1.5 MiB(1572864)へ引き上げる。
+  rationale: タスクを足す前の時点で変更は既に 1.02 MB あり、critical タスク(T-003 / T-006 / T-019 / T-020 / T-026 / T-027 / T-028)があるので、acceptance は変更全体を1回で読む。8タスクで src とテストが 150〜300 KB、契約フィクスチャが数十 KB 増える見込みで、1 MiB の超過はほぼ確実。予算は config.yaml にあり mandate で凍結されるので、承認前に決める(AR-80)。D-083 と同じく、これはアダプタのコンテキスト窓についての判断で、人が一度に読める量についての判断ではない。
+  requirement_ids:
+  - NFR-5
+- id: D-113
+  subject: 実行ログの estimated_cost を notional_cost に改名するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: '改名しない。estimated_cost のまま、その中に "notional": true を入れ、同じ行に免責の1行を書く。'
+  rationale: 改名すると、done のまま残す T-002 の A-2(estimated_cost が記録される)と A-3 の凍結基準が偽になり、その判定ノードが消える(AR-81)。T-002 は rein が開き直しを拒否した(D-109)。NFR-7 が求めるのは「出力に notional の語を含め、実課金額を主張しない」ことで、キー名ではない。覆しても meter 1ファイルぶん。
+  requirement_ids:
+  - NFR-7
+- id: D-114
+  subject: total_cost_usd とレート枠の使用率を、どの口で meter へ渡すか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: end_invocation に cost_usd を足す。レート枠は rate_limit_event を読むアダプタが record_quota(info) で渡し、meter が最初の値を quota_at_start、最後の値を quota_at_end にする。
+  rationale: 設計の RunMeter には total_cost_usd を渡す口が無く、record_quota は cli が呼ぶ前提だったが、Llm Protocol を変えない方針では cli が RateLimitInfo を観測できない(AR-82)。アダプタだけが観測できるので、アダプタから渡す。覆しても meter とアダプタの2ファイルぶん。
+  requirement_ids:
+  - NFR-7
+- id: D-115
+  subject: claude の不在と最小ホームの不正を、いつ検査するか(R-3 の「起動時」)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: claude_process.preflight() を置き、cli の LLM を使う段が最初の LLM 呼び出しより前に呼ぶ。SubprocessRunner() と Workspace() の構築は副作用を持たない。
+  rationale: ClaudeCliLlm.__init__ は引数なしのクラス呼び出ししか許されず(NFR-8 (c) と同じ AST 制約)、構築時に検査すると、サンドボックス内のテストが fake を差す前に構築で死ぬ。「起動時」をどこと読むかが決まっていないと、最初の呼び出しまで検査しない実装が緑になる(AR-84)。
+  requirement_ids:
+  - R-3
+  - NFR-8
+- id: D-116
+  subject: 実行ログの overhead に material を置くか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 置かない。恒等式 Σ overhead×turns + material = 合計 は、material が独立に分かる T-030 の較正表の上でだけ判定する。
+  rationale: フル処理で material を独立に得る手段は無く、出すなら「合計 − Σ overhead×turns」になり、AR-51 が禁じた恒等式に戻る(AR-87)。C-019 の恒等式の適用範囲を較正表と明記した。
+  requirement_ids:
+  - NFR-7
+- id: D-117
+  subject: 製品が分類と要約に使う Opus の版
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: claude-opus-5-5 に固定する(claude-opus-5 から引き上げ)。エイリアス opus にはしない。
+  rationale: ADR-015 の claude-opus-5 は旧 SDK アダプタの定数を引き継いだ値だった。単価は T-031 が料金ページから取り、オーバーヘッドは T-030 で取り直すので、Opus 5 で測った 14,603 tok(もともと暫定)を失っても困らない。エイリアスはモデル ID が実行ごとに変わりうるので、inputs_digest と単価表の照合が不安定になる。Pro で claude-opus-5-5 が呼べることは T-029 / T-030 の実測で初めて確かめられる。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-118
+  subject: claude 2.1.282 で採れない error_max_turns の実物フィクスチャに代えて、TRUNCATED を何で証拠立てるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 実物フィクスチャは成功と不正スキーマ(PARSE)の2件にする。TRUNCATED の判定枝(subtype error_max_turns / stop_reason)は残し、成功フィクスチャの骨格から subtype・is_error・stop_reason・structured_output だけを差し替えた単一ファクトリの fake で検証する。実物の形は unknown として Open questions に置く。
+  rationale: T-029 の実測(2026-09-25、claude 2.1.282)で、--max-turns 1 は haiku でも claude-opus-5-5 でも、stream-json でも json でも subtype success / num_turns 2 で完了した。StructuredOutput での完了はターン上限に掛からないらしく、採取手段が無い。受入基準が要求する証拠の種類(実物 → fake)が変わるので mandate に属する。実物が別の形で来た場合は PROVIDER_ERROR に数えられ、失敗には倒れるので下流は壊れないが内訳が1種ずれる。
+  requirement_ids:
+  - R-3
+  - NFR-6
+- id: D-119
+  subject: 不正な --json-schema の出力(stdout 空・stderr に Error:・exit 1)をどう分類するか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: PARSE の定義を「stdout が result イベントをちょうど1つ含む JSON のイベント列にならない(空と、result の無い列を含む)」とし、終了コードと stderr は判定に使わない。stderr はマスクして stderr_masked に残す。フィクスチャの meta には終了コードと stderr を記録する。
+  rationale: 覆しても T-026 の判定表1本ぶんで claim は動かない。期待する FailureKind は PARSE のまま変わらず、変わるのは入力の実物の形(stdout ではなく stderr に Error が出る)だけ。R-3 の PARSE は「stdout が JSON にならない」で、空の stdout と result の無いイベント列(途中のクラッシュ)はこれに当たる(AR-100)。代償として、OAuth 失効・node の破損・argv の拒否・クラッシュもすべて PARSE に吸収され、内訳では区別できない(AR-101)。区別の材料は exit_code と stderr_masked としてログに残し、Open questions に列挙した。別の種別を立てるのは R-3 の改訂になるので今サイクルでは行わない。
+  requirement_ids:
+  - R-3
+  - NFR-6
+- id: D-120
+  subject: TRUNCATED の判定で「stop_reason が切り詰めを示す」とする値
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: max_tokens と model_context_window_exceeded の2値に限る。それ以外(end_turn / tool_use / stop_sequence / pause_turn / refusal / 未知の値)は TRUNCATED にしない。
+  rationale: 覆しても T-026 の判定表1本ぶんで claim は動かない。値を列挙しないと、fake を書く実装者が切り詰めの値を自分で決め、判定器と検証が同じ仮定を共有する(AR-102)。「end_turn 以外」とすると、実測済みの成功(stop_reason tool_use)が TRUNCATED に落ちる。値は Messages API の定義から取った。CLI 経由での観測は無いので、Open questions に置く。
+  requirement_ids:
+  - R-3
+- id: D-121
+  subject: rein 0.10.0 で作り直したこのサイクルの範囲
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: Claude Code CLI への移行の残り全部(旧 T-020、T-024〜T-030)を差分とする。実装済みの R-1〜R-12・NFR-1〜NFR-6 と旧 T-029 の実装(cbf7f72)は absorb タスクで受入テストに固定する。要件文書は旧サイクルのものをそのまま採り、claim と decision も ID を変えずに引き継ぐ(旧サイクルの SSOT は docs/archive/2026-09-25-cli-migration-unclosed/ に保存)。
+  requirement_ids:
+  - R-3
+  - NFR-7
+  - NFR-8
+- id: D-122
+  subject: 最小ホームに CLI 自身が書く settings.json・同期物の禁止を何で判定するか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 中身で判定する。.claude/ 直下の CLAUDE.md と .claude/rules/ 配下のファイルは有れば拒否(当初は HOME 直下と .mcp.json も挙げたが、AR-117 の実測で HOME 直下の CLAUDE.md は読まれず、読み込みの遮断は D-130 の --safe-mode が担うので、二重の守りとして実測で読まれた場所だけに絞った)。.claude/settings.json はトップレベルのキー集合が {theme} の部分集合でなければ拒否(JSON として読めない場合も拒否)。skills・plugins の同期物は拒否しない。T-029 の実測で、CLI がログインと同期で settings.json({theme} のみ)・skills/synced・plugins/synced を書くことを確認したため、有無の判定では最小ホームが必ず拒否される。
+  requirement_ids:
+  - NFR-8
+- id: D-123
+  subject: 枠切れ時に resetsAt を残す主張を、枠切れの出力が未観測のまま持つか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: rate_limit_event が届いていた場合に限り、最後に届いた resetsAt を残す。枠切れのとき CLI が何を出すかは unknown として Open questions に置く。枠切れ自体は失敗として非 0 終了する(現行どおり)。
+  requirement_ids:
+  - R-3
+  - NFR-7
+- id: D-124
+  subject: 枠切れで止まり再開した実測を「フル処理1回」とどう数えるか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 同じ run_id で連なる実行の列を1回と数え、合算する。初回は段キャッシュを迂回し、再開は段キャッシュから。途中の実行が非 0 終了してよいのはレート枠による PROVIDER_ERROR だけで、それ以外の失敗が1つでもあれば完走に数えない。完走は最後の実行が exit 0。回数・トークン・コスト・失敗件数は和、並行度は最大、経過時間は実行時間の和と最初の開始から最後の終了までの壁時計の両方、使用率と resetsAt は各実行の開始時と終了時をすべて記録する。(f) の metered 変数なしは全実行に課す。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+- id: D-125
+  subject: サブスクリプションの超過分の従量課金(isUsingOverage)をどう扱うか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 呼び出しごとに rate_limit_event の isUsingOverage を記録し、真が1件でもあればその呼び出しを PROVIDER_ERROR として数え非 0 終了する。rate_limit_event が届かなかった呼び出しの件数は別に数える。NFR-8 に (h) として加える。
+  requirement_ids:
+  - NFR-8
+- id: D-126
+  subject: アカウント同期の skills 一覧がオーバーヘッド較正値を動かしうることへの対処
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 較正時の init イベントの skills 一覧のダイジェストを定数の出所に加え、実行時のダイジェストと違えば argv のダイジェスト不一致と同じく unknown と報告する。
+  rationale: NFR-7 の出所の項目を1つ増やすだけで claim の判定式は変わらない。誤りでも T-030 の1タスクで戻せる。
+  requirement_ids:
+  - NFR-7
+- id: D-127
+  subject: 要件文書の実測に追いついていない記述の更新
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: R-3 の観測済み status に allowed を追加、PARSE と TRUNCATED の文言を D-119・D-120 に合わせる、Open questions の CLI 版を 2.1.282 に、解消済みの AR-15 を Open questions から外す。
+  rationale: 既に人間か loop が決めた D-119・D-120 と実測に文面を揃えるだけで、claim の意味は D-119・D-120 の時点で決まっている。
+  requirement_ids:
+  - R-3
+  - NFR-5
+  - NFR-8
+- id: D-128
+  subject: 実行の列の途中で許す「レート枠による停止」をどう見分けるか(AR-113)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: '止まった呼び出しの result が is_error 真で、その実行で最後に届いた rate_limit_event の status が rejected、かつ isUsingOverage が偽であること。rate_limit_event が届かない停止・PARSE 等の停止・overage による停止は列を完走不可にする。status の値域(allowed / allowed_warning / rejected)は claude 2.1.282 の実行ファイルのスキーマから読んだもので、枠切れの実物は未観測。 再レビュー(AR-113a/b)を受け、判定は呼び出し単位とする: 失敗したすべての呼び出しが、それぞれ自分の子プロセスが最後に出した rate_limit_event で rejected かつ isUsingOverage 偽を持つこと。加えて列全体で isUsingOverage 真が 0 件であることを完走の条件にする(人間が承認した定義を、並行時に他の呼び出しのイベントを借りられないよう精緻化したもの。より厳しい側への変更)。'
+  requirement_ids:
+  - NFR-7
+  - R-3
+- id: D-129
+  subject: 段の中での呼び出し単位の再開を作るか(AR-115)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 作らない。1つの段が1つのレート枠に収まることを前提として要件に書き、収まらなければ T-020 は完走せず次のサイクルで扱う。
+  requirement_ids:
+  - NFR-7
+  - NFR-4
+- id: D-130
+  subject: CLI が作業ディレクトリの祖先とユーザメモリから CLAUDE.md 系を読むことへの対処(AR-117)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: NFR-8 (e) に 5 点目として --safe-mode を必須にする。2026-09-25 の番兵実測で、設計 argv は ~/.claude/CLAUDE.md・~/.claude/rules/・作業ディレクトリの祖先の CLAUDE.md と .claude/CLAUDE.md を読み、--safe-mode ではどれも読まれず OAuth は使えた。--safe-mode 下でも settings.json の env は効くので D-122 の中身検査は残す。番兵による読み込み 0 件はホスト実測の artifact 証拠とする。管理設定(/etc/claude-code/)は塞げないと明記する。
+  requirement_ids:
+  - NFR-8
+- id: D-131
+  subject: 要件段の敵対的レビュー AR-114・AR-116・AR-118〜AR-122 の文面の修正
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 12 時間上限を1回の実行に置き列の壁時計は記録のみ(AR-114)、開始時・終了時を最初と最後に届いたイベントと定義し届かなければ null と件数(AR-116)、PROVIDER_ERROR に isUsingOverage 真を含め stop_reason と is_error は result から読み判定順は設計で定める(AR-118、AR-121)、(h) で届かなかった件数が1以上なら unknown(AR-119)、(f) を列の全実行に課し実行開始時に列へ登録(AR-120)、3つの resetsAt をすべて記録(AR-121)、R-3・Open questions・Self-assessment の文面を D-124 に揃える(AR-122)。
+  rationale: いずれも人間が決めた D-123〜D-125・D-128・D-130 の意味の範囲で、記録の項目・定義の細部・文面を揃えるもの。C-003・C-019・C-020 の文面にも反映したが、何を真にすべきかは人間の決定から動いていない。戻しても該当タスク1つの受入基準の文面が変わるだけである。
+  requirement_ids:
+  - R-3
+  - NFR-7
+  - NFR-8
 tasks: []
-#  - id: T-001
-#    title: <what this task delivers>
-#    kind: foundation                 # foundation | parallel | integration
-#    blocked_by: []
-#    claim_ids: [C-001]
-#    domains: [<domain>]
-#    risk: high
-#    scope:                           # where this task's work belongs; the loop checks the diff
-#      include: [src/]                #   against it. Covers everything beneath; the "/" is optional.
-#    operator_surface:                # what this task will require of a PERSON. Frozen here so that
-#      - kind: persistence            #   acceptance can sort what the code turned out to require by
-#        name: users.email_verified   #   whether anybody foresaw it. kind is one of the extractor's
-#        paths: [db/schema/users.sql] #   own words, so both sides compare without a translation
-#        reversible: false            #   table. paths is where the surface can be READ at the end —
-#        adr: ADR-004                 #   also what acceptance serves as the as-built view.
-#                                     # reversible comes from the design ("can this be undone?") and
-#                                     #   false makes this task a gate of its own: the loop stops in
-#                                     #   front of it and a human runs `rein approve T-00N`.
+lenses:
+- id: L-REQ-AMBIGUITY
+  stage: requirements
+  status: applied
+- id: L-REQ-CONTRADICTIONS
+  stage: requirements
+  status: applied
+- id: L-REQ-HIDDEN-ASSUMPTIONS
+  stage: requirements
+  status: applied
+- id: L-REQ-SCOPE
+  stage: requirements
+  status: applied
+- id: L-REQ-TESTABILITY
+  stage: requirements
+  status: applied
+- id: L-REQ-FAILURE-MODES
+  stage: requirements
+  status: proposed
+- id: L-DES-COVERAGE
+  stage: design
+  status: applied
+- id: L-DES-INFEASIBILITY
+  stage: design
+  status: applied
+- id: L-DES-NFR-HOLES
+  stage: design
+  status: applied
+- id: L-DES-UNSTATED-ASSETS
+  stage: design
+  status: applied
+- id: L-DES-YAGNI
+  stage: design
+  status: applied
+- id: L-DES-ADR
+  stage: design
+  status: proposed
+- id: L-DES-FAILURE-WALK
+  stage: design
+  status: proposed
