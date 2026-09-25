@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from quiz_sift import __version__
-from quiz_sift.adapters import llm_anthropic
+from quiz_sift.adapters import llm_anthropic, llm_prompts
 from quiz_sift.audio.synthesize import synthesize_tracks
 from quiz_sift.cluster.run import Clustering, cluster_deck
 from quiz_sift.decks.registry import deck_data_dir, deck_out_dir, manifest_path
@@ -77,31 +77,40 @@ REVIEW_DIRNAME = "review"
 METER_LOG = "meter.jsonl"
 
 # `inputs_digest` に入れるプロンプトとモデル(AR-21)。プロンプトは adapter の定数そのもので、
-# 直せば digest が変わって作り直される。含意判定はどの段でも走るので全段に入れる。
-_MODEL = llm_anthropic.MODEL
+# 直せば digest が変わって作り直される。含意判定はどの段でも走るので全段に入れる。モデルは段が使う
+# メソッドごとの割り当て(ADR-015)を並べ、どれか1つを変えればその段の digest が動く。
 _LLM_PARAMS = {"max_tokens": llm_anthropic.MAX_TOKENS}
-_ENTAILMENT = llm_anthropic._ENTAILMENT_SYSTEM
+_ENTAILMENT = llm_prompts.ENTAILMENT_SYSTEM
+
+
+def _models(*methods: str) -> str:
+    return ",".join(f"{m}={llm_prompts.MODELS[m]}" for m in (*methods, "check_entailment"))
+
 
 INGEST = Stage("ingest")
 CLUSTER = Stage(
     "cluster",
-    prompt_template="\n".join(
-        (llm_anthropic._CLASSIFY_SYSTEM, llm_anthropic._SUMMARIZE_SYSTEM, _ENTAILMENT),
-    ),
-    model=_MODEL,
-    params={**_LLM_PARAMS, "batch_size": llm_anthropic.CLASSIFY_BATCH_SIZE},
+    prompt_template="\n".join((llm_prompts.CLASSIFY_SYSTEM, llm_prompts.SUMMARIZE_SYSTEM, _ENTAILMENT)),
+    model=_models("classify_clusters", "summarize_cluster"),
+    params={**_LLM_PARAMS, "batch_size": llm_prompts.CLASSIFY_BATCH_SIZE},
 )
 RECALL = Stage(
-    "recall", prompt_template="\n".join((llm_anthropic._RECALL_SYSTEM, _ENTAILMENT)), model=_MODEL, params=_LLM_PARAMS
+    "recall",
+    prompt_template="\n".join((llm_prompts.RECALL_SYSTEM, _ENTAILMENT)),
+    model=_models("generate_recall"),
+    params=_LLM_PARAMS,
 )
 GLOSSARY = Stage(
     "glossary-terms",
-    prompt_template="\n".join((llm_anthropic._DESCRIBE_SYSTEM, _ENTAILMENT)),
-    model=_MODEL,
+    prompt_template="\n".join((llm_prompts.DESCRIBE_SYSTEM, _ENTAILMENT)),
+    model=_models("describe_term"),
     params=_LLM_PARAMS,
 )
 SCRIPT = Stage(
-    "script", prompt_template=_ENTAILMENT, model=_MODEL, params={**_LLM_PARAMS, "pause_seconds": PAUSE_SECONDS}
+    "script",
+    prompt_template=_ENTAILMENT,
+    model=_models(),
+    params={**_LLM_PARAMS, "pause_seconds": PAUSE_SECONDS},
 )
 
 
