@@ -1,4 +1,4 @@
-collected_at: '2026-09-25T04:54:04+09:00'
+collected_at: '2026-09-26T05:49:10+09:00'
 claude_version: 2.1.282 (Claude Code)
 model: claude-haiku-4-5
 argv:
@@ -23,13 +23,14 @@ argv:
 - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
 - --permission-mode
 - default
+- --safe-mode
 env_keys:
 - HOME
 - LANG
 - PATH
 - TZ
 home: /home/koich/.quiz-sift-claude-home
-prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-029). No study material is included.
+prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-041). No study material is included.
   What is 2 + 3?
 
   '
@@ -38,3 +39,4 @@ stderr: 'Error: --json-schema is not valid JSON: JSON Parse error: Unexpected EO
 
   '
 stdout_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+attempts: 1

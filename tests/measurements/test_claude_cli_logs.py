@@ -1,4 +1,4 @@
-"""実 `claude` CLI の契約フィクスチャと init.tools 実測の検査(T-029 / C-020 NFR-8 (e) / C-018 NFR-6)。
+"""実 `claude` CLI の契約フィクスチャと init.tools 実測の検査(T-041 / C-020 NFR-8 (e) / C-018 NFR-6)。
 
 サンドボックスには `claude` が無いので、証拠は `tests/measurements/collect_claude_cli.py` がホストで採った
 `tests/fixtures/claude_cli/` と `docs/test/measurements/claude-cli-contract.md` で、このテストはその中身を
@@ -7,12 +7,16 @@
 
 判定(各受入基準に1本):
 
-- A-2: meta の sha256 が本体と一致し、フィクスチャが success / invalid_schema の2組だけで、argv が
-  設計 (e) の形。不正スキーマは非 0 終了・stderr が `Error:`・stdout 空、成功は終了コード 0(D-119)。
-- A-3: 成功フィクスチャの init イベントの tools が {StructuredOutput}、apiKeySource が none で、md の記録が
-  フィクスチャ本体から読んだ値と一致する。
+- A-2: meta の sha256 が本体と一致し、フィクスチャが success / success_opus / invalid_schema の3組だけで、
+  argv が `--safe-mode` を含む設計 (e) の形。success は haiku・success_opus は opus で終了コード 0。
+  不正スキーマは非 0 終了・stderr が `Error:`・stdout 空(D-119 / D-133)。
+- A-3: 2件の成功フィクスチャの init イベントの tools が {StructuredOutput}、apiKeySource が none、
+  memory_paths が null で、md の記録がフィクスチャ本体から読んだ値と一致する。`--safe-mode` の下では
+  init に memory_paths のキー自体が無い(2026-09-26 実測)ので、null はキーの不在として読む。
 - A-4: 採取時の HOME が最小ホーム、子の環境が4変数、親環境の metered 認証変数が 0 個で、記録に変数名が
   1つも現れない。最小ホームのファイル一覧が採取の前後で相対パスとして残り、送った本文は合成プロンプトだけ。
+- A-5: 2件の成功フィクスチャのそれぞれに rate_limit_event があり、status が allowed / allowed_warning、
+  isUsingOverage が false。meta の試行回数は3以下(D-133)。
 """
 
 import hashlib
@@ -27,7 +31,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "claude_cli"
 CONTRACT = ROOT / "docs" / "test" / "measurements" / "claude-cli-contract.md"
 
-CASES = ("success", "invalid_schema")
+CASES = ("success", "success_opus", "invalid_schema")
+SUCCESSES = {"success": "claude-haiku-4-5", "success_opus": "claude-opus-5-5"}
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 # docs/10-requirements.md NFR-8 の「metered 認証変数の集合」(AR-48)。採取スクリプトの定数は読まない。
@@ -58,7 +63,7 @@ VALUED_FLAGS = {
     "--settings",
     "--permission-mode",
 }
-BARE_FLAGS = {"-p", "--verbose", "--exclude-dynamic-system-prompt-sections", "--strict-mcp-config"}
+BARE_FLAGS = {"-p", "--verbose", "--exclude-dynamic-system-prompt-sections", "--strict-mcp-config", "--safe-mode"}
 MODELS = {"claude-opus-5-5", "claude-haiku-4-5"}
 
 
@@ -124,17 +129,20 @@ def test_fixtures_match_their_meta_and_the_design_argv() -> None:
         m = meta(name)
         body = (FIXTURES / f"{name}.stdout").read_bytes()
         assert m["stdout_sha256"] == hashlib.sha256(body).hexdigest(), name
-        for key in ("collected_at", "claude_version", "model", "argv", "prompt", "exit_code", "stderr"):
+        for key in ("collected_at", "claude_version", "model", "argv", "prompt", "exit_code", "stderr", "attempts"):
             assert key in m, f"{name}.meta.yaml に {key} が無い"
         assert m["argv"][m["argv"].index("--model") + 1] == m["model"]
 
-    success = meta("success")
-    valued = assert_design_argv(success["argv"])
-    assert isinstance(json.loads(valued["--json-schema"]), dict)
-    assert success["exit_code"] == 0
-    results = [e for e in events("success") if e.get("type") == "result"]
-    assert len(results) == 1 and results[0]["subtype"] == "success", results
+    for name, model in SUCCESSES.items():
+        m = meta(name)
+        assert m["model"] == model, name
+        valued = assert_design_argv(m["argv"])
+        assert isinstance(json.loads(valued["--json-schema"]), dict)
+        assert m["exit_code"] == 0, name
+        results = [e for e in events(name) if e.get("type") == "result"]
+        assert len(results) == 1 and results[0]["subtype"] == "success", results
 
+    success = meta("success")
     invalid = meta("invalid_schema")
     assert invalid["exit_code"] != 0
     assert invalid["stderr"].startswith("Error:"), invalid["stderr"]
@@ -152,26 +160,32 @@ def test_fixtures_match_their_meta_and_the_design_argv() -> None:
 
 
 def test_init_tools_is_exactly_structured_output() -> None:
-    inits = [e for e in events("success") if e.get("type") == "system" and e.get("subtype") == "init"]
-    assert len(inits) == 1
-    init = inits[0]
-    assert set(init["tools"]) == {"StructuredOutput"}, init["tools"]
-    assert init["apiKeySource"] == "none", init["apiKeySource"]
-
     record = contract_record()
-    assert record["init_tools"] == init["tools"]
-    assert record["api_key_source"] == init["apiKeySource"]
-    assert record["claude_version"] == meta("success")["claude_version"]
+    assert set(record["fixtures"]) == set(SUCCESSES), record["fixtures"]
+    for name in SUCCESSES:
+        inits = [e for e in events(name) if e.get("type") == "system" and e.get("subtype") == "init"]
+        assert len(inits) == 1, name
+        init = inits[0]
+        assert set(init["tools"]) == {"StructuredOutput"}, (name, init["tools"])
+        assert init["apiKeySource"] == "none", (name, init["apiKeySource"])
+        assert init.get("memory_paths") is None, (name, init.get("memory_paths"))
 
-    # 実行中に許容集合外のツールが使われていないこと(AR-61)。
-    used = {
-        block["name"]
-        for e in events("success")
-        if e.get("type") == "assistant"
-        for block in e["message"]["content"]
-        if block.get("type") == "tool_use"
-    }
-    assert used <= {"StructuredOutput"}, used
+        recorded = record["fixtures"][name]
+        assert recorded["init_tools"] == init["tools"], name
+        assert recorded["api_key_source"] == init["apiKeySource"], name
+        assert recorded["memory_paths"] is None and init.get("memory_paths") is None, name
+        assert recorded["memory_paths_key_present"] == ("memory_paths" in init), name
+
+        # 実行中に許容集合外のツールが使われていないこと(AR-61)。
+        used = {
+            block["name"]
+            for e in events(name)
+            if e.get("type") == "assistant"
+            for block in e["message"]["content"]
+            if block.get("type") == "tool_use"
+        }
+        assert used <= {"StructuredOutput"}, (name, used)
+    assert record["claude_version"] == meta("success")["claude_version"]
 
 
 def test_collection_ran_in_the_minimal_home_without_metered_vars() -> None:
@@ -201,3 +215,17 @@ def test_collection_ran_in_the_minimal_home_without_metered_vars() -> None:
         # 子へ送った本文(stdin)は合成プロンプトだけで、教材本文は含まない(NFR-2)。
         assert m["prompt"].startswith("SYNTHETIC CONTRACT PROBE"), m["prompt"]
         assert "No study material is included." in m["prompt"]
+
+
+def test_success_fixtures_carry_a_rate_limit_event() -> None:
+    record = contract_record()
+    for name in SUCCESSES:
+        infos = [e["rate_limit_info"] for e in events(name) if e.get("type") == "rate_limit_event"]
+        assert infos, f"{name} に rate_limit_event が無い"
+        for info in infos:
+            assert info["status"] in {"allowed", "allowed_warning"}, (name, info["status"])
+            assert info["isUsingOverage"] is False, (name, info["isUsingOverage"])
+        assert record["fixtures"][name]["rate_limit_events"] == [
+            {"status": info["status"], "isUsingOverage": info["isUsingOverage"]} for info in infos
+        ], name
+        assert 1 <= meta(name)["attempts"] <= 3, (name, meta(name)["attempts"])
