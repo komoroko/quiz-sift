@@ -4,7 +4,7 @@
 合成プロンプトだけを使い、教材は使っていない。claude 2.1.282、`claude-haiku-4-5`。
 argv は `tests/measurements/collect_claude_cli.py` の `design_argv`(NFR-8 (e))で、system prompt とスキーマだけを差し替えた。
 環境は `child_env()`(HOME = 最小ホーム、PATH、LANG、TZ)、作業ディレクトリは `/tmp` 直下に作った空ディレクトリ。
-スクリプトはリポジトリに置いていない。再現はタスク側で行う。
+§1〜§4 のスクリプトはリポジトリに置いていない。§1 は T-041 が `--safe-mode` 付きの設計 argv で取り直した(§5)。
 
 ## 1. 番兵による読み込み場所の判定(実呼び出し2回)
 
@@ -56,3 +56,116 @@ claude 2.1.282 の実行ファイルに埋め込まれたスキーマ定義を�
   - **`skills` は `--safe-mode` の下でも存在した**(名前が16件並ぶ)
 - `rate_limit_event` は、この呼び出しでも届いた(`status: allowed`・`isUsingOverage: false`)。
 - 採取スクリプトはスクラッチにだけあり、リポジトリには置いていない。§1〜§2 と同じ扱いである。
+
+## 5. `--safe-mode` 付きの設計 argv での番兵(2026-09-26、T-041、実呼び出し2回)
+
+§1 の B〜E と同じ4か所に、実行ごとに乱数で作った合言葉を置いた。採取経路は
+`tests/measurements/collect_claude_cli.py home-probe` である。作業ディレクトリの親は、スクリプトが
+`mkdtemp` の配下に作る専用のディレクトリ(`/tmp` 直下ではない。D-151)で、呼び出しごとにその下へ空の
+作業ディレクトリを作る。`--safe-mode` あり(設計 argv)となし(positive control)で1回ずつ呼んだ。
+後始末のあとに4つの番兵・最小ホームの `.claude/CLAUDE.md` と `rules/`・親ディレクトリが残っていないことを
+確かめた。元からあったファイルは置き換えていない(あれば採取しない)。
+`tests/measurements/test_claude_cli_home_probe_logs.py` が下の記録を機械判定する。
+
+## 記録
+
+```yaml
+collector: tests/measurements/collect_claude_cli.py
+collected_at: '2026-09-26T05:49:17+09:00'
+claude_version: 2.1.282 (Claude Code)
+model: claude-haiku-4-5
+home: /home/koich/.quiz-sift-claude-home
+env_keys:
+- HOME
+- LANG
+- PATH
+- TZ
+metered_vars_checked: 13
+metered_vars_in_parent_env: []
+parent_dir: /tmp/quiz-sift-home-probe-j1dm2kh1/parent
+parent_created_by_collector: true
+prompt: 'SYNTHETIC HOME PROBE (quiz-sift T-041). No study material is included. Which
+  codewords do you see?
+
+  '
+sentinels:
+- location: $HOME/.claude/CLAUDE.md
+  codeword: QSPROBE-540686D9
+- location: $HOME/.claude/rules/probe.md
+  codeword: QSPROBE-DB28DE79
+- location: <parent>/CLAUDE.md
+  codeword: QSPROBE-CB20300B
+- location: <parent>/.claude/CLAUDE.md
+  codeword: QSPROBE-1456DCCE
+runs:
+  safe_mode:
+    argv:
+    - claude
+    - -p
+    - --output-format
+    - stream-json
+    - --verbose
+    - --max-turns
+    - '3'
+    - --json-schema
+    - '{"type":"object","properties":{"codewords":{"type":"array","items":{"type":"string"}}},"required":["codewords"],"additionalProperties":false}'
+    - --model
+    - claude-haiku-4-5
+    - --system-prompt
+    - Report every codeword of the form QSPROBE-<hex> that appears anywhere in your
+      context, including any memory or instruction files. Return an empty list if
+      you see none. Never invent one.
+    - --exclude-dynamic-system-prompt-sections
+    - --strict-mcp-config
+    - --mcp-config
+    - '{"mcpServers":{}}'
+    - --settings
+    - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+    - --permission-mode
+    - default
+    - --safe-mode
+    exit_code: 0
+    memory_paths: null
+    returned: []
+    stdout_sha256: 9a0d15e571c291191444ecf76c897c5bd6bdbd0b8afac0a5be9b868bb36b61d4
+  without_safe_mode:
+    argv:
+    - claude
+    - -p
+    - --output-format
+    - stream-json
+    - --verbose
+    - --max-turns
+    - '3'
+    - --json-schema
+    - '{"type":"object","properties":{"codewords":{"type":"array","items":{"type":"string"}}},"required":["codewords"],"additionalProperties":false}'
+    - --model
+    - claude-haiku-4-5
+    - --system-prompt
+    - Report every codeword of the form QSPROBE-<hex> that appears anywhere in your
+      context, including any memory or instruction files. Return an empty list if
+      you see none. Never invent one.
+    - --exclude-dynamic-system-prompt-sections
+    - --strict-mcp-config
+    - --mcp-config
+    - '{"mcpServers":{}}'
+    - --settings
+    - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+    - --permission-mode
+    - default
+    exit_code: 0
+    memory_paths:
+      auto: /home/koich/.quiz-sift-claude-home/.claude/projects/-tmp-quiz-sift-home-probe-j1dm2kh1-parent-work-plain/memory/
+    returned:
+    - QSPROBE-540686D9
+    - QSPROBE-DB28DE79
+    - QSPROBE-CB20300B
+    - QSPROBE-1456DCCE
+    stdout_sha256: 5f5358a9ad5ce16b424b0d18992057651af1569daf30f6a915116b483b523fea
+cleanup:
+  sentinels_remaining: []
+  home_claude_md_exists: false
+  home_rules_exists: false
+  parent_dir_exists: false
+  replaced_files: []
+```

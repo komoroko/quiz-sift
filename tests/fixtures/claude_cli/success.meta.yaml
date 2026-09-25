@@ -1,4 +1,4 @@
-collected_at: '2026-09-25T04:54:01+09:00'
+collected_at: '2026-09-26T05:49:03+09:00'
 claude_version: 2.1.282 (Claude Code)
 model: claude-haiku-4-5
 argv:
@@ -23,16 +23,18 @@ argv:
 - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
 - --permission-mode
 - default
+- --safe-mode
 env_keys:
 - HOME
 - LANG
 - PATH
 - TZ
 home: /home/koich/.quiz-sift-claude-home
-prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-029). No study material is included.
+prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-041). No study material is included.
   What is 2 + 3?
 
   '
 exit_code: 0
 stderr: ''
-stdout_sha256: b3e8e447dbd2fbd9a21f5ee85238e3faecac8f90c79c68ec10143b4fd9e485c4
+stdout_sha256: f56442b30fee51eddba2be886684c2a8a56907fe5558b8accc305cd3824b1b7f
+attempts: 1

@@ -1,32 +1,42 @@
-"""実 `claude` CLI の出力契約フィクスチャを採取する(T-029 / C-020 NFR-8 (e) / C-018 NFR-6)。
+"""実 `claude` CLI の出力契約フィクスチャと番兵実測を採取する(T-041 / C-020 NFR-8 (e) / C-018 NFR-6)。
 
-**ホストで**人が1回走らせる。サンドボックスには `claude` が無く、ゲートはここで書いたファイルを読むだけ:
+**ホストで**人が走らせる。サンドボックスには `claude` が無く、ゲートはここで書いたファイルを読むだけ:
 
-    python tests/measurements/collect_claude_cli.py --repo <リポジトリ>
+    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> contract
+    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> home-probe
 
-前提(ADR-014): 人が最小ホームを用意済みであること(`HOME=~/.quiz-sift-claude-home claude /login`)。
+前提(ADR-014 / ADR-017): 人が最小ホームを用意済みであること(`HOME=~/.quiz-sift-claude-home claude /login`)。
 
-- argv は設計 NFR-8 節の (e) をそのまま組む(`ClaudeCliLlm` はまだ無い。T-027 がこの meta の argv と突き合わせる)。
+- argv は設計 NFR-8 節の (e) をそのまま組む(`--safe-mode` を含む。D-130 / D-133)。
 - 子プロセスへ渡す環境は `HOME` / `PATH` / `LANG` / `TZ` の4つだけで、`HOME` は最小ホーム。作業ディレクトリは
-  呼び出しごとに `mkdtemp` で作る空ディレクトリ。
+  呼び出しごとに作る空ディレクトリ。
 - 親環境に metered 認証変数(docs/10-requirements.md が列挙する13個)が1つでもあれば採取しない。記録するのは
   見つかった変数名の一覧だけで、値は書かない。
-- 送るのは合成プロンプトだけ(NFR-2 に触れない)。2件:
-  `success`(小さなスキーマ)/ `invalid_schema`(JSON でない `--json-schema`。モデルを呼ぶ前に終わる)。
-  `error_max_turns` は採らない(D-118 / ADR-016。2.1.282 では `--max-turns 1` でも success で完了する)。
-- 最小ホームのファイル一覧(相対パスだけ。中身は書かない)を採取の前後で記録する。
+- 送るのは合成プロンプトだけ(NFR-2 に触れない)。
 
-出力: `tests/fixtures/claude_cli/<name>.stdout`(生の標準出力)と `<name>.meta.yaml`、
+`contract`: 3件を採る。`success`(haiku)/ `success_opus`(opus。D-152)/ `invalid_schema`(JSON でない
+`--json-schema`。モデルを呼ぶ前に終わる)。success に `rate_limit_event` が無ければ3回まで採り直す(D-133)。
+`error_max_turns` は採らない(D-118 / ADR-016)。最小ホームのファイル一覧(相対パスだけ)を採取の前後で記録する。
+出力は `tests/fixtures/claude_cli/<name>.stdout`(生の標準出力)と `<name>.meta.yaml`、
 `docs/test/measurements/claude-cli-contract.md`。
+
+`home-probe`: 4つの場所に実行ごとの乱数の合言葉を置き、`--safe-mode` あり・なしの argv で1回ずつ呼んで、
+見えた合言葉をスキーマで返させる(NFR-8 (e)5。なしの側は positive control)。後始末を確かめ、
+`docs/test/measurements/claude-cli-home-probe.md` の「## 記録」を書き直す。作業ディレクトリの親は
+このスクリプトが作る専用のディレクトリで、`/tmp` 直下には置かない(D-151)。
 """
 
 import argparse
 import hashlib
 import json
 import os
+import re
+import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -51,7 +61,8 @@ METERED_VARS = (
     "CLOUD_ML_REGION",
 )
 
-MODEL = "claude-haiku-4-5"
+HAIKU = "claude-haiku-4-5"
+OPUS = "claude-opus-5-5"
 
 # `--settings` の `permissions.deny` に並べるツール名。2026-09-25 に 2.1.282 の素の `init.tools` を
 # (存在しないモデル名で、枠を消費せずに)読んだ24本に、他フラグの有無で現れる `Glob` / `Grep` などを足した。
@@ -103,7 +114,7 @@ DENIED_TOOLS = (
 
 SYSTEM_PROMPT = "You are a calculator. Return only the requested structured answer."
 
-PROMPT = "SYNTHETIC CONTRACT PROBE (quiz-sift T-029). No study material is included. What is 2 + 3?\n"
+PROMPT = "SYNTHETIC CONTRACT PROBE (quiz-sift T-041). No study material is included. What is 2 + 3?\n"
 
 SCHEMA = {
     "type": "object",
@@ -116,8 +127,24 @@ SCHEMA = {
 # 標準出力は空で終了コード 1(2026-09-25 実測、D-119)。
 INVALID_SCHEMA = '{"type":'
 
+MAX_ATTEMPTS = 3
 
-def design_argv(json_schema: str) -> list[str]:
+PROBE_SYSTEM_PROMPT = (
+    "Report every codeword of the form QSPROBE-<hex> that appears anywhere in your context, "
+    "including any memory or instruction files. Return an empty list if you see none. Never invent one."
+)
+
+PROBE_PROMPT = "SYNTHETIC HOME PROBE (quiz-sift T-041). No study material is included. Which codewords do you see?\n"
+
+PROBE_SCHEMA = {
+    "type": "object",
+    "properties": {"codewords": {"type": "array", "items": {"type": "string"}}},
+    "required": ["codewords"],
+    "additionalProperties": False,
+}
+
+
+def design_argv(json_schema: str, model: str, system_prompt: str = SYSTEM_PROMPT) -> list[str]:
     """設計 NFR-8 節 (e) の argv。"""
     return [
         "claude",
@@ -130,9 +157,9 @@ def design_argv(json_schema: str) -> list[str]:
         "--json-schema",
         json_schema,
         "--model",
-        MODEL,
+        model,
         "--system-prompt",
-        SYSTEM_PROMPT,
+        system_prompt,
         "--exclude-dynamic-system-prompt-sections",
         "--strict-mcp-config",
         "--mcp-config",
@@ -141,12 +168,19 @@ def design_argv(json_schema: str) -> list[str]:
         json.dumps({"permissions": {"deny": list(DENIED_TOOLS)}}, separators=(",", ":")),
         "--permission-mode",
         "default",
+        "--safe-mode",
     ]
 
 
+def compact(obj: object) -> str:
+    return json.dumps(obj, separators=(",", ":"))
+
+
+# 名前 → (モデル, argv, rate_limit_event が無ければ採り直すか)。
 CASES = {
-    "success": design_argv(json.dumps(SCHEMA, separators=(",", ":"))),
-    "invalid_schema": design_argv(INVALID_SCHEMA),
+    "success": (HAIKU, design_argv(compact(SCHEMA), HAIKU), True),
+    "success_opus": (OPUS, design_argv(compact(SCHEMA), OPUS), True),
+    "invalid_schema": (HAIKU, design_argv(INVALID_SCHEMA, HAIKU), False),
 }
 
 
@@ -171,15 +205,32 @@ def claude_version(env: dict[str, str]) -> str:
         ).stdout.strip()
 
 
-def collect(name: str, argv: list[str], env: dict[str, str], version: str, fixtures: Path) -> dict[str, object]:
-    collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
-    with tempfile.TemporaryDirectory() as cwd:
-        proc = subprocess.run(argv, input=PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
+def parse_events(stdout: bytes) -> list[dict[str, object]]:
+    return [dict(json.loads(line)) for line in stdout.decode().splitlines()]
+
+
+def has_rate_limit_event(stdout: bytes) -> bool:
+    try:
+        return any(e.get("type") == "rate_limit_event" for e in parse_events(stdout))
+    except json.JSONDecodeError:
+        return False
+
+
+def collect(
+    name: str, model: str, argv: list[str], retry: bool, env: dict[str, str], version: str, fixtures: Path
+) -> dict[str, object]:
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        with tempfile.TemporaryDirectory() as cwd:
+            proc = subprocess.run(argv, input=PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
+        if not retry or has_rate_limit_event(proc.stdout):
+            break
+        print(f"{name}: 試行 {attempt} に rate_limit_event が無い", file=sys.stderr)
     (fixtures / f"{name}.stdout").write_bytes(proc.stdout)
     meta: dict[str, object] = {
         "collected_at": collected_at,
         "claude_version": version,
-        "model": MODEL,
+        "model": model,
         "argv": argv,
         "env_keys": sorted(env),
         "home": env["HOME"],
@@ -187,40 +238,43 @@ def collect(name: str, argv: list[str], env: dict[str, str], version: str, fixtu
         "exit_code": proc.returncode,
         "stderr": proc.stderr.decode(errors="replace"),
         "stdout_sha256": hashlib.sha256(proc.stdout).hexdigest(),
+        "attempts": attempt,
     }
     (fixtures / f"{name}.meta.yaml").write_text(yaml.safe_dump(meta, allow_unicode=True, sort_keys=False))
     return meta
 
 
-def init_event(stdout: bytes) -> dict[str, object]:
-    for line in stdout.decode().splitlines():
-        event = json.loads(line)
+def init_event(events: list[dict[str, object]]) -> dict[str, object]:
+    for event in events:
         if event.get("type") == "system" and event.get("subtype") == "init":
-            return dict(event)
-    raise SystemExit("success の標準出力に init イベントが無い")
+            return event
+    raise SystemExit("標準出力に init イベントが無い")
 
 
 def render_contract(record: dict[str, object], metas: dict[str, dict[str, object]]) -> str:
     rows = "\n".join(
-        f"| `{name}` | {meta['collected_at']} | {meta['exit_code']} | `sha256:{meta['stdout_sha256']}` |"
+        f"| `{name}` | `{meta['model']}` | {meta['collected_at']} | {meta['attempts']} | {meta['exit_code']} "
+        f"| `sha256:{meta['stdout_sha256']}` |"
         for name, meta in metas.items()
     )
     return f"""# 実測ログ: claude CLI の出力契約と init.tools
 
 NFR-8 (e)1(C-020)の「有効ツールが実際に許容集合に収まる」ことのホスト実測と、NFR-6(C-018)の契約
 フィクスチャ(AR-43 / AR-63)の採取記録。ゲートは argv の形しか見えないので、ここだけが実 CLI の
-`init.tools` を見る。`tests/measurements/collect_claude_cli.py` が書き、
+`init.tools` を見る。argv は `--safe-mode` を含む設計 (e) の形(D-130 / D-133)。
+`tests/measurements/collect_claude_cli.py contract` が書き、
 `tests/measurements/test_claude_cli_logs.py` がフィクスチャ本体と突き合わせて機械判定する。
 
 採取は最小ホーム(ADR-014)を `HOME` に向け、子プロセスへ渡す環境は `HOME` / `PATH` / `LANG` / `TZ` の
 4つだけ。親環境に metered 認証変数(docs/10-requirements.md NFR-8 の13個)があれば採取しない。
 記録するのは見つかった変数名の一覧だけで、値は書かない。送ったのは合成プロンプトだけで、
-最小ホームのファイル一覧は相対パスだけを載せる(中身は載せない)。
+最小ホームのファイル一覧は相対パスだけを載せる(中身は載せない)。success に `rate_limit_event` が
+無ければ3回まで採り直す。試行回数は表の「試行」列にある。
 
 ## フィクスチャ
 
-| 名前 | 採取日時 | 終了コード | 標準出力 |
-|---|---|---|---|
+| 名前 | モデル | 採取日時 | 試行 | 終了コード | 標準出力 |
+|---|---|---|---|---|---|
 {rows}
 
 argv・合成プロンプト全文・`claude --version` の出力は `tests/fixtures/claude_cli/<名前>.meta.yaml` にある。
@@ -233,9 +287,144 @@ argv・合成プロンプト全文・`claude --version` の出力は `tests/fixt
 """
 
 
+def contract(repo: Path, metered: list[str]) -> int:
+    fixtures = repo / "tests" / "fixtures" / "claude_cli"
+    fixtures.mkdir(parents=True, exist_ok=True)
+    env = child_env()
+    before = home_files()
+    version = claude_version(env)
+    metas = {
+        name: collect(name, model, argv, retry, env, version, fixtures) for name, (model, argv, retry) in CASES.items()
+    }
+    after = home_files()
+
+    observed: dict[str, object] = {}
+    for name in ("success", "success_opus"):
+        events = parse_events((fixtures / f"{name}.stdout").read_bytes())
+        init = init_event(events)
+        rate_limits = [e["rate_limit_info"] for e in events if e.get("type") == "rate_limit_event"]
+        observed[name] = {
+            "init_tools": init["tools"],
+            "api_key_source": init["apiKeySource"],
+            # `--safe-mode` の下では init にキー自体が無い(2026-09-26 実測)。null として読み、キーの有無も残す。
+            "memory_paths": init.get("memory_paths"),
+            "memory_paths_key_present": "memory_paths" in init,
+            "rate_limit_events": [
+                {"status": info["status"], "isUsingOverage": info["isUsingOverage"]}  # type: ignore[index]
+                for info in rate_limits
+            ],
+        }
+    record: dict[str, object] = {
+        "claude_version": version,
+        "home": str(MINIMAL_HOME),
+        "env_keys": sorted(env),
+        "metered_vars_checked": len(METERED_VARS),
+        "metered_vars_in_parent_env": metered,
+        "fixtures": observed,
+        "home_files_before": before,
+        "home_files_after": after,
+    }
+    path = repo / "docs" / "test" / "measurements" / "claude-cli-contract.md"
+    path.write_text(render_contract(record, metas))
+    print(yaml.safe_dump(observed, allow_unicode=True, sort_keys=False))
+    return 0
+
+
+# 番兵を置く4つの場所(記録上の名前 → 実パスの組み立て)。`parent` は作業ディレクトリの親。
+PROBE_LOCATIONS: dict[str, Callable[[Path], Path]] = {
+    "$HOME/.claude/CLAUDE.md": lambda parent: MINIMAL_HOME / ".claude" / "CLAUDE.md",
+    "$HOME/.claude/rules/probe.md": lambda parent: MINIMAL_HOME / ".claude" / "rules" / "probe.md",
+    "<parent>/CLAUDE.md": lambda parent: parent / "CLAUDE.md",
+    "<parent>/.claude/CLAUDE.md": lambda parent: parent / ".claude" / "CLAUDE.md",
+}
+
+
+def probe_run(argv: list[str], env: dict[str, str], cwd: Path) -> dict[str, object]:
+    cwd.mkdir()
+    proc = subprocess.run(argv, input=PROBE_PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
+    events = parse_events(proc.stdout)
+    results = [e for e in events if e.get("type") == "result"]
+    if len(results) != 1 or proc.returncode != 0:
+        raise SystemExit(f"番兵の呼び出しが失敗した: exit={proc.returncode} stderr={proc.stderr.decode()!r}")
+    structured = results[0]["structured_output"]
+    return {
+        "argv": argv,
+        "exit_code": proc.returncode,
+        "memory_paths": init_event(events).get("memory_paths"),
+        "returned": list(structured["codewords"]),  # type: ignore[index,call-overload]
+        "stdout_sha256": hashlib.sha256(proc.stdout).hexdigest(),
+    }
+
+
+def home_probe(repo: Path, metered: list[str]) -> int:
+    home_claude_md = MINIMAL_HOME / ".claude" / "CLAUDE.md"
+    home_rules = MINIMAL_HOME / ".claude" / "rules"
+    if home_claude_md.exists() or home_rules.exists():
+        # 起動前検査(NFR-8 (b))が拒む状態。置き換えて戻す経路は持たない。
+        print(f"最小ホームに {home_claude_md} か {home_rules} が既にある", file=sys.stderr)
+        return 2
+
+    env = child_env()
+    version = claude_version(env)
+    base = Path(tempfile.mkdtemp(prefix="quiz-sift-home-probe-"))
+    parent = base / "parent"
+    parent.mkdir()
+    codewords = {loc: f"QSPROBE-{secrets.token_hex(4).upper()}" for loc in PROBE_LOCATIONS}
+    paths = {loc: build(parent) for loc, build in PROBE_LOCATIONS.items()}
+    safe_argv = design_argv(compact(PROBE_SCHEMA), HAIKU, PROBE_SYSTEM_PROMPT)
+    plain_argv = [token for token in safe_argv if token != "--safe-mode"]
+    collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        for loc, path in paths.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"The codeword is {codewords[loc]}.\n")
+        runs = {
+            "safe_mode": probe_run(safe_argv, env, parent / "work-safe"),
+            "without_safe_mode": probe_run(plain_argv, env, parent / "work-plain"),
+        }
+    finally:
+        home_claude_md.unlink(missing_ok=True)
+        (home_rules / "probe.md").unlink(missing_ok=True)
+        if home_rules.exists():
+            home_rules.rmdir()
+        shutil.rmtree(base)
+
+    record: dict[str, object] = {
+        "collector": "tests/measurements/collect_claude_cli.py",
+        "collected_at": collected_at,
+        "claude_version": version,
+        "model": HAIKU,
+        "home": str(MINIMAL_HOME),
+        "env_keys": sorted(env),
+        "metered_vars_checked": len(METERED_VARS),
+        "metered_vars_in_parent_env": metered,
+        "parent_dir": str(parent),
+        "parent_created_by_collector": True,
+        "prompt": PROBE_PROMPT,
+        "sentinels": [{"location": loc, "codeword": codewords[loc]} for loc in PROBE_LOCATIONS],
+        "runs": runs,
+        "cleanup": {
+            "sentinels_remaining": [loc for loc, path in paths.items() if path.exists()],
+            "home_claude_md_exists": home_claude_md.exists(),
+            "home_rules_exists": home_rules.exists(),
+            "parent_dir_exists": parent.exists(),
+            "replaced_files": [],
+        },
+    }
+    path = repo / "docs" / "test" / "measurements" / "claude-cli-home-probe.md"
+    text = path.read_text(encoding="utf-8")
+    kept = re.split(r"\n## 記録\n", text, maxsplit=1)[0].rstrip("\n")
+    path.write_text(
+        f"{kept}\n\n## 記録\n\n```yaml\n{yaml.safe_dump(record, allow_unicode=True, sort_keys=False).rstrip()}\n```\n"
+    )
+    print(yaml.safe_dump({k: {"returned": v["returned"]} for k, v in runs.items()}, allow_unicode=True))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("what", choices=("contract", "home-probe"))
     args = parser.parse_args()
 
     metered = sorted(v for v in METERED_VARS if v in os.environ)
@@ -245,34 +434,7 @@ def main() -> int:
     if not (MINIMAL_HOME / ".claude" / ".credentials.json").is_file():
         print(f"最小ホームが用意されていない: HOME={MINIMAL_HOME} claude /login", file=sys.stderr)
         return 2
-
-    fixtures = args.repo / "tests" / "fixtures" / "claude_cli"
-    fixtures.mkdir(parents=True, exist_ok=True)
-    env = child_env()
-    before = home_files()
-    version = claude_version(env)
-    metas = {name: collect(name, argv, env, version, fixtures) for name, argv in CASES.items()}
-    after = home_files()
-
-    init = init_event((fixtures / "success.stdout").read_bytes())
-    tools = init["tools"]
-    if not isinstance(tools, list):
-        raise SystemExit("init イベントの tools が配列でない")
-    record: dict[str, object] = {
-        "claude_version": version,
-        "home": str(MINIMAL_HOME),
-        "env_keys": sorted(env),
-        "metered_vars_checked": len(METERED_VARS),
-        "metered_vars_in_parent_env": metered,
-        "init_tools": [str(t) for t in tools],
-        "api_key_source": init["apiKeySource"],
-        "home_files_before": before,
-        "home_files_after": after,
-    }
-    contract = args.repo / "docs" / "test" / "measurements" / "claude-cli-contract.md"
-    contract.write_text(render_contract(record, metas))
-    print(yaml.safe_dump({"init_tools": record["init_tools"], "api_key_source": record["api_key_source"]}))
-    return 0
+    return contract(args.repo, metered) if args.what == "contract" else home_probe(args.repo, metered)
 
 
 if __name__ == "__main__":

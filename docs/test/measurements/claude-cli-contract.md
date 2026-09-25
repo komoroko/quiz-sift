@@ -2,20 +2,23 @@
 
 NFR-8 (e)1(C-020)の「有効ツールが実際に許容集合に収まる」ことのホスト実測と、NFR-6(C-018)の契約
 フィクスチャ(AR-43 / AR-63)の採取記録。ゲートは argv の形しか見えないので、ここだけが実 CLI の
-`init.tools` を見る。`tests/measurements/collect_claude_cli.py` が書き、
+`init.tools` を見る。argv は `--safe-mode` を含む設計 (e) の形(D-130 / D-133)。
+`tests/measurements/collect_claude_cli.py contract` が書き、
 `tests/measurements/test_claude_cli_logs.py` がフィクスチャ本体と突き合わせて機械判定する。
 
 採取は最小ホーム(ADR-014)を `HOME` に向け、子プロセスへ渡す環境は `HOME` / `PATH` / `LANG` / `TZ` の
 4つだけ。親環境に metered 認証変数(docs/10-requirements.md NFR-8 の13個)があれば採取しない。
 記録するのは見つかった変数名の一覧だけで、値は書かない。送ったのは合成プロンプトだけで、
-最小ホームのファイル一覧は相対パスだけを載せる(中身は載せない)。
+最小ホームのファイル一覧は相対パスだけを載せる(中身は載せない)。success に `rate_limit_event` が
+無ければ3回まで採り直す。試行回数は表の「試行」列にある。
 
 ## フィクスチャ
 
-| 名前 | 採取日時 | 終了コード | 標準出力 |
-|---|---|---|---|
-| `success` | 2026-09-25T04:54:01+09:00 | 0 | `sha256:b3e8e447dbd2fbd9a21f5ee85238e3faecac8f90c79c68ec10143b4fd9e485c4` |
-| `invalid_schema` | 2026-09-25T04:54:04+09:00 | 1 | `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| 名前 | モデル | 採取日時 | 試行 | 終了コード | 標準出力 |
+|---|---|---|---|---|---|
+| `success` | `claude-haiku-4-5` | 2026-09-26T05:49:03+09:00 | 1 | 0 | `sha256:f56442b30fee51eddba2be886684c2a8a56907fe5558b8accc305cd3824b1b7f` |
+| `success_opus` | `claude-opus-5-5` | 2026-09-26T05:49:07+09:00 | 1 | 0 | `sha256:ac6179aee6d65e39afe9f63c84988ae72519d408f1f9097e79a667159e57411d` |
+| `invalid_schema` | `claude-haiku-4-5` | 2026-09-26T05:49:10+09:00 | 1 | 1 | `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
 argv・合成プロンプト全文・`claude --version` の出力は `tests/fixtures/claude_cli/<名前>.meta.yaml` にある。
 
@@ -31,26 +34,51 @@ env_keys:
 - TZ
 metered_vars_checked: 13
 metered_vars_in_parent_env: []
-init_tools:
-- StructuredOutput
-api_key_source: none
+fixtures:
+  success:
+    init_tools:
+    - StructuredOutput
+    api_key_source: none
+    memory_paths: null
+    memory_paths_key_present: false
+    rate_limit_events:
+    - status: allowed
+      isUsingOverage: false
+  success_opus:
+    init_tools:
+    - StructuredOutput
+    api_key_source: none
+    memory_paths: null
+    memory_paths_key_present: false
+    rate_limit_events:
+    - status: allowed
+      isUsingOverage: false
 home_files_before:
 - .claude.json
 - .claude/.credentials.json
-- .claude/backups/.claude.json.backup.1790277452505
-- .claude/backups/.claude.json.backup.1790278061108
-- .claude/backups/.claude.json.backup.1790278179715
-- .claude/backups/.claude.json.backup.1790278472398
+- .claude/.last-cleanup
+- .claude/backups/.claude.json.backup.1790279641818
+- .claude/backups/.claude.json.backup.1790314184626
+- .claude/backups/.claude.json.backup.1790314257502
+- .claude/backups/.claude.json.backup.1790349312820
+- .claude/backups/.claude.json.backup.1790369304816
 - .claude/cache/changelog.md
 - .claude/cache/model-catalog/d4f76645-1c80-4efa-9b3f-d6d411603142-e9acd571abd0-cc.json
 - .claude/plugins/synced/.bucket-d4f76645-1c80-4efa-9b3f-d6d411603142_22be1853-6d85-4cf5-97de-2d58a45d2334
 - .claude/plugins/synced/d4f76645-1c80-4efa-9b3f-d6d411603142_22be1853-6d85-4cf5-97de-2d58a45d2334/.last-complete-round
 - .claude/plugins/synced/d4f76645-1c80-4efa-9b3f-d6d411603142_22be1853-6d85-4cf5-97de-2d58a45d2334/.marketplaces.json
+- .claude/projects/-tmp-tmp-794oula/41ca121a-c429-4301-9945-f5b80fbbe010.jsonl
 - .claude/projects/-tmp-tmp-lnHL9LN0T8/1d52f10b-fc8f-4ac2-bc36-1b673141cdb3.jsonl
 - .claude/projects/-tmp-tmp-pC4hoRqkmd/f0bacaf2-9843-4e44-8dde-b0aa8dce3e25.jsonl
+- .claude/projects/-tmp-tmpbys6gy8r/4eca377e-e65b-482a-9735-7dffc01f36e6.jsonl
 - .claude/projects/-tmp-tmphlceu0xk/a5a71f38-8187-48ba-b5fb-1dfb26cc44fd.jsonl
+- .claude/projects/-tmp-tmpjoncydpf/ab2ac99f-38e0-4e2e-a6bc-75a167d893a2.jsonl
+- .claude/projects/-tmp-tmpk6let8cx/187d4d68-07d8-4c29-9f7c-48b88a2d9956.jsonl
 - .claude/projects/-tmp-tmpkk4pbqvy/a6e2a369-9b2b-448b-b42f-5117c68ce6e8.jsonl
+- .claude/projects/-tmp-tmpmii55wcb/4cb52244-7a74-4eb5-b6bf-44d2f1665919.jsonl
+- .claude/projects/-tmp-tmprbyvxqx6/4beffa9b-73ec-4a83-9bef-eeb634f11d1b.jsonl
 - .claude/projects/-tmp-tmpsyptat98/0c577ef7-c3ea-4b9d-9993-ca486887e15c.jsonl
+- .claude/projects/-tmp-tmpvzr9vs7l/17b96d8e-4b4f-48ce-94ef-26fd9a46ba67.jsonl
 - .claude/projects/-tmp-tmpx3ge7dva/4b92afb8-b94a-49fb-bca4-7935af81e310.jsonl
 - .claude/projects/-tmp-tmpzxzuisui/2a147622-12b9-4903-9654-4b15f8c053ae.jsonl
 - .claude/settings.json
@@ -265,11 +293,12 @@ home_files_before:
 home_files_after:
 - .claude.json
 - .claude/.credentials.json
-- .claude/backups/.claude.json.backup.1790277452505
-- .claude/backups/.claude.json.backup.1790278061108
-- .claude/backups/.claude.json.backup.1790278179715
-- .claude/backups/.claude.json.backup.1790278472398
+- .claude/.last-cleanup
 - .claude/backups/.claude.json.backup.1790279641818
+- .claude/backups/.claude.json.backup.1790314184626
+- .claude/backups/.claude.json.backup.1790314257502
+- .claude/backups/.claude.json.backup.1790349312820
+- .claude/backups/.claude.json.backup.1790369304816
 - .claude/cache/changelog.md
 - .claude/cache/model-catalog/d4f76645-1c80-4efa-9b3f-d6d411603142-e9acd571abd0-cc.json
 - .claude/plugins/synced/.bucket-d4f76645-1c80-4efa-9b3f-d6d411603142_22be1853-6d85-4cf5-97de-2d58a45d2334
@@ -278,9 +307,17 @@ home_files_after:
 - .claude/projects/-tmp-tmp-794oula/41ca121a-c429-4301-9945-f5b80fbbe010.jsonl
 - .claude/projects/-tmp-tmp-lnHL9LN0T8/1d52f10b-fc8f-4ac2-bc36-1b673141cdb3.jsonl
 - .claude/projects/-tmp-tmp-pC4hoRqkmd/f0bacaf2-9843-4e44-8dde-b0aa8dce3e25.jsonl
+- .claude/projects/-tmp-tmp9f3ivay9/06a2f7ce-aaa0-4048-a5ce-60691013196e.jsonl
+- .claude/projects/-tmp-tmpbys6gy8r/4eca377e-e65b-482a-9735-7dffc01f36e6.jsonl
 - .claude/projects/-tmp-tmphlceu0xk/a5a71f38-8187-48ba-b5fb-1dfb26cc44fd.jsonl
+- .claude/projects/-tmp-tmpjoncydpf/ab2ac99f-38e0-4e2e-a6bc-75a167d893a2.jsonl
+- .claude/projects/-tmp-tmpk6let8cx/187d4d68-07d8-4c29-9f7c-48b88a2d9956.jsonl
 - .claude/projects/-tmp-tmpkk4pbqvy/a6e2a369-9b2b-448b-b42f-5117c68ce6e8.jsonl
+- .claude/projects/-tmp-tmpkxo4czrr/72cb932e-c35f-48af-aa7c-d213e40c514f.jsonl
+- .claude/projects/-tmp-tmpmii55wcb/4cb52244-7a74-4eb5-b6bf-44d2f1665919.jsonl
+- .claude/projects/-tmp-tmprbyvxqx6/4beffa9b-73ec-4a83-9bef-eeb634f11d1b.jsonl
 - .claude/projects/-tmp-tmpsyptat98/0c577ef7-c3ea-4b9d-9993-ca486887e15c.jsonl
+- .claude/projects/-tmp-tmpvzr9vs7l/17b96d8e-4b4f-48ce-94ef-26fd9a46ba67.jsonl
 - .claude/projects/-tmp-tmpx3ge7dva/4b92afb8-b94a-49fb-bca4-7935af81e310.jsonl
 - .claude/projects/-tmp-tmpzxzuisui/2a147622-12b9-4903-9654-4b15f8c053ae.jsonl
 - .claude/settings.json
