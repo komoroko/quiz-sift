@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-27T03:33:44+09:00'
+updated_at: '2026-09-27T03:35:42+09:00'
 gates:
   mandate:
     status: approved
@@ -1035,7 +1035,7 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: blocked
+    status: todo
     attempts: 1
     handoff:
       report:
