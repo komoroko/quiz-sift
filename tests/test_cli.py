@@ -6,89 +6,35 @@ LLM と TTS はスタブ。本文は自分で書いた合成フィクスチャ�
 import dataclasses
 import io
 import json
-import math
 import os
 import subprocess
 import sys
 import traceback
-from array import array
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 
 import pytest
-from support.claude_fake import (
-    FakeRunner,
-    answer,
-    classification_output,
-    exited,
-    failure_shape,
-    fake_stdout,
-)
+from support.claude_fake import FakeRunner, answer, exited, failure_shape
+from support.cli_harness import DECK, DRAFTS, CliLlms, StubTts, no_preflight, respond, write_root
 
 from quiz_sift import cli
 from quiz_sift.adapters import llm_prompts
-from quiz_sift.adapters.claude_process import Workspace
-from quiz_sift.adapters.llm_claude_cli import ClaudeCliLlm
 from quiz_sift.domain.attempt import AttemptRecord
 from quiz_sift.domain.deck import Deck
-from quiz_sift.domain.ids import DeckId, OptionId, QuestionId, SessionId
+from quiz_sift.domain.ids import OptionId, QuestionId, SessionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.domain.recall import RecallKey
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft, TokenUsage
-from quiz_sift.ports.metering import FailureKind, InvocationScope, RateLimitInfo, RunMeter
+from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft
+from quiz_sift.ports.metering import FailureKind, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.ports.tts import PcmAudio, Tts
+from quiz_sift.ports.tts import Tts
 from quiz_sift.store.deck_scope import DeckScopedStore
 
-DECK = DeckId("aws-saa")
-RATE = 16000
 SRC = Path(__file__).resolve().parents[1] / "src"
 
-# (id, 問題文, 選択肢, 正解, 解説)
-ROWS = [
-    (
-        "q01",
-        "アクセス頻度は低いが即座に取り出す必要があるデータに適した S3 のストレージクラスはどれか。",
-        ["S3 標準", "S3 標準-IA", "S3 Glacier Deep Archive", "S3 One Zone-IA"],
-        "B",
-        "S3 標準-IA はアクセス頻度が低いデータ向けのストレージクラスで、ミリ秒単位で取り出せる。",
-    ),
-    (
-        "q03",
-        "IAM ポリシーで許可と明示的な拒否が両方ある場合、アクセスはどうなるか。",
-        ["許可される", "拒否される", "先に書かれた方が優先される", "管理者だけ許可される"],
-        "B",
-        "IAM では明示的な拒否が常に許可より優先される。",
-    ),
-    (
-        "q05",
-        "RDS でプライマリ障害時に自動でフェイルオーバーさせるには何を使うか。",
-        ["マルチ AZ 配置", "リードレプリカ", "スナップショット", "パラメータグループ"],
-        "A",
-        "マルチ AZ 配置はスタンバイへ自動でフェイルオーバーする。",
-    ),
-]
-DRAFTS = {
-    "q01": RecallDraft(
-        RecallKey(("アクセス頻度", "即座", "ストレージクラス")),
-        "S3 標準-IA",
-        "標準-IA は低頻度向けでもミリ秒で取り出せるが、「S3 Glacier Deep Archive」は取り出しに数時間かかる",
-    ),
-    "q03": RecallDraft(
-        RecallKey(("明示的な拒否", "許可")),
-        "拒否される",
-        "明示的な拒否は常に許可より優先され、書いた順序は関係しない",
-    ),
-    "q05": RecallDraft(
-        RecallKey(("フェイルオーバー", "マルチ AZ")),
-        "マルチ AZ 配置",
-        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、「リードレプリカ」は読み取りの負荷分散のためのもの",
-    ),
-}
 STAGES = {"ingest", "cluster", "recall", "glossary", "script", "audio", "review", "serve"}
 
 
@@ -120,37 +66,9 @@ class StubLlm:
         return Entailment.CONSISTENT
 
 
-@dataclass
-class StubTts:
-    calls: int = 0
-
-    def synthesize(self, text: str, voice_id: str) -> PcmAudio:
-        self.calls += 1
-        n = round(0.5 * RATE)
-        tone = array("h", (round(0.3 * 32767 * math.sin(2 * math.pi * 440 * i / RATE)) for i in range(n)))
-        return PcmAudio(tone.tobytes(), RATE)
-
-
 @pytest.fixture
 def root(tmp_path: Path) -> Path:
-    (tmp_path / ".gitignore").write_text("data/\nout/\n", encoding="utf-8")
-    deck_dir = tmp_path / "data" / DECK
-    deck_dir.mkdir(parents=True)
-    (deck_dir / "deck.yaml").write_text(f"deck_id: {DECK}\ntitle: AWS SAA 模試\nlanguage: ja\n", encoding="utf-8")
-    rows = [
-        {
-            "id": qid,
-            "stem": stem,
-            "options": [{"id": label, "text": text} for label, text in zip("ABCD", texts, strict=True)],
-            "answer": answer,
-            "explanation": explanation,
-        }
-        for qid, stem, texts, answer, explanation in ROWS
-    ]
-    (deck_dir / "questions.jsonl").write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8"
-    )
-    return tmp_path
+    return write_root(tmp_path)
 
 
 class Runner:
@@ -173,7 +91,12 @@ class Runner:
     def __call__(self, *argv: str) -> str:
         self.capsys.readouterr()
         extra = ["--tts-model", self.tts_model] if argv[0] == "audio" else []
-        code = cli.main(["--root", str(self.root), *argv, *extra], llm_factory=self._llm, tts_factory=self._tts)
+        code = cli.main(
+            ["--root", str(self.root), *argv, *extra],
+            llm_factory=self._llm,
+            preflight=no_preflight,
+            tts_factory=self._tts,
+        )
         assert code == 0
         return self.capsys.readouterr().out.strip().splitlines()[-1]
 
@@ -276,14 +199,14 @@ def test_every_stage_has_an_entry_point(
 
 
 def test_llm_use_is_metered(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """LLM を組み立てた実行だけが計測を開始行と終了行の2行書く(NFR-7)。キャッシュだけで済む実行は書かない。"""
+    """LLM 段の実行は、キャッシュだけで済んでも開始行と終了行の2行を書く(NFR-7)。ingest は書かない。"""
     run = Runner(root, capsys, StubLlm(), StubTts())
     log = root / "out" / DECK / cli.METER_LOG
     run("ingest", DECK)
     assert not log.exists()
     run("cluster", DECK)
     run("cluster", DECK)
-    assert len(log.read_text(encoding="utf-8").splitlines()) == 2
+    assert len(log.read_text(encoding="utf-8").splitlines()) == 4
 
 
 def test_output_outside_gitignore_is_refused(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -344,7 +267,7 @@ def test_uncaught_exception_traceback_masks_credentials(root: Path, monkeypatch:
     """`main` の外へ抜けた例外のトレースバックで、認証情報が平文で出ない(C-015)。"""
     llm = LeakingLlm()
     with pytest.raises(ConnectionError) as raised:
-        cli.main(["--root", str(root), "cluster", DECK], llm_factory=lambda recorder: llm)
+        cli.main(["--root", str(root), "cluster", DECK], llm_factory=lambda recorder: llm, preflight=no_preflight)
     assert type(raised.value) is ConnectionError
 
     output = _hook_output(monkeypatch, raised.value)
@@ -428,88 +351,6 @@ def test_excepthook_failure_does_not_fall_back_to_plaintext(monkeypatch: pytest.
 # ---- 既定 LLM(ClaudeCliLlm)を spawn だけ fake にして通す(T-044)----
 
 
-class CountingMeter:
-    """`cli` が渡す `RunMeter` に委ね、`llm_calls` をメソッド名ごとに数える。"""
-
-    def __init__(self, inner: RunMeter, methods: list[str]) -> None:
-        self._inner = inner
-        self._methods = methods
-
-    def record(self, model: str, usage: TokenUsage) -> None:
-        self._inner.record(model, usage)
-
-    def begin_call(self, method: str) -> None:
-        self._methods.append(method)
-        self._inner.begin_call(method)
-
-    def begin_invocation(self, argv_digest: str) -> InvocationScope:
-        return self._inner.begin_invocation(argv_digest)
-
-    def end_invocation(
-        self,
-        model: str,
-        turns: int | None,
-        usage: TokenUsage | None,
-        cost_usd: float | None,
-        is_error: bool | None,
-        skills_digest: str | None,
-    ) -> None:
-        self._inner.end_invocation(model, turns, usage, cost_usd, is_error, skills_digest)
-
-    def record_quota(self, info: RateLimitInfo) -> None:
-        self._inner.record_quota(info)
-
-    def record_failure(self, kind: FailureKind) -> None:
-        self._inner.record_failure(kind)
-
-
-def _flag(argv: Sequence[str], name: str) -> str:
-    return argv[list(argv).index(name) + 1]
-
-
-def _respond(spec: CommandSpec) -> CommandResult:
-    """ROWS / DRAFTS に沿った応答。分類は1問1グループ、要約は先頭の問題文、含意判定は常に consistent。"""
-    schema = json.loads(_flag(spec.argv, "--json-schema"))
-    prompt = json.loads(spec.stdin)
-    properties = schema["properties"]
-    output: dict[str, object]
-    if "groups" in properties:
-        output = classification_output([[q["key"]] for q in prompt["questions"]])
-    elif "summary" in properties:
-        output = {"summary": prompt["questions"][0]["stem"]}
-    elif "terms" in properties:
-        (qid,) = [qid for qid, stem, *_ in ROWS if stem == prompt["question"]["stem"]]
-        draft = DRAFTS[qid]
-        output = {"terms": list(draft.key.terms), "answer": draft.answer, "discrimination": draft.discrimination}
-    elif "description" in properties:
-        output = {"description": f"{prompt['term']}の説明"}
-    else:
-        output = {"verdict": Entailment.CONSISTENT.value}
-    return exited(fake_stdout(structured_output=output))
-
-
-class CliLlms:
-    """`llm_factory` として、テストコードから `ClaudeCliLlm` を直接構築する。spawn だけを fake にする。"""
-
-    def __init__(self, tmp_path: Path, runner: FakeRunner) -> None:
-        self.runner = runner
-        self.methods: list[str] = []
-        self.home = tmp_path / "min-home"
-        self.cwd_root = tmp_path / "cwd-root"
-        self.home.mkdir()
-        self.cwd_root.mkdir()
-
-    def __call__(self, meter: RunMeter) -> Llm:
-        llm = ClaudeCliLlm(CountingMeter(meter, self.methods))
-        llm.runner = self.runner
-        llm.workspace = Workspace(self.home, self.cwd_root)
-        return llm
-
-    def systems(self) -> list[str]:
-        """これまでに起動した子プロセスの `--system-prompt`(メソッドの別)。"""
-        return [_flag(spec.argv, "--system-prompt") for spec in self.runner.specs]
-
-
 def test_llm_stages_stop_on_failure_and_summarise(
     root: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -542,7 +383,7 @@ def test_llm_stages_stop_on_failure_and_summarise(
     llms = CliLlms(tmp_path, FakeRunner(respond))
     capsys.readouterr()
     with pytest.raises(SystemExit) as raised:
-        cli.main(["--root", str(root), "cluster", DECK], llm_factory=llms)
+        cli.main(["--root", str(root), "cluster", DECK], llm_factory=llms, preflight=no_preflight)
     assert raised.value.code not in (0, None)
 
     # 下流(要約)は起動せず、成果物も書かない。
@@ -588,10 +429,10 @@ def test_resume_makes_no_llm_calls_or_invocations_upstream(
     root: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """途中の段から再実行すると、前段の llm_calls と provider_invocations がどちらも 0(C-016)。"""
-    llms = CliLlms(tmp_path, FakeRunner(_respond))
+    llms = CliLlms(tmp_path, FakeRunner(respond))
 
     def run(*argv: str) -> None:
-        assert cli.main(["--root", str(root), *argv], llm_factory=llms) == 0
+        assert cli.main(["--root", str(root), *argv], llm_factory=llms, preflight=no_preflight) == 0
 
     run("recall", DECK)
     # positive control: 前段を作った実行では、分類・要約・想起素材が数えられている。

@@ -120,9 +120,17 @@ class CliRunner:
         assert model_dir == self.tts_model
         return self.tts
 
+    def _preflight(self) -> None:
+        """起動前検査の fake。検査の中身は `Workspace` を直接走らせるテストが判定する(D-143)。"""
+
     def __call__(self, *argv: str) -> str:
         self.capsys.readouterr()
         extra = ["--tts-model", self.tts_model] if argv[0] == "audio" else []
-        code = cli.main(["--root", str(self.root), *argv, *extra], llm_factory=self._llm, tts_factory=self._tts)
+        code = cli.main(
+            ["--root", str(self.root), *argv, *extra],
+            llm_factory=self._llm,
+            preflight=self._preflight,
+            tts_factory=self._tts,
+        )
         assert code == 0
         return self.capsys.readouterr().out.strip().splitlines()[-1]
