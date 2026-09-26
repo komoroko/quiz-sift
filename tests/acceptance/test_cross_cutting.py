@@ -205,6 +205,18 @@ def test_c015_credentials_never_reach_logs_or_errors(
     for secret in SECRETS:
         assert secret not in log, secret
 
+    # ログを通らずに `cli.main` の外へ抜けた例外は、プロセスの終わりにインタプリタが
+    # `sys.excepthook` で stderr へ書く。そのトレースバックにも平文で出ない。
+    stderr = _capture_stderr(monkeypatch)
+    raising = CliRunner(workspace, capsys, CredentialRaisingLlm(drafts=DRAFTS), StubTts())
+    with pytest.raises(ConnectionError) as raised:
+        raising("cluster", _write_deck(workspace, "deck-c015-raise"))
+    sys.excepthook(raised.type, raised.value, raised.tb)
+    shown = stderr.getvalue()
+    assert "ConnectionError" in shown and "認証に失敗" in shown
+    for secret in (API_KEY, PASSWORD, SESSION, JWT):
+        assert secret not in shown, secret
+
     # 検出器はダミーでない値を拾う(走査が空振りしていないことの対照)。値はこのファイル自身に
     # 平文で残らないよう、実行時に組み立てる。
     assert _credential_shapes("key = 'sk-ant-api03-" + "RealLookingKey0123456789abcd'")
@@ -218,6 +230,17 @@ def test_c015_credentials_never_reach_logs_or_errors(
         if (hits := _credential_shapes(data.decode("utf-8", "replace")))
     }
     assert found == {}
+
+
+@dataclass
+class CredentialRaisingLlm(StubLlm):
+    """認証情報を載せた例外を送出する adapter の代役。例外はログを通らず `cli.main` の外へ抜ける。"""
+
+    def classify_clusters(self, deck: Deck) -> ClassificationResult:
+        key = os.environ["ANTHROPIC_API_KEY"]
+        raise ConnectionError(
+            f"認証に失敗 api_key={key} password={PASSWORD!r} Cookie: dj_session_id={SESSION}; ud_user_jwt={JWT}"
+        )
 
 
 # ---- C-016 ----
