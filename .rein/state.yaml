@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-26T01:37:29+09:00'
+updated_at: '2026-09-26T10:48:05+09:00'
 gates:
   mandate:
     status: approved
@@ -57,7 +57,642 @@ plan:
   frozen_at: '2026-09-26T01:37:22+09:00'
 execution:
   status: idle
-tasks: {}
+tasks:
+  T-032:
+    status: done
+    attempts: 1
+    completed_commit: 009a78e0ad23f7543db1c17437be9dba77c2a47e
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:8c65819ae6fa82e7c8809fe6d412731992072eda684c0f22a63862b49883b927
+      updated_at: '2026-09-26T01:59:28+09:00'
+  T-037:
+    status: done
+    attempts: 12
+    completed_commit: 69188e9a4701be2c3884eed63c020339ae8c929b
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 009a78e0ad23f7543db1c17437be9dba77c2a47e
+        step: test
+      tree: sha256:27529be972e06e65da7fa144ff543a7fd8d6f31399b8da52b826b346a67f6264
+      updated_at: '2026-09-26T05:06:20+09:00'
+  T-039:
+    status: done
+    attempts: 1
+    completed_commit: ba0f95d2b58dcaba71acb0b300a3ad534b0021b5
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-7
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-8
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      - id: A-7
+        kind: command
+        reused: false
+      - id: A-8
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 69188e9a4701be2c3884eed63c020339ae8c929b
+        step: test
+      tree: sha256:c5aa2468ac11a2dad91c655308ce760da1ec119d5da90b042a6edd86bf84291e
+      updated_at: '2026-09-26T05:24:09+09:00'
+  T-040:
+    status: done
+    attempts: 1
+    completed_commit: 69dfa9e0af5df3b2005c53b8b7d81cf23433e14b
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: ba0f95d2b58dcaba71acb0b300a3ad534b0021b5
+        step: test
+      tree: sha256:b84b11d47ea57a8c7089af11063d10c0992dac5f0f9f3c4d342d70794cbd1ed8
+      updated_at: '2026-09-26T05:41:59+09:00'
+  T-041:
+    status: done
+    attempts: 1
+    completed_commit: 43b792cbfa925c5ec22708c1e1cf337bd2ccac04
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:b2dfe03aa086db21dfd8d87b2a6ad8b58f68cdfd0064e5c28900b1527e957ddb
+      updated_at: '2026-09-26T05:58:05+09:00'
+  T-042:
+    status: done
+    attempts: 1
+    completed_commit: 65cb7a6fa93f6e5e4a0b5106b7228f90907f031b
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-7
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      - id: A-7
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 43b792cbfa925c5ec22708c1e1cf337bd2ccac04
+        step: test
+      tree: sha256:e5829be1c84816b95e40da3fc3f5cddfccecbb371cf9e391c26190f89566322f
+      updated_at: '2026-09-26T06:15:46+09:00'
+  T-033:
+    status: done
+    attempts: 1
+    completed_commit: e7b1ac7bd5dcff15cb361142b4949de7eec0ca1b
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:9228bd8f072201b81711e852a034908a2009db7cdf85edc2007b853a51db34d1
+      updated_at: '2026-09-26T06:35:44+09:00'
+  T-034:
+    status: done
+    attempts: 14
+    completed_commit: 77b72141b2ca740f888522cdb72e367082ef2524
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:4981310d78bffc7fe39a4a2166b3f06ac253a7ab44d5d7e6666cb6d52d12653d
+      updated_at: '2026-09-26T10:10:38+09:00'
+  T-035:
+    status: done
+    attempts: 1
+    completed_commit: ad88c1e852cfacc2823bbe3337c231ca27e0ddf3
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:36326eb74ad3c7c5d6be992135d3dcb509c8b131398dff308b283a3a2a3ccd3c
+      updated_at: '2026-09-26T10:21:24+09:00'
+  T-036:
+    status: blocked
+    attempts: 1
+    handoff:
+      report:
+        outcome: needs-revision
+        summary: 'レビュー指摘(A-2/C-015 を緑になる経路に狭めた)は正しい。test_c015_credentials_never_reach_logs_or_errors(A-2
+          の凍結ノード)に、認証情報(api_key=sk-ant-…、password、Cookie: dj_session_id / ud_user_jwt)を載せた ConnectionError
+          を stub adapter から送出し、cli.main の外へ抜けた例外をインタプリタと同じく sys.excepthook で stderr に書かせて平文が無いことを確かめる検証を加えた(commit
+          11944fc)。結果は赤: API キーを含むすべての値が平文でトレースバックに出る。原因は製品側で、src/quiz_sift/cli.py の main/_run が例外を捕まえずに再送出し、未捕捉のトレースバックが
+          SecretMaskFilter を通らないこと(log_filter.py の docstring もこの経路が塞がれていないと認めている)。修正は cli.py に要り、T-036
+          の scope(tests/acceptance/test_cross_cutting.py のみ)の外にあるため needs-revision とする(ゲート規則3)。/revise
+          で cli.py の修正タスク(例: 未捕捉例外の表示を mask_secrets に通す)を mandate に加えるかどうかは人の判断に委ねる。lint/format/types
+          は緑。test ゲートはこの1件だけが赤になる。'
+        at: '2026-09-26T10:46:16+09:00'
+        touched:
+        - tests/acceptance/test_cross_cutting.py
+      updated_at: '2026-09-26T10:48:05+09:00'
+      last_agent:
+        role: code_reviewer
+        adapter: claude
+        rc: 0
+        session: ''
+        output_tail: "T-036 は、C-015 の受入テストが赤のままなので着地できません。findings を `.rein/work/T-036.findings.json`\
+          \ に書きました(must_fix 1 件、consider 2 件)。\n\n- **must_fix** `tests/acceptance/test_cross_cutting.py:214`:\
+          \ 原因は製品コードの `src/quiz_sift/cli.py:535-537` と `:560-563` です。どちらも例外を捕まえずにそのまま外へ出します。そのため、API キーやパスワード、Cookie\
+          \ を載せた例外が `cli.main` の外へ抜けると、トレースバックに平文のまま出ます。`SecretMaskFilter` はログハンドラにしか付いていないので、この経路は覆いません。\n\
+          \  - テストの判定は C-015 の文面どおりで正しく、テストを緩めて緑にするのは誤りです。\n  - 直す場所は T-036 の scope の外なので、実装者の needs-revision\
+          \ 判断は妥当です。cli.py の修正を mandate に加えるかは、/revise で人が決めます。\n  - C-018 のテストは受入テスト全体を走らせるため、この赤で A-5\
+          \ も赤になります。\n- **consider** `test_cross_cutting.py:212`: テストは `sys.excepthook` を直接呼んで表示を得ています。そのため修正の置き場所によっては、実プロセスでは直っていてもテストが赤のまま残ります。/revise\
+          \ で方針を決めるときは、テストが観測する経路と修正の置き場所を揃える必要があります。\n- **consider** `test_cross_cutting.py:132`: チケットは「ensure_ignored\
+          \ を外した出力先で赤」と書いていますが、`cli.py:311` の `ensure_ignored` を消しても test_c014 は緑のままです。テスト用の作業ルートの `.gitignore`\
+          \ が常に `out/` を無視しているためです。テストが確かめている振る舞いは claim の文面には合っていますが、チケットの記述とは食い違っています。\n\n破れなかった点:\n\
+          \n- **追加依存**: ありません。pyyaml は既存の依存です。\n- **A-1 / A-2 のマスク**: `MaterialTextFilter` や `SecretMaskFilter`\
+          \ を外すと、C-014 と C-015 の前半はそれぞれ赤になります。\n- **A-3 (C-016)**: 前段のキャッシュが効かなくなると、`classify` / `summarize`\
+          \ の呼び出しが検出されて赤になります。\n- **A-4 (C-017)**: CI とゲートの step 集合の一致と、外部パスの検出器は、どちらも正負の対照を持っています。\n\
+          - **A-5 (C-018)**: 外向き接続の遮断は、ホスト名・IPv6・AF_UNIX のいずれでも迂回できませんでした。ただし、テストが起動するサブプロセスは fixture\
+          \ の対象外です。\n\nコードの変更もコマンドの実行もしていません。"
+        at: '2026-09-26T10:48:05+09:00'
+      review:
+        findings:
+        - severity: must_fix
+          statement: 'A-2 / C-015 の『例外…がマスクされて出力される』『エラーメッセージにも出力されない』のうち、テストが確かめているのは stub 内で logger.exception
+            に流した例外だけである。cli.main は例外を捕まえず再送出する(src/quiz_sift/cli.py:535-537)。そのため、認証情報を載せたまま cli.main
+            の外へ抜けた例外は sys.excepthook のトレースバックとして stderr に出て、SecretMaskFilter を通らない。実装者の報告もこの経路を検証対象から外したと書いている。つまり受入基準を、緑になる経路まで狭めたことになる。例:
+            adapter が f"api_key={key}" を含む ConnectionError を送出すると、平文のキーがそのまま端末に出るが、このテストは赤にならない。直し方: 伝播する例外の経路を検証するテストを追加する。赤になったら、それは既存実装の欠陥なので
+            needs-revision とエスカレーション(ゲート規則3)に回す。受入の範囲を黙って狭めない。'
+          anchor: tests/acceptance/test_cross_cutting.py:155
+        - severity: consider
+          statement: '[L-CODE-ERROR-PATH] NetworkBlocked は OSError の派生である。製品コードやライブラリが OSError / 広い Exception
+            を捕まえてリトライやフォールバックに回すと、外向きの接続を試みたこと自体が握りつぶされ、入れ子の pytest.main は緑のまま終わる。この場合 A-5 の『fixture の下で緑』は、接続を試みなかったことを示さない。fixture
+            内で遮断した接続先をリストに記録し、入れ子の実行後に空であることも assert すれば、握りつぶされた試行も赤にできる。'
+          anchor: tests/acceptance/test_cross_cutting.py:343
+        - severity: consider
+          statement: test_c018 は tests/acceptance 全体を同じプロセス内の pytest.main で走らせ直す。このため `bash gate.sh test`(pytest
+            -q)を1回実行するたびに、受入テストが ffmpeg を使う音声テストも含めてすべて2回走る。さらに入れ子のセッションは、外側と sys.modules・ロガー・tmp_path
+            の基底ディレクトリを共有する。外側で失敗したテストは内側でも失敗するので、二重に報告される。基準が求めるのは『fixture の下で緑』なので、この構成自体は要件どおりである。ただし実行時間とノイズのコストが残ることを受入で判断材料として示す。
+          anchor: tests/acceptance/test_cross_cutting.py:404
+        - severity: consider
+          statement: 追跡されうるファイルを走査する検出器のうち、名前つきの値を拾うパターンは値が引用符で囲まれていることを前提にしている(`[=:]\s*["']...["']`)。そのため
+            .env や ini 形式の `password=<値>`、`DJ_SESSION_ID=<値>` のような引用符なしの平文は検出されず、A-2 の後半『追跡ファイルにその形の値が平文で無い』の検査に穴が残る。製品側の
+            SecretMaskFilter は引用符なしの name=value も伏せているので、同じ形を検出器にも入れることを検討する。
+          anchor: tests/acceptance/test_cross_cutting.py:166
+        - severity: must_fix
+          statement: 'A-2 (C-015) は赤のまま着地できない。test_c015_credentials_never_reach_logs_or_errors の後半は、認証情報を載せた
+            ConnectionError が cli.main の外へ抜けたとき sys.excepthook のトレースバックに平文で出ないことを要求する。製品側の src/quiz_sift/cli.py:535-537(_run
+            の `except BaseException: ... raise`)と cli.py:560-563(main は finally だけで捕まえない)は例外を素通しし、SecretMaskFilter
+            はログハンドラにしか付かないので、`python -m quiz_sift.cli` で未捕捉になった例外の API キー・パスワード・Cookie 値はそのまま stderr に出る(log_filter.py:7
+            の docstring もこの経路が塞がれていないと認めている)。テストの判定は C-015 の文面(エラーメッセージにも出力されない)どおりで正しく、テストを緩めて緑にするのは誤り。修正は
+            T-036 の scope(tests/acceptance/test_cross_cutting.py のみ)の外にある製品コードなので、実装者の needs-revision
+            判断は妥当。route は plan。/revise で cli.py の未捕捉例外の表示を mask_secrets に通すタスクを mandate に加えるかを人が決める。なお
+            C-018 のテストは tests/acceptance/ 全体を pytest.main で走らせるため、この赤が test_c018_gate_steps_need_no_network
+            にも連鎖して A-5 も赤になる。'
+          anchor: tests/acceptance/test_cross_cutting.py:214
+        - severity: consider
+          statement: C-015 後半は sys.excepthook をテストから直接呼んで表示を得ている。製品側の修正が `if __name__ == "__main__":`
+            の中だけで excepthook を差し替える形や、main の外で例外を包む形をとると、実プロセスでは平文が出なくなってもこのテストは赤のまま残る。逆に main() がグローバルな
+            sys.excepthook を差し替えたまま戻さない形なら緑になるが、テストの副作用がプロセス全体に残る。/revise で修正方針を決めるとき、このテストが観測する経路(cli.main
+            が送出する例外そのもの、またはそれを受ける excepthook)と修正の置き場所を揃えること。
+          anchor: tests/acceptance/test_cross_cutting.py:212
+        - severity: consider
+          statement: 'チケットの試験方針は『A-1: ensure_ignored を外した出力先で赤』と書くが、test_c014 はそうならない。workspace fixture
+            の .gitignore が常に data/ と out/ を無視するので、cli.py:311 の ensure_ignored 呼び出しを消しても出力は out/ に落ち、is_ignored
+            判定は緑のまま。テストが見ているのは『本文を持つファイルが追跡されうる場所に無い』という振る舞いで、claim の文面には合っている。ガード自体の拒否挙動は凍結ノード tests/safety/test_gitignore_guard.py
+            側にしかない。チケットの赤条件の記述とテストが一致していない点は人に見せておく。'
+          anchor: tests/acceptance/test_cross_cutting.py:132
 baseline:
   measured_at: '2026-09-25T16:21:28+00:00'
   tree_digest: sha256:6e8dcc543a5b659574fb5407eb3b7cdee1dc48abe90637133b09886b5eae605d
