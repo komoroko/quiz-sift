@@ -3,11 +3,13 @@
 LLM と TTS はスタブ。本文は自分で書いた合成フィクスチャで、NFR-2 の対象外。
 """
 
+import io
 import json
 import math
 import os
 import subprocess
 import sys
+import traceback
 from array import array
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -290,3 +292,119 @@ def test_cli_entry_point_exits_zero(tmp_path: Path) -> None:
         outputs[flag] = completed.stdout
     assert outputs["--version"].strip() == "quiz-sift 0.1.0"
     assert all(stage in outputs["--help"] for stage in STAGES)
+
+
+# 伏せる対象の合成値(C-015)。実物らしい形にしない。
+SYNTHETIC_API_KEY = "sk-ant-api03-SyntheticKey"
+SYNTHETIC_PASSWORD = "SyntheticPassword"
+SYNTHETIC_DJ_SESSION = "SyntheticDjSession"
+SYNTHETIC_UD_JWT = "SyntheticUdJwt"
+SYNTHETIC_SECRETS = (SYNTHETIC_API_KEY, SYNTHETIC_PASSWORD, SYNTHETIC_DJ_SESSION, SYNTHETIC_UD_JWT)
+LEAKING_MESSAGE = (
+    f"接続に失敗した key={SYNTHETIC_API_KEY} password={SYNTHETIC_PASSWORD}\n"
+    f"Cookie: dj_session_id={SYNTHETIC_DJ_SESSION}; ud_user_jwt={SYNTHETIC_UD_JWT}"
+)
+
+
+@pytest.fixture(autouse=True)
+def restore_excepthook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`cli.main` が差し替える `sys.excepthook` を、テストごとに元へ戻す。"""
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+
+
+class LeakingLlm(StubLlm):
+    def classify_clusters(self, deck: Deck) -> ClassificationResult:
+        raise ConnectionError(LEAKING_MESSAGE)
+
+
+def _hook_output(monkeypatch: pytest.MonkeyPatch, error: BaseException) -> str:
+    """`sys.stderr` を新しいバッファに差し替えてから、`error` で `sys.excepthook` を呼んだ出力。"""
+    buffer = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", buffer)
+    sys.excepthook(type(error), error, error.__traceback__)
+    return buffer.getvalue()
+
+
+def test_uncaught_exception_traceback_masks_credentials(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main` の外へ抜けた例外のトレースバックで、認証情報が平文で出ない(C-015)。"""
+    llm = LeakingLlm()
+    with pytest.raises(ConnectionError) as raised:
+        cli.main(["--root", str(root), "cluster", DECK], llm_factory=lambda recorder: llm)
+    assert type(raised.value) is ConnectionError
+
+    output = _hook_output(monkeypatch, raised.value)
+    for secret in SYNTHETIC_SECRETS:
+        assert secret not in output
+    assert "ConnectionError: 接続に失敗した" in output
+    assert "Cookie:" in output
+
+
+def test_excepthook_masks_the_cause_chain_and_changes_nothing_else(monkeypatch: pytest.MonkeyPatch) -> None:
+    """伏せる以外は `traceback.format_exception` のまま。原因の側の認証情報も伏せ、連鎖の表示は残す。"""
+    monkeypatch.setattr(sys, "excepthook", cli._masked_excepthook)
+
+    def plain() -> None:
+        raise ValueError("Synthetic の問題文が1件も無い")
+
+    with pytest.raises(ValueError) as raised_plain:
+        plain()
+    error = raised_plain.value
+    assert _hook_output(monkeypatch, error) == "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+
+    def chained() -> None:
+        try:
+            raise ConnectionError(LEAKING_MESSAGE)
+        except ConnectionError as cause:
+            raise RuntimeError("Synthetic の段が失敗した") from cause
+
+    with pytest.raises(RuntimeError) as raised_chained:
+        chained()
+    output = _hook_output(monkeypatch, raised_chained.value)
+    assert "The above exception was the direct cause of the following exception" in output
+    assert "ConnectionError: 接続に失敗した" in output
+    assert "RuntimeError: Synthetic の段が失敗した" in output
+    for secret in SYNTHETIC_SECRETS:
+        assert secret not in output
+    cause = raised_chained.value.__cause__
+    assert cause is not None
+    assert cause.args == (LEAKING_MESSAGE,)
+
+
+def test_excepthook_is_installed_by_identity_and_does_not_delegate(
+    root: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`main` は `sys.excepthook` を伏せるフックに差し替える。何度呼んでも同じ関数で、直前のフックへ委ねない。"""
+    recorded: list[BaseException] = []
+
+    def recording_hook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
+        recorded.append(exc)
+
+    monkeypatch.setattr(sys, "excepthook", recording_hook)
+    run = Runner(root, capsys, StubLlm(), StubTts())
+    run("ingest", DECK)
+    run("ingest", DECK)
+    assert sys.excepthook is cli._masked_excepthook
+
+    monkeypatch.setattr(sys, "excepthook", recording_hook)
+    run("ingest", DECK)
+    assert sys.excepthook is cli._masked_excepthook
+
+    output = _hook_output(monkeypatch, ConnectionError(LEAKING_MESSAGE))
+    assert "ConnectionError" in output
+    assert recorded == []
+
+
+def test_excepthook_failure_does_not_fall_back_to_plaintext(monkeypatch: pytest.MonkeyPatch) -> None:
+    """伏せるのに失敗しても、フックは例外を出さず、型名だけを書く。"""
+
+    def broken_mask(text: str) -> str:
+        raise RuntimeError("Synthetic の伏せ処理の失敗")
+
+    monkeypatch.setattr(cli, "mask_secrets", broken_mask)
+    monkeypatch.setattr(sys, "excepthook", cli._masked_excepthook)
+    output = _hook_output(monkeypatch, ConnectionError(LEAKING_MESSAGE))
+    assert "ConnectionError" in output
+    for secret in SYNTHETIC_SECRETS:
+        assert secret not in output

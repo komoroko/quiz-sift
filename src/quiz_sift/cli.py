@@ -21,10 +21,12 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import traceback
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
+from types import TracebackType
 from typing import Any, BinaryIO
 
 from quiz_sift import __version__
@@ -53,7 +55,7 @@ from quiz_sift.recall.generate import RecallSet, generate_recall_set
 from quiz_sift.recall.verify import RecallMaterial, RecallReport, TermRate
 from quiz_sift.safety.gitignore_guard import ensure_ignored
 from quiz_sift.safety.log_filter import MaterialTextFilter
-from quiz_sift.safety.secret_mask import SecretMaskFilter
+from quiz_sift.safety.secret_mask import SecretMaskFilter, mask_secrets
 from quiz_sift.schedule.playlist import record_and_rank, write_review_series
 from quiz_sift.schedule.rank import NoTargets
 from quiz_sift.script.generate import PAUSE_SECONDS, ScriptSet, generate_scripts
@@ -506,6 +508,20 @@ def _exit_code(error: BaseException) -> int:
     return error.code if isinstance(error.code, int) else 1
 
 
+def _masked_excepthook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
+    """`main` の外へ抜けた例外のトレースバックを、認証情報を伏せて呼ばれた時点の `sys.stderr` へ書く(D-157)。
+
+    ログを通らない経路なので `SecretMaskFilter` が効かない。直前のフックは呼ばない — 渡すと平文の例外
+    オブジェクトが渡る。伏せるのに失敗したら型名だけを書く。フックが例外を出すとインタプリタが元の
+    トレースバックを平文で書くので、外へは出さない。
+    """
+    try:
+        text = mask_secrets("".join(traceback.format_exception(exc_type, exc, tb)))
+    except Exception:
+        text = f"{exc_type.__name__}: 認証情報を伏せられなかったのでトレースバックを書かない\n"
+    sys.stderr.write(text)
+
+
 def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFactory, tts_factory: TtsFactory) -> None:
     root: Path = args.root
     if args.stage == "serve":
@@ -549,6 +565,8 @@ def main(
     tts_factory: TtsFactory = _default_tts,
 ) -> int:
     """CLI を実行して終了コードを返す。段の検査に落ちた場合は `SystemExit` の派生が非0で抜ける。"""
+    if sys.excepthook is not _masked_excepthook:
+        sys.excepthook = _masked_excepthook
     args = _parser().parse_args(argv)
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
