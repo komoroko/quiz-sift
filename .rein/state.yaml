@@ -1155,7 +1155,49 @@ tasks:
       tree: sha256:40e11aab043264e6e67285903e694d71bb7632d0d2127938463cd303e5dd8676
       updated_at: '2026-09-27T01:30:12+09:00'
 baseline:
-  measured_at: '2026-09-26T06:18:01+00:00'
-  tree_digest: sha256:1e3b3568cf35fe005954fd9df53abd5ae82858ac3dc558f9ed06cbe16aac682e
-  red_steps: []
+  measured_at: '2026-09-26T21:43:23+00:00'
+  tree_digest: sha256:490383f4b77cd136619600482ef2a2c50a6d759c002de5feeec5f70730148670
+  red_steps:
+  - name: test
+    failure: '$ bash gate.sh test (rc=1)
+
+      … (346 line(s) omitted; kept salient lines only)
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 3 tracks, 43.2 s total, 0 clusters
+      failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 11 tracks, 52.8 s total, 0 clusters
+      failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 9 tracks, 43.2 s total, 2 clusters
+      failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 11 tracks, 52.8 s total, 0 clusters
+      failed
+
+      ERROR    quiz_sift.adapters.synthetic_stub:test_cross_cutting.py:158 上流の呼び出しに失敗した
+
+      Traceback (most recent call last):
+
+      ConnectionError: 認証に失敗 api_key=sk-ant-api03-SyntheticDummyKey_C015_0123456789-abcdef password=''SyntheticUdemyPassw0rd!''
+      sessionid=SyntheticDjSession0123456789abcdef
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 3 tracks, 14.4 s total, 0 clusters
+      failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 3 tracks, 14.4 s total, 0 clusters
+      failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 2 tracks, 9.6 s total, 0 clusters failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 2 tracks, 9.6 s total, 0 clusters failed
+
+      INFO     quiz_sift.audio.synthesize:synthesize.py:169 audio: 4 tracks, 19.2 s total, 0 clusters
+      failed
+
+      FAILED tests/acceptance/test_cross_cutting.py::test_c015_credentials_never_reach_logs_or_errors
+
+      FAILED tests/acceptance/test_cross_cutting.py::test_c018_gate_steps_need_no_network
+
+      2 failed, 374 passed, 5 skipped in 420.72s (0:07:00)'
   frozen: false

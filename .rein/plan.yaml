@@ -1866,8 +1866,8 @@ decisions:
   subject: 要約プロンプトで長さと形をどう縛るか
   reach: local
   status: settled
-  settled_by: loop
-  answer: SUMMARIZE_SYSTEM に、見出し・箇条書き・記号の装飾を使わない平文で、3文以内・200字以内に書くこと、専門用語は問題文に現れる表記のまま使い、問題文に無い専門用語や見出し語を作らないことを足す。スキーマに maxLength は足さない。人が選んだ選択肢の文面は「プロンプトとスキーマ」だったので、スキーマを外したことを mandate の提示で明示する(AR-172)。
+  settled_by: human
+  answer: SUMMARIZE_SYSTEM に、見出し・箇条書き・記号の装飾を使わない平文で、3文以内・200字以内に書くこと、専門用語は問題文に現れる表記のまま使い、問題文に無い専門用語や見出し語を作らないことを足す。スキーマに maxLength は足さない。人が選んだ選択肢の文面は「プロンプトとスキーマ」だったので、スキーマを外すことを人に確かめ、プロンプトだけにすると決まった(AR-172、2026-09-27)。
   rationale: 実データでは Opus が見出しつきの 2507 字を返した。UI と音声で読む要約として長すぎ、照合する語句も増える。maxLength を足すと、--json-schema の下で超過がどう扱われるか(CLI 内での再試行か SCHEMA 失敗か)が未観測で、SCHEMA 失敗なら再試行しない規則(R-3)により列が止まる。プロンプトの変更は cluster 段の inputs_digest を動かし、キャッシュが1回無効になる(AR-21 の意図どおり)。
   requirement_ids:
   - R-3
@@ -1881,6 +1881,16 @@ decisions:
   requirement_ids:
   - R-3
 
+- id: D-162
+  subject: 再承認前のベースラインで C-015 と C-018 が赤になった(T-036 の走査が入れ子の .gitignore を読まない)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-050 を足して、C-015 の走査(tests/acceptance/test_cross_cutting.py の _trackable_files)が各ディレクトリの .gitignore をそのディレクトリからの相対で適用するように直す。T-049 は T-050 に依存させる。ベースラインは、T-050 が直すまで赤として --freeze で記録する。T-050 が着地したら、web/node_modules/ のある作業ディレクトリで rein baseline measure を測り直し、test ステップが緑に戻ったことを確かめて凍結を外す(AR-176)。
+  rationale: 走査はルートの .gitignore しか読まないので、web/.gitignore が無視する web/node_modules/ を追跡されうるファイルとして数え、第三者パッケージの文字列を認証情報の形として拾う。T-036 のゲートは node_modules の無い作業ツリーで走ったので緑だった。HEAD を git archive で取り出した木では、サンドボックスで 376 件が緑(2026-09-27 に実測)。作業ディレクトリをそのまま載せると、C-015 と C-018 の2件が赤になる。製品の欠陥ではなく、テストが定義する「git が追跡しうるファイル」の欠陥である。mandate の承認画面で人が確かめる。
+  requirement_ids:
+  - NFR-3
+  - NFR-6
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -3382,6 +3392,7 @@ tasks:
   blocked_by:
   - T-040
   - T-033
+  - T-050
   claim_ids:
   - C-003
   domains:
@@ -3433,6 +3444,51 @@ tasks:
       executor_profile: quality
   - id: A-5
     statement: SUMMARIZE_SYSTEM が次の3点を指示する。見出し・箇条書き・記号の装飾を使わない平文で3文以内・200字以内に書くこと。専門用語は問題文の表記のまま使うこと。問題文に無い専門用語や見出し語を作らないこと。SUMMARIZE_SCHEMA は変えない(D-160)。
+  operator_surface: []
+  requires: []
+- id: T-050
+  title: C-015 の走査が入れ子の .gitignore を読むようにする
+  kind: foundation
+  blocked_by:
+  - T-036
+  claim_ids:
+  - C-015
+  - C-018
+  domains:
+  - security
+  risk: medium
+  scope:
+    include:
+    - tests/acceptance/test_cross_cutting.py
+  acceptance:
+  - id: A-1
+    statement: '不具合の再現: 一時ディレクトリに次の木を作り、_trackable_files が返すパスの集合を確かめる。(1) sub/.gitignore に node_modules/ を書くと、sub/node_modules/pkg.js(認証情報の形をした合成値)は返らない。ルート直下の node_modules/x.js は返る(規則はそのディレクトリからの相対で効く)。(2) sub/.gitignore に固定パターン /build/ を書くと、sub/build/x は返らず、sub/deeper/build/x は返る。(3) 2段の入れ子 sub/a/.gitignore の規則は sub/a の下にだけ効く。(4) sub/keep.txt とルート直下のファイルは返る。修正前のコードではこのテストが赤になる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_cross_cutting.py::test_trackable_files_honor_nested_gitignore
+      executor_profile: quality
+  - id: A-3
+    statement: 'ルート以外の .gitignore に否定の行(! で始まる行)があるとき、_trackable_files は黙って走査を続けず、そのファイルのパスを示して失敗する。階層をまたぐ否定の優先順位はこの走査では評価しない。評価しないまま進むと、無視しすぎの向きに誤り、認証情報を見落として緑になる(AR-175)。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_cross_cutting.py::test_trackable_files_refuse_nested_negation
+      executor_profile: quality
+  - id: A-2
+    statement: T-036 が凍結したノードは、名前も assert も変えずに緑のままである。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_cross_cutting.py::test_c015_credentials_never_reach_logs_or_errors
+      - tests/acceptance/test_cross_cutting.py::test_c018_gate_steps_need_no_network
+      executor_profile: quality
   operator_surface: []
   requires: []
 lenses:
