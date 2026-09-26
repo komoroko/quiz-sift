@@ -1,7 +1,10 @@
 """クラスタ要約(R-3 / NFR-1)。要約を作り、2つの検査を通ったときだけ成果物を書く。
 
-1. **語句の実在性**(ADR-010): 要約から切り出した名詞句のすべてが、そのクラスタに属する問題の
-   本文(問題文・選択肢・解説)のどれかに実在すること。1語でも実在しなければ止める。
+1. **語句の実在性**(ADR-010 / D-161): 要約から切り出した専門用語の断片のすべてが、そのクラスタに
+   属する問題の本文(問題文・選択肢・解説)のどれかに実在すること。断片が1つでも実在しなければ止める。
+   断片は要約の本文から直接切り出す。日本語デッキは英字で始まる英数字の語とカタカナ2字以上の列
+   (漢字と混ざった句はカタカナの列だけ)、英語デッキは大文字略語と文頭以外の大文字始まりの語。
+   漢字だけの語や小文字の一般語は照合しない。専門用語が0件の要約は照合を通り、含意判定だけがかかる。
 2. **含意判定**(NFR-1 / D-042): 要約が、そのクラスタの問題の正解・公式解説と矛盾しないこと。
    `safety.entailment.emit_if_consistent` 越しに書き出すので、`consistent` 以外で成果物は書かれない。
 
@@ -9,6 +12,8 @@
 どちらの検査にもかけない。
 """
 
+import re
+import unicodedata
 from collections.abc import Callable
 from typing import Protocol
 
@@ -19,7 +24,6 @@ from quiz_sift.domain.ids import ClusterId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.grounding.presence import is_present
-from quiz_sift.grounding.terms import extract_terms
 from quiz_sift.ports.llm import GroupProposal
 from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent
 
@@ -53,10 +57,30 @@ def _texts(question: Question) -> list[str]:
     return texts
 
 
+_JA_TERM = re.compile(r"[A-Za-z][A-Za-z0-9]*|[\u30a1-\u30fa\u30fc]{2,}")
+_EN_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+_EN_ACRONYM = re.compile(r"[A-Z][A-Z0-9]+")
+_SENTENCE_START = re.compile(r"(?:^|[.!?]\s+|\n)\W*$")
+
+
+def _technical_terms(summary: str, language: Language) -> list[str]:
+    """`summary` から専門用語の断片を出現順に切り出す(D-161)。"""
+    text = unicodedata.normalize("NFKC", summary)
+    if language is Language.JA:
+        return _JA_TERM.findall(text)
+    terms = []
+    for match in _EN_WORD.finditer(text):
+        word = match.group()
+        at_start = _SENTENCE_START.search(text, 0, match.start()) is not None
+        if _EN_ACRONYM.fullmatch(word) or (word[0].isupper() and not at_start):
+            terms.append(word)
+    return terms
+
+
 def ungrounded_terms(summary: str, members: Deck) -> tuple[str, ...]:
-    """`summary` の名詞句のうち、`members` のどの問題の本文にも実在しないもの。"""
+    """`summary` の専門用語の断片のうち、`members` のどの問題の本文にも実在しないもの。"""
     texts = [text for question in members.questions for text in _texts(question)]
-    return tuple(term for term in extract_terms(summary, members.language) if not is_present(term, texts))
+    return tuple(term for term in _technical_terms(summary, members.language) if not is_present(term, texts))
 
 
 def _reference(members: Deck) -> str:
