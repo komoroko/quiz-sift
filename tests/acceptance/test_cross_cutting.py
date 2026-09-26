@@ -168,10 +168,16 @@ _CREDENTIAL_SHAPES = (
         r"""["']?\s*[=:]\s*["']([^"'\s%{}]{8,})["']"""
     ),
 )
+# .env / ini 形式の引用符なし `NAME=value`。Python のキーワード引数と区別できないので `.py` には当てない。
+_UNQUOTED_SHAPE = re.compile(
+    r"""(?im)^\s*(?:export\s+)?[\w.]*(?:password|passwd|session_?id|access_token|jwt)"""
+    r"""\s*=\s*([^\s"'$%{}]{8,})\s*$"""
+)
 
 
-def _credential_shapes(text: str) -> list[str]:
-    return [m.group(0) for p in _CREDENTIAL_SHAPES for m in p.finditer(text) if "Synthetic" not in m.group(0)]
+def _credential_shapes(text: str, *, python: bool = False) -> list[str]:
+    shapes = _CREDENTIAL_SHAPES if python else (*_CREDENTIAL_SHAPES, _UNQUOTED_SHAPE)
+    return [m.group(0) for p in shapes for m in p.finditer(text) if "Synthetic" not in m.group(0)]
 
 
 def _trackable_files(root: Path) -> Iterator[tuple[str, bytes]]:
@@ -222,12 +228,15 @@ def test_c015_credentials_never_reach_logs_or_errors(
     assert _credential_shapes("key = 'sk-ant-api03-" + "RealLookingKey0123456789abcd'")
     assert _credential_shapes("Cookie: dj_session_id=abcdef0123456789abcdef")
     assert _credential_shapes('{"password' + '": "hunter2hunter2"}')
+    assert _credential_shapes("UDEMY_PASSWORD" + "=hunter2hunter2")
+    assert _credential_shapes("DJ_SESSION_ID" + "=abcdef0123456789")
     assert not _credential_shapes(f"key = '{API_KEY}'")
+    assert not _credential_shapes("    session_id=session_id,", python=True)
 
     found = {
         rel: hits
         for rel, data in _trackable_files(ROOT)
-        if (hits := _credential_shapes(data.decode("utf-8", "replace")))
+        if (hits := _credential_shapes(data.decode("utf-8", "replace"), python=rel.endswith(".py")))
     }
     assert found == {}
 
@@ -380,28 +389,37 @@ def _is_loopback(address: object) -> bool:
 
 
 @pytest.fixture
-def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """socket の外向き接続(connect / connect_ex / create_connection)を例外にする。ループバックは通す。"""
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """socket の外向き接続(connect / connect_ex / create_connection)を例外にする。ループバックは通す。
+
+    遮断した接続先を返すリストに記録する。製品コードが OSError を捕まえて握りつぶしても、
+    試みたこと自体はリストに残る。
+    """
+    blocked: list[object] = []
     connect, connect_ex, create_connection = socket.socket.connect, socket.socket.connect_ex, socket.create_connection
 
     def guarded_connect(self: socket.socket, address: Any) -> None:
         if not _is_loopback(address):
+            blocked.append(address)
             raise NetworkBlocked(f"外向きの接続: {address!r}")
         connect(self, address)
 
     def guarded_connect_ex(self: socket.socket, address: Any) -> int:
         if not _is_loopback(address):
+            blocked.append(address)
             raise NetworkBlocked(f"外向きの接続: {address!r}")
         return connect_ex(self, address)
 
     def guarded_create_connection(address: tuple[str, int], *args: Any, **kwargs: Any) -> socket.socket:
         if not _is_loopback(address):
+            blocked.append(address)
             raise NetworkBlocked(f"外向きの接続: {address!r}")
         return create_connection(address, *args, **kwargs)
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+    return blocked
 
 
 def _dial_out() -> None:
@@ -409,7 +427,7 @@ def _dial_out() -> None:
     socket.create_connection(("192.0.2.1", 443), timeout=0.1).close()
 
 
-def test_c018_gate_steps_need_no_network(no_network: None) -> None:
+def test_c018_gate_steps_need_no_network(no_network: list[object]) -> None:
     config = _yaml(ROOT / ".rein" / "config.yaml")
     default = config["executors"]["quality_gate_profile"]
     for step in _gate_command_steps(config):
@@ -421,6 +439,8 @@ def test_c018_gate_steps_need_no_network(no_network: None) -> None:
         _dial_out()
     with socket.socket() as sock, pytest.raises(NetworkBlocked):
         sock.connect_ex(("192.0.2.1", 443))
+    assert no_network == [("192.0.2.1", 443)] * 2
+    no_network.clear()
 
     # 受入テスト全体を同じ fixture の下で走らせる。このテスト自身は再帰になるので外す。
     this = f"{Path(__file__).relative_to(ROOT).as_posix()}::{test_c018_gate_steps_need_no_network.__name__}"
@@ -428,3 +448,4 @@ def test_c018_gate_steps_need_no_network(no_network: None) -> None:
         [str(ROOT / "tests" / "acceptance"), "-q", "-p", "no:cacheprovider", "--rootdir", str(ROOT), "--deselect", this]
     )
     assert code == pytest.ExitCode.OK
+    assert no_network == []
