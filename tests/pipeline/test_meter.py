@@ -16,6 +16,7 @@ import pytest
 import quiz_sift.pipeline.meter as meter_module
 from quiz_sift.pipeline.meter import PRICES, Meter, ModelPrice
 from quiz_sift.pipeline.overhead import OverheadConstant, skills_digest
+from quiz_sift.pipeline.run_sequence import aggregate, read_log
 from quiz_sift.ports.llm import TokenUsage
 from quiz_sift.ports.metering import FailureKind, QuotaWindow, RateLimitInfo, RunMeter
 
@@ -69,8 +70,9 @@ END_FIELDS = {
     "invocations_without_rate_limit_event",
     "overage_check",
     "stop",
+    "sequence",
 }
-"""設計 NFR-7 節「ログのフィールド一覧」の終了行(`sequence` は T-038 が足す)。実装の定数を読まない。"""
+"""設計 NFR-7 節「ログのフィールド一覧」の終了行。実装の定数を読まない。"""
 
 QUOTA_FIELDS = {"status", "rateLimitType", "isUsingOverage", "overageStatus", "resetsAt", "five_hour", "seven_day"}
 
@@ -632,7 +634,7 @@ def test_start_and_end_lines_carry_the_design_fields(tmp_path: Path, monkeypatch
     assert end["stop"] == {"exit_code": 0, "exit_reason": None, "kind": "completed"}
 
     # rate_limit_event が届かなかった実行の quota は null。
-    meter = make_meter(log)
+    meter = make_meter(log, execution_id="exec-2")
     meter.begin_invocation("argv-1")
     meter.record_failure(FailureKind.SPAWN)
     entry = finish(meter, 1, "StageFailed")
@@ -679,3 +681,53 @@ def test_overhead_is_unknown_on_skills_mismatch(tmp_path: Path) -> None:
     assert (overhead[haiku]["status"], overhead[haiku]["reason"]) == ("unknown", "argv_mismatch"), "argv を先に比べる"
     assert overhead[sonnet]["status"] == "recorded"
     assert overhead[sonnet]["skills_digest"] == synced
+
+
+def test_end_line_carries_the_sequence_aggregate(tmp_path: Path) -> None:
+    log = tmp_path / "meter.jsonl"
+    clock = FakeClock()
+
+    def sequence_meter(execution_id: str, stage: str, cache_mode: str) -> Meter:
+        return Meter(
+            clock,
+            log_path=log,
+            run_id="seq",
+            execution_id=execution_id,
+            stage=stage,
+            cache_mode=cache_mode,
+            env_names=(),
+            overhead=MappingProxyType({}),
+        )
+
+    make_meter(log, run_id="other")  # 別の列の閉じていない開始行は、この列の集約に入らない
+
+    first = sequence_meter("exec-a", "cluster", "fresh")
+    first.begin_call("classify_clusters")
+    first.begin_invocation("argv-1")
+    first.record_quota(quota("rejected", 1000, 1.0, 0.5))
+    first.end_invocation("claude-opus-5-5", 1, TokenUsage(10, 0, 0, 5), 0.001, True, None)
+    first.record_failure(FailureKind.PROVIDER_ERROR)
+    clock.seconds += 3.0
+    stopped = finish(first, 1, "StageFailed")
+    assert stopped["sequence"] == json.loads(json.dumps(aggregate(read_log(log), "seq")))
+    assert isinstance(stopped["sequence"], dict)
+    assert (stopped["sequence"]["status"], stopped["sequence"]["not_completable_reasons"]) == ("resumable", [])
+
+    second = sequence_meter("exec-b", "audio", "resume")
+    second.begin_call("script")
+    second.begin_invocation("argv-1")
+    second.record_quota(quota("allowed", 2000, 0.1, 0.5))
+    second.end_invocation("claude-opus-5-5", 2, TokenUsage(20, 0, 0, 5), 0.002, False, None)
+    clock.seconds += 4.0
+    done = finish(second)
+
+    written = end_lines(log)[-1]
+    assert written == json.loads(json.dumps(done))
+    sequence = written["sequence"]
+    assert isinstance(sequence, dict)
+    assert sequence == json.loads(json.dumps(aggregate(read_log(log), "seq"))), "ファイル上の行と終了行を合わせた集約"
+    assert sequence["status"] == "completed"
+    assert sequence["not_completable_reasons"] == [], "いま締めている実行の開始行を閉じていないものに数えない"
+    assert (sequence["llm_calls"], sequence["provider_invocations"], sequence["model_turns"]) == (2, 2, 3)
+    assert sequence["elapsed_sec_sum"] == pytest.approx(7.0)
+    assert [entry["execution_id"] for entry in sequence["quota"]] == ["exec-a", "exec-b"]

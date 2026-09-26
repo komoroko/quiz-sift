@@ -21,6 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from quiz_sift.pipeline.overhead import OVERHEAD, OverheadConstant
+from quiz_sift.pipeline.run_sequence import DISCLAIMER, aggregate, read_log
 from quiz_sift.ports.clock import Clock
 from quiz_sift.ports.llm import TokenUsage
 from quiz_sift.ports.metering import (
@@ -36,8 +37,6 @@ _PER = 1_000_000
 """単価表の単位(USD per 1M tokens)。"""
 
 PRICING_SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
-
-DISCLAIMER = "estimated_cost は公開単価表から自算した名目値(notional)であり、支払った金額を表さない。"
 
 CACHE_MODES = ("fresh", "resume", "normal")
 
@@ -322,6 +321,8 @@ class Meter:
             "overage_check": overage_check,
             "stop": {"exit_code": exit_code, "exit_reason": exit_reason, "kind": stop_kind},
         }
+        # その時点までの列の集約。いま書く終了行を足すので、締めている実行の開始行は閉じたものに数える(D-139)。
+        entry["sequence"] = aggregate([*read_log(self._log_path), entry], self.run_id)
         self._append(entry)
         return entry
 
