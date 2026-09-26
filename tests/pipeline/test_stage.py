@@ -132,3 +132,28 @@ def test_partial_write_does_not_become_a_cache_hit(tmp_path: Path) -> None:
 
     assert cache.run(stage, b"script", complete).read_bytes() == b"ID3 complete"
     assert len(calls) == 1
+
+
+def test_run_id_separates_sequences_and_leaves_the_normal_digest_alone(tmp_path: Path) -> None:
+    """列の実行は run_id 入りの digest で自分の列の成果物にだけヒットし、通常の実行の digest は変わらない(D-137)。"""
+    stage = STAGES[0]
+    normal = StageCache(tmp_path / "out", DECK)
+    first = normal.run(stage, b"questions", writes(b"normal"))
+    assert first.name == inputs_digest(stage, b"questions") == inputs_digest(stage, b"questions", None)
+
+    api = CountingUpstream()
+    sequences = {run_id: StageCache(tmp_path / "out", DECK, run_id) for run_id in ("run-a", "run-b")}
+    paths = {}
+    for run_id, cache in sequences.items():
+        paths[run_id] = cache.run(stage, b"questions", writes(api.call(stage, run_id.encode())))
+        assert paths[run_id].name == inputs_digest(stage, b"questions", run_id)
+    # どちらの列も通常の実行の成果物にヒットせず、互いの成果物も上書きしない。
+    assert api.calls[stage.name] == 2
+    assert len({first, *paths.values()}) == 3
+    assert first.read_bytes() == b"normal"
+
+    # 同じ列はもう一度走らせると自分の成果物にヒットする。
+    def rerun(out: BinaryIO) -> None:
+        raise AssertionError("同じ列の成果物にヒットしなかった")
+
+    assert sequences["run-a"].run(stage, b"questions", rerun) == paths["run-a"]

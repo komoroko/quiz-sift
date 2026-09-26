@@ -144,3 +144,44 @@ def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path) -> None:
     modules, external = reachable(targets)
     assert "quiz_sift.adapters.llm_anthropic" in modules
     assert "anthropic" in external
+
+
+def main_calls(path: Path) -> list[ast.Call]:
+    """`path` の中の `main(...)` と `<何か>.main(...)` の呼び出し。"""
+    return [
+        node
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and (
+            (isinstance(node.func, ast.Name) and node.func.id == "main")
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == "main")
+        )
+    ]
+
+
+def argv_only(call: ast.Call) -> bool:
+    """引数が無いか、位置引数1つ(argv)だけ。キーワードと `*` / `**` の展開は認めない。"""
+    return not call.keywords and len(call.args) <= 1 and not any(isinstance(arg, ast.Starred) for arg in call.args)
+
+
+def test_entry_points_call_main_with_argv_only() -> None:
+    """製品の入口は `main` を argv だけで呼び、`llm_factory` / `preflight` の既定値を差し替えない(D-143、AR-126)。
+
+    コンソールスクリプトはラッパが `main()` を引数なしで呼ぶので、対象が関数そのものであることを確かめる。
+    """
+    scripts = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
+    assert scripts == {"quiz-sift": "quiz_sift.cli:main"}
+
+    calls = {name: main_calls(path) for name in entry_modules() if (path := module_path(name)) is not None}
+    assert calls["quiz_sift.cli"]  # 走査が空振りしていない(`sys.exit(main())`)
+    offenders = [f"{name}:{call.lineno}" for name, found in calls.items() for call in found if not argv_only(call)]
+    assert offenders == []
+
+
+def test_argv_only_rejects_a_substituted_default(tmp_path: Path) -> None:
+    """判定が赤くなり得ること: 既定値を差し替える呼び出しを拒み、argv だけの呼び出しは通す。"""
+    entry = tmp_path / "entry.py"
+    entry.write_text("sys.exit(main())\nmain(argv, preflight=lambda: None)\n", encoding="utf-8")
+    plain, substituted = sorted(main_calls(entry), key=lambda call: call.lineno)
+    assert argv_only(plain)
+    assert not argv_only(substituted)

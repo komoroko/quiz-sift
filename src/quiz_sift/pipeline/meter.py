@@ -255,6 +255,14 @@ class Meter:
         invocation.failure = kind
         self._failures[kind] += 1
 
+    def stop_seen(self) -> bool:
+        """これまでの子のどれかに overage が現れたか、レート枠で止まったか(D-144)。
+
+        真なら同じ段の残りの呼び出しを発行しない。overage の後は従量課金になり、枠で止まった後の呼び出しは
+        再開時に捨てられるので、どちらも続ける利得が無い。
+        """
+        return any(invocation.overage or self._stopped_by_rate_limit(invocation) for invocation in self._invocations)
+
     def _open(self) -> _Invocation:
         """いま開いている子プロセス(最後に `begin_invocation` したもの)。"""
         if not self._invocations:

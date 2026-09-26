@@ -8,29 +8,37 @@
 再実行で前段の LLM / TTS 呼び出しは 0 回になる。LLM と TTS は最初に要ったときに1度だけ組み立てる —
 キャッシュだけで済む実行は `claude` も CosyVoice も要らない。
 
+LLM を呼びうる段(cluster / recall / glossary / script / audio)は、起動前検査 → 開始行 → 段 → `finally` で終了行、
+の順に動く(NFR-7 節「実行の列」、ADR-018)。`--fresh-run` は新しい列を始めて段キャッシュを迂回し、
+`--resume RUN_ID` は `resumable` の列に実行を1つ足す。無指定は通常のキャッシュを使う1実行だけの列になる。
+1回の実行は `signal.alarm` で 12 時間に制限する(D-138)。ingest / review / serve は LLM を呼ばないので、
+検査も列への登録もしない(D-143)。
+
 成果物は JSON(音声は書き出したディレクトリの tar)で `out/<deck>/<段>/<digest>` に置く。配信側の
 `out/<deck>/audio/` と `out/<deck>/glossary/` は実行のたびにキャッシュから作り直す(AR-14)。
 書き出す前に、デッキの出力先が `.gitignore` の対象であることを確かめる(NFR-2)。
 """
 
 import argparse
+import contextlib
 import json
 import logging
 import os
 import shutil
+import signal
 import sys
 import tarfile
 import tempfile
 import traceback
 import uuid
-from collections.abc import Callable, Sequence
-from dataclasses import asdict
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from types import TracebackType
+from types import FrameType, TracebackType
 from typing import Any, BinaryIO
 
 from quiz_sift import __version__, composition
-from quiz_sift.adapters import llm_prompts
+from quiz_sift.adapters import claude_process, llm_prompts
 from quiz_sift.adapters.llm_claude_cli import MAX_TURNS
 from quiz_sift.audio.synthesize import synthesize_tracks
 from quiz_sift.cluster.run import Clustering, cluster_deck
@@ -48,9 +56,10 @@ from quiz_sift.glossary.describe import GlossaryEntry
 from quiz_sift.glossary.verify import Consistent, Glossary, NoReference, emit_glossary
 from quiz_sift.ingest.deck import ingest_deck
 from quiz_sift.pipeline.meter import Meter
+from quiz_sift.pipeline.run_sequence import UnknownRunError, aggregate, read_log
 from quiz_sift.pipeline.stage import Stage, StageCache
 from quiz_sift.ports.clock import SystemClock
-from quiz_sift.ports.llm import Llm, RecallDraft
+from quiz_sift.ports.llm import Entailment, Llm, LlmCallError, RecallDraft
 from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import Tts
 from quiz_sift.recall.generate import RecallSet, generate_recall_set
@@ -70,6 +79,14 @@ logger = logging.getLogger(__name__)
 type LlmFactory = Callable[[RunMeter], Llm]
 type TtsFactory = Callable[[str], Tts]
 """`--tts-model` の値を受け取って TTS を組み立てる。"""
+type Preflight = Callable[[], None]
+"""起動前検査(NFR-8 (b))。落ちたら `SystemExit` の派生を上げる。"""
+
+LLM_STAGES = ("cluster", "recall", "glossary", "script", "audio")
+"""LLM を呼びうる段。起動前検査と実行の列への登録はこの段だけが行う(D-143)。"""
+
+EXECUTION_LIMIT_SEC = 12 * 60 * 60
+"""1回の実行の実経過時間の上限(R-3、D-138)。列の壁時計には上限を置かない。"""
 
 DEFAULT_VOICES = {Language.JA: "日语男", Language.EN: "英文女"}
 """`--voice` を省いたときのボイス。`audio.voices.VOICE_TABLE` の話者名。"""
@@ -117,6 +134,22 @@ SCRIPT = Stage(
     model=_models(),
     params={**_LLM_PARAMS, "pause_seconds": PAUSE_SECONDS},
 )
+
+
+class ExecutionLimitExceeded(SystemExit):
+    """1回の実行が `EXECUTION_LIMIT_SEC` を超えた。`signal.alarm` のハンドラが上げる(D-138)。"""
+
+
+class ResumeRefused(SystemExit):
+    """`--resume` の列が `resumable` でない(開始行の無い run_id を含む。D-145)。"""
+
+
+class RecallCallsFailed(SystemExit):
+    """想起素材の段で LLM 呼び出しが1件以上失敗した。下流へ進まず非0で終了する(R-3)。"""
+
+
+class NoRunMeter(SystemExit):
+    """LLM を呼ばない段(ingest / review)が、キャッシュに無い前段のために LLM を要した。"""
 
 
 def _dump(data: object, out: BinaryIO) -> None:
@@ -300,41 +333,48 @@ def _deliver(archive: Path, target: Path) -> Path:
     return target
 
 
-class Pipeline:
-    """1デッキ分の段。各メソッドは前段をキャッシュ越しに呼んで、自分の成果物を返す。"""
+@dataclass(frozen=True, slots=True)
+class _Drafted:
+    """段ループで先に作った想起素材の下書きを返し、含意判定だけを LLM へ渡す。"""
 
-    def __init__(self, root: Path, deck_id: DeckId, stage: str, llm_factory: LlmFactory) -> None:
+    llm: Llm
+    drafts: Mapping[QuestionId, RecallDraft]
+
+    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+        return self.drafts[question.question_id]
+
+    def check_entailment(self, reference: str, statement: str) -> Entailment:
+        return self.llm.check_entailment(reference, statement)
+
+
+class Pipeline:
+    """1デッキ分の段。各メソッドは前段をキャッシュ越しに呼んで、自分の成果物を返す。
+
+    `cache_run_id` は段キャッシュの digest に入れる列の ID(通常の実行は `None`。D-137)。`meter` は LLM 段の
+    実行で開始行を書いた計測器で、LLM は最初に要ったときにこれへ結線して1度だけ組み立てる。
+    """
+
+    def __init__(self, root: Path, deck_id: DeckId, llm_factory: LlmFactory, *, cache_run_id: str | None) -> None:
         self.root = root
         self.deck_id = deck_id
-        self.stage = stage
         self.out_dir = deck_out_dir(root / "out", deck_id)
-        self._cache = StageCache(root / "out", deck_id)
+        self._cache = StageCache(root / "out", deck_id, cache_run_id)
         self._llm_factory = llm_factory
         self._llm: Llm | None = None
-        self._meter: Meter | None = None
+        self.meter: Meter | None = None
         self.material_filter = MaterialTextFilter()
         ensure_ignored(self.out_dir, root, is_dir=True)
+
+    def _run_meter(self) -> Meter:
+        if self.meter is None:
+            raise NoRunMeter("この段は LLM を呼ばない: キャッシュに無い前段を、先に LLM 段(cluster など)で作る")
+        return self.meter
 
     @property
     def llm(self) -> Llm:
         if self._llm is None:
-            # 実行の列(--fresh-run / --resume)はまだ無いので、実行ごとに新しい run_id の1実行だけの列になる。
-            self._meter = Meter(
-                SystemClock(),
-                log_path=self.out_dir / METER_LOG,
-                run_id=uuid.uuid4().hex,
-                execution_id=uuid.uuid4().hex,
-                stage=self.stage,
-                cache_mode="normal",
-                env_names=os.environ.keys(),
-            )
-            self._llm = self._llm_factory(self._meter)
+            self._llm = self._llm_factory(self._run_meter())
         return self._llm
-
-    def close(self, *, exit_code: int, exit_reason: str | None) -> None:
-        """LLM を使った実行なら、計測の終了行を `out/<deck>/meter.jsonl` に書く(NFR-7)。"""
-        if self._meter is not None:
-            self._meter.finish(exit_code=exit_code, exit_reason=exit_reason)
 
     def _ingest_path(self) -> Path:
         manifest = manifest_path(self.root / "data", self.deck_id)
@@ -383,11 +423,39 @@ class Pipeline:
     def _recall_upstream(self) -> bytes:
         return self._ingest_path().read_bytes() + b"\0" + self.cluster().read_bytes()
 
+    def _recall_drafts(self, deck: Deck, clusters: Sequence[Cluster]) -> dict[QuestionId, RecallDraft]:
+        """想起素材の段の呼び出しループ(クラスタ順)。
+
+        失敗しても残りの呼び出しを発行し、段を終えてから非0で止める。overage か枠切れを meter が見たら、
+        残りを発行しない(D-144、D-153)。失敗件数は発行した呼び出しについてだけ数える。
+        """
+        llm, meter = self.llm, self._run_meter()
+        questions = {q.question_id: q for q in deck.questions}
+        order = [qid for cluster in clusters for qid in cluster.question_ids]
+        drafts: dict[QuestionId, RecallDraft] = {}
+        failures = 0
+        for qid in order:
+            if meter.stop_seen():
+                break
+            try:
+                drafts[qid] = llm.generate_recall(questions[qid], deck.language)
+            except LlmCallError as error:
+                failures += 1
+                logger.warning("recall: 問題 %s の呼び出しが失敗: %s", qid.local_id, error)
+        issued = len(drafts) + failures
+        logger.info("recall summary: questions=%d issued=%d failure_count=%d", len(order), issued, failures)
+        if failures:
+            raise RecallCallsFailed(
+                f"想起素材の外部 API 呼び出しが {failures} 回失敗したため下流へ進まない(発行 {issued} / {len(order)})"
+            )
+        return drafts
+
     def recall(self) -> Path:
         deck, clusters = self.deck(), self.clusters()
 
         def produce(out: BinaryIO) -> None:
-            generate_recall_set(self.llm, deck, clusters, lambda result: _dump(_recall_json(result), out))
+            drafted = _Drafted(self.llm, self._recall_drafts(deck, clusters))
+            generate_recall_set(drafted, deck, clusters, lambda result: _dump(_recall_json(result), out))
 
         return self._cache.run(RECALL, self._recall_upstream(), produce)
 
@@ -478,6 +546,14 @@ def _parser() -> argparse.ArgumentParser:
     ):
         stage = stages.add_parser(name, help=text)
         stage.add_argument("deck", help="data/<deck>/ のデッキ ID")
+        if name in LLM_STAGES:
+            sequence = stage.add_mutually_exclusive_group()
+            sequence.add_argument(
+                "--fresh-run",
+                action="store_true",
+                help="新しい実行の列を始め、段キャッシュを迂回する(run_id は stderr)",
+            )
+            sequence.add_argument("--resume", metavar="RUN_ID", help="resumable の実行の列に実行を1つ足す")
         if name == "audio":
             stage.add_argument("--tts-model", required=True, help="CosyVoice のモデルディレクトリ")
             stage.add_argument("--voice", help="ボイス(省略時はデッキの言語の既定)")
@@ -518,49 +594,117 @@ def _masked_excepthook(exc_type: type[BaseException], exc: BaseException, tb: Tr
     sys.stderr.write(text)
 
 
-def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFactory, tts_factory: TtsFactory) -> None:
+def _on_alarm(signum: int, frame: FrameType | None) -> None:
+    raise ExecutionLimitExceeded(f"1回の実行が上限 {EXECUTION_LIMIT_SEC} 秒を超えた")
+
+
+@contextlib.contextmanager
+def _execution_limit() -> Iterator[None]:
+    """`EXECUTION_LIMIT_SEC` 後に `ExecutionLimitExceeded` を上げる。実行中の子は runner が kill する(AR-149)。"""
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.alarm(EXECUTION_LIMIT_SEC)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _check_resumable(log: Path, run_id: str) -> None:
+    """`run_id` の列が `resumable` でなければ `ResumeRefused`(D-145)。"""
+    try:
+        status = aggregate(read_log(log) if log.is_file() else [], run_id)["status"]
+    except UnknownRunError as error:
+        raise ResumeRefused(f"--resume {run_id}: 開始行の無い run_id") from error
+    if status != "resumable":
+        raise ResumeRefused(f"--resume {run_id}: 列の status が {status}(再開できるのは resumable だけ)")
+
+
+def _register(args: argparse.Namespace, pipeline: Pipeline, run_id: str, cache_mode: str, preflight: Preflight) -> None:
+    """起動前検査を通った LLM 段の実行を列へ登録する(開始行を書く)。検査に落ちた起動は登録しない(D-132)。"""
+    if cache_mode == "resume":
+        _check_resumable(pipeline.out_dir / METER_LOG, run_id)
+    preflight()
+    pipeline.meter = Meter(
+        SystemClock(),
+        log_path=pipeline.out_dir / METER_LOG,
+        run_id=run_id,
+        execution_id=uuid.uuid4().hex,
+        stage=args.stage,
+        cache_mode=cache_mode,
+        env_names=os.environ.keys(),
+    )
+    print(f"run_id: {run_id}", file=sys.stderr, flush=True)
+
+
+def _run(
+    args: argparse.Namespace,
+    handler: logging.Handler,
+    llm_factory: LlmFactory,
+    tts_factory: TtsFactory,
+    preflight: Preflight,
+) -> None:
     root: Path = args.root
     if args.stage == "serve":
         _serve(root, args.port)
         return
-    pipeline = Pipeline(root, DeckId(args.deck), args.stage, llm_factory)
+    llm_stage = args.stage in LLM_STAGES
+    cache_mode = "normal"
+    if llm_stage and args.fresh_run:
+        cache_mode = "fresh"
+    elif llm_stage and args.resume is not None:
+        cache_mode = "resume"
+    run_id: str = args.resume if cache_mode == "resume" else uuid.uuid4().hex
+    pipeline = Pipeline(root, DeckId(args.deck), llm_factory, cache_run_id=None if cache_mode == "normal" else run_id)
+    if llm_stage:
+        _register(args, pipeline, run_id, cache_mode, preflight)
     handler.addFilter(pipeline.material_filter)
     exit_code: int = 0
     exit_reason: str | None = None
     try:
-        result: Path | None
-        match args.stage:
-            case "audio":
-                model_dir: str = args.tts_model
-                built: list[Tts] = []
-
-                def tts() -> Tts:
-                    if not built:
-                        built.append(tts_factory(model_dir))
-                    return built[0]
-
-                result = pipeline.audio(tts, model_dir, args.voice)
-            case "review":
-                result = pipeline.review()
-            case _:
-                result = getattr(pipeline, args.stage)()
+        with _execution_limit() if llm_stage else contextlib.nullcontext():
+            result = _stage(args, pipeline, tts_factory)
     except BaseException as error:
         exit_code, exit_reason = _exit_code(error), type(error).__name__
         raise
     finally:
         handler.removeFilter(pipeline.material_filter)
-        pipeline.close(exit_code=exit_code, exit_reason=exit_reason)
+        if pipeline.meter is not None:
+            pipeline.meter.finish(exit_code=exit_code, exit_reason=exit_reason)
     if result is not None:
         print(result, flush=True)
+
+
+def _stage(args: argparse.Namespace, pipeline: Pipeline, tts_factory: TtsFactory) -> Path | None:
+    match args.stage:
+        case "audio":
+            model_dir: str = args.tts_model
+            built: list[Tts] = []
+
+            def tts() -> Tts:
+                if not built:
+                    built.append(tts_factory(model_dir))
+                return built[0]
+
+            return pipeline.audio(tts, model_dir, args.voice)
+        case "review":
+            return pipeline.review()
+        case _:
+            path: Path = getattr(pipeline, args.stage)()
+            return path
 
 
 def main(
     argv: Sequence[str] | None = None,
     *,
     llm_factory: LlmFactory = composition.build_default_llm,
+    preflight: Preflight = claude_process.default_preflight,
     tts_factory: TtsFactory = _default_tts,
 ) -> int:
-    """CLI を実行して終了コードを返す。段の検査に落ちた場合は `SystemExit` の派生が非0で抜ける。"""
+    """CLI を実行して終了コードを返す。段の検査に落ちた場合は `SystemExit` の派生が非0で抜ける。
+
+    製品の入口はこれを `argv` だけで呼ぶ。`llm_factory` と `preflight` の差し替えはテストコードだけが行う(D-143)。
+    """
     if sys.excepthook is not _masked_excepthook:
         sys.excepthook = _masked_excepthook
     args = _parser().parse_args(argv)
@@ -572,7 +716,7 @@ def main(
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
     try:
-        _run(args, handler, llm_factory, tts_factory)
+        _run(args, handler, llm_factory, tts_factory, preflight)
     finally:
         root_logger.removeHandler(handler)
         root_logger.setLevel(level)
