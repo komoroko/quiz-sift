@@ -8,6 +8,7 @@ scope:
   - src/quiz_sift/adapters/
   - src/quiz_sift/pipeline/
   - src/quiz_sift/safety/
+  - src/quiz_sift/cluster/summary.py
   - src/quiz_sift/cli.py
   - src/quiz_sift/composition.py
   - pyproject.toml
@@ -1852,6 +1853,34 @@ decisions:
   rationale: T-036 は absorb(製品コードを変えない)で、scope はテスト1ファイルに限られる。T-036 の scope を cli.py まで広げると、cli.py を1タスクずつ直列に編集する並び(AR-135 / AR-136)が崩れる。
   requirement_ids:
   - NFR-3
+- id: D-159
+  subject: R-3 の要約の実在判定で、どの語句を照合するか(T-047 の実データで最初のクラスタが UngroundedSummary で止まった)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 要件の文面どおり「主要な語句」に戻す。照合するのは要約の専門用語の断片だけにし、その定義は D-161 に置く。漢字だけの一般名詞(判断、要点)は照合しない。あわせて要約プロンプトで長さと形を縛る(D-160)。mandate の scope に src/quiz_sift/cluster/summary.py を足す。
+  rationale: 要件は「主要な語句が実在する」で、設計が「名詞句のすべて」に強めていた。一般名詞はモデルが要約を書くたびに持ち込み、1語で列全体が止まる。捏造の害が大きいのはサービス名などの専門用語で、そちらは英字かカタカナで書かれるので引き続き止まる。凍結済みの test_c003 は、スタブ要約の名詞句すべてが実在することを assert している。これはスタブの性質であって、製品のガードの範囲ではない(AR-173)。
+  requirement_ids:
+  - R-3
+- id: D-160
+  subject: 要約プロンプトで長さと形をどう縛るか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: SUMMARIZE_SYSTEM に、見出し・箇条書き・記号の装飾を使わない平文で、3文以内・200字以内に書くこと、専門用語は問題文に現れる表記のまま使い、問題文に無い専門用語や見出し語を作らないことを足す。スキーマに maxLength は足さない。人が選んだ選択肢の文面は「プロンプトとスキーマ」だったので、スキーマを外したことを mandate の提示で明示する(AR-172)。
+  rationale: 実データでは Opus が見出しつきの 2507 字を返した。UI と音声で読む要約として長すぎ、照合する語句も増える。maxLength を足すと、--json-schema の下で超過がどう扱われるか(CLI 内での再試行か SCHEMA 失敗か)が未観測で、SCHEMA 失敗なら再試行しない規則(R-3)により列が止まる。プロンプトの変更は cluster 段の inputs_digest を動かし、キャッシュが1回無効になる(AR-21 の意図どおり)。
+  requirement_ids:
+  - R-3
+- id: D-161
+  subject: R-3 の要約で「専門用語」をどう切り出すか(D-159 の定義)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 名詞句ではなく、要約の本文から断片を直接切り出す。日本語デッキは、英字で始まる英数字の語(Lambda、S3、EC2)と、カタカナが2字以上続く列(ストレージクラス)。英語デッキは、大文字略語(S3、IAM)と、文頭以外にある大文字始まりの語(Lambda、Aurora)。漢字とカタカナが混ざった名詞句(判断ポイント)は、カタカナの列(ポイント)だけを照合する。断片ごとに、そのクラスタの問題の本文(問題文・選択肢・解説)に実在するかを grounding.presence.is_present で確かめる。専門用語が0件の要約は照合を通り、残る守りは含意判定だけになる(AR-167)。この判定は cluster/summary.py に置き、glossary の抽出器(R-5 の抽出精度のための定義)には依存させない。
+  rationale: 'glossary の terms_in を流用すると、名詞句全体を照合するので実際に止まった「判断ポイント」がそのまま止まり(AR-165)、英語では大文字略語しか見ないので本文に無い Lambda が素通りする(AR-166)。R-5 の抽出精度の都合で R-3 の安全検査が黙って変わる結合も生む(AR-169)。「1語以上の専門用語を必須にする」は、漢字だけで書かれる正当な論点(最小権限の原則)を止めるので採らない。本文に無いカタカナの一般語(ポイント)は引き続き止まる。これはプロンプト(D-160)で抑える。'
+  requirement_ids:
+  - R-3
+
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -3187,6 +3216,7 @@ tasks:
   blocked_by:
   - T-045
   - T-046
+  - T-049
   claim_ids:
   - C-003
   - C-007
@@ -3344,6 +3374,65 @@ tasks:
       - -q
       - tests/test_cli.py::test_excepthook_failure_does_not_fall_back_to_plaintext
       executor_profile: quality
+  operator_surface: []
+  requires: []
+- id: T-049
+  title: 要約の実在判定を専門用語の断片に絞り、要約プロンプトで長さと形を縛る
+  kind: foundation
+  blocked_by:
+  - T-040
+  - T-033
+  claim_ids:
+  - C-003
+  domains:
+  - analysis
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/cluster/summary.py
+    - src/quiz_sift/adapters/llm_prompts.py
+    - tests/cluster/test_summary.py
+  acceptance:
+  - id: A-1
+    statement: '不具合の再現(日本語デッキ): 次の要約について ungrounded_terms は空を返し、cluster_deck はそのクラスタを書き出す。要約は2種類の語を含む。1つは、クラスタの問題本文に現れない漢字だけの一般名詞(合成の例「判断」「要点」)。もう1つは、漢字とカタカナが混ざった合成の名詞句で、句全体は本文に無いがカタカナの列は本文にあるもの(本文に「ポイント」があり「確認ポイント」は無い、の形)。修正前のコードではこのテストが赤になる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_generic_nouns_absent_from_the_cluster_do_not_stop_the_summary
+      executor_profile: quality
+  - id: A-2
+    statement: 捏造された専門用語は引き続き止まる。日本語デッキでは、本文に無いカタカナの列(合成)、本文に無い英字の語(Lambda)。英語デッキでは、文の途中にある本文に無い大文字始まりの語(Lambda)と、本文に無い大文字略語。それぞれの要約で UngroundedSummary が上がり、何も書き出されず、含意判定は呼ばれない。例外のメッセージに語句そのものは載らない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_invented_technical_terms_still_stop_the_summary
+      executor_profile: quality
+  - id: A-3
+    statement: 英語デッキで、本文に無い小文字の一般語と、文頭にある本文に無い大文字始まりの一般語だけを含む要約は、ungrounded_terms が空を返す。専門用語が0件の日本語の要約(漢字だけの語)も空を返し、含意判定にはかかる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_general_words_are_not_checked_and_term_free_summaries_still_go_through_entailment
+      executor_profile: quality
+  - id: A-4
+    statement: 旧サイクルで凍結したテストが緑のままである。tests/cluster/test_summary.py の凍結ノード(下の command に列挙)は、関数名も本体の assert も変えない(新しいテストは別の関数として足す)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_summary_terms_must_exist_in_the_cluster
+      - tests/cluster/test_summary.py::test_summary_goes_through_entailment
+      - tests/acceptance/test_analysis.py::test_c003_clusters_are_exclusive_and_summaries_grounded
+      executor_profile: quality
+  - id: A-5
+    statement: SUMMARIZE_SYSTEM が次の3点を指示する。見出し・箇条書き・記号の装飾を使わない平文で3文以内・200字以内に書くこと。専門用語は問題文の表記のまま使うこと。問題文に無い専門用語や見出し語を作らないこと。SUMMARIZE_SCHEMA は変えない(D-160)。
   operator_surface: []
   requires: []
 lenses:
