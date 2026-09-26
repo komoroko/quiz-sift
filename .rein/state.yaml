@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-27T03:37:55+09:00'
+updated_at: '2026-09-27T03:38:16+09:00'
 gates:
   mandate:
     status: approved
@@ -1035,72 +1035,8 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: blocked
+    status: todo
     attempts: 2
-    handoff:
-      report:
-        outcome: blocked
-        summary: '不可逆の実行に入る前に止めた。人の前提が2つ満たされていない。(1) チケットの Notes が『週次枠のリセット(2026-09-28 08:00 JST)後に着手すること』を前提にしているが、現在は
-          2026-09-27 03:30 JST。いま走らせると、リセット前の残り枠を消費する(戻せない)。さらに、再現性の2列は1実行で exit 0 まで走る必要があり(D-142)、枠切れで止まった列は捨てて取り直すことになる。(2)
-          『人が選んだ 100〜200 問のデッキ』が無い。<root>/data/ が存在せず、deck.yaml を持つデッキが1つも無い。候補は out/udemy/aip-c01/questions.jsonl(抽出済み
-          175 問。キーは id/stem/options/answer/explanation)だけ。どれを使うか、data/<deck>/deck.yaml の language / default_studied
-          を何にするかは人が決めて置く。確認済みの前提: claude が PATH にある、~/.quiz-sift-claude-home/.claude/settings.json が {theme}
-          だけ、ルートの .venv で torch と cosyvoice.cli.cosyvoice が import できる(PYTHONPATH=~/CosyVoice…)、重みは ~/CosyVoice/pretrained_models/CosyVoice-300M-SFT。要る決定:
-          デッキを data/ に置くこと、リセット後に rein build を再実行すること(または、リセット前に着手する前提変更を人が明示すること)。コードと docs は変更していない。'
-        at: '2026-09-27T03:33:35+09:00'
-      updated_at: '2026-09-27T03:37:55+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 31395ced-7160-4598-ac49-4f41990ff704
-        output_tail: 'T-047 はフル処理を走らせる前に止め、`blocked` で報告しました。何も実行しておらず、コードと docs も変更していません。人が用意する前提のうち、次の2つが欠けています。
-
-
-          1. **週次枠のリセット前**: チケットは「リセット(2026-09-28 08:00 JST)後に着手」を前提にしていますが、現在は 2026-09-27 03:30 JST です。いま走らせるとリセット前の残り枠を消費し、これは戻せません。再現性測定に使う2本の列は、それぞれ1回の実行で
-          exit 0 まで走る必要があります。枠切れで止まった列は捨てて取り直すことになります。
-
-          2. **100〜200 問のデッキが無い**: `data/` ディレクトリ自体が無く、`deck.yaml` を持つデッキが1つもありません。候補は抽出済みの `out/udemy/aip-c01/questions.jsonl`(175
-          問)だけです。
-
-
-          満たされていることを確認した前提:
-
-          - `claude` が PATH にある。
-
-          - 最小ホームの `settings.json` は `{"theme"}` だけ。
-
-          - リポジトリ直下の `.venv` で torch と CosyVoice が import できる。
-
-          - 重みが `~/CosyVoice/pretrained_models/CosyVoice-300M-SFT` にある。
-
-
-          再開に必要な決定:
-
-          - デッキを `data/<deck>/` に置き、`deck.yaml` の `language` と `default_studied` を決める。
-
-          - リセット後に `rein build` を再実行する。リセット前に始める場合は、前提を変えることを明示してください。'
-        at: '2026-09-27T03:33:42+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-047: the implementer reported blocked — 不可逆の実行に入る前に止めた。人の前提が2つ満たされていない。(1) チケットの Notes
-          が『週次枠のリセット(2026-09-28 08:00 JST)後に着手すること』を前提にしているが、現在は 2026-09-27 03:30 JST。いま走らせると、リセット前の残り枠を消費する(戻せない)。さらに、再現性の2列は1実行で
-          exit 0 まで走る必要があり(D-142)、枠切れで止まった列は捨てて取り直すことになる。(2) 『人が選んだ 100〜200 問のデッキ』が無い。<root>/data/ が存在せず、deck.yaml
-          を持つデッキが1つも無い。候補は out/udemy/aip-c01/questions.jsonl(抽出済み 175 問。キーは id/stem/options/answer/explanation)だけ。どれを使うか、data/<deck>/deck.yaml
-          の language / default_studied を何にするかは人が決めて置く。確認済みの前提: claude が PATH にある、~/.quiz-sift-claude-home/.claude/settings.json
-          が {theme} だけ、ルートの .venv で torch と cosyvoice.cli.cosyvoice が import できる(PYTHONPATH=~/CosyVoice…)、重みは
-          ~/CosyVoice/pretrained_models/CosyVoice-300M-SFT。要る決定: デッキを data/ に置くこと、リセット後に rein build を再実行すること(または、リセット前に着手する前提変更を人が明示すること)。コードと
-          docs は変更していない。
-
-          T-047: not re-launched — the last attempt reached ''agent_blocked'' over a tree with this exact
-          fingerprint, so a fresh implementer has the same inputs and reaches the same verdict. If something
-          outside the tree was repaired, `rein task reset T-047 --fresh --reason ...` discards this record
-          and buys the launch.'
-        tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
-      futile: 'T-047: not re-launched — the last attempt reached ''agent_blocked'' over a tree with this
-        exact fingerprint, so a fresh implementer has the same inputs and reaches the same verdict. If
-        something outside the tree was repaired, `rein task reset T-047 --fresh --reason ...` discards
-        this record and buys the launch.'
   T-048:
     status: done
     attempts: 1
