@@ -12,17 +12,24 @@ import ast
 import copy
 import json
 import re
-from collections.abc import Mapping, Sequence
+import sys
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from quiz_sift.ports.metering import FailureKind
-from quiz_sift.ports.process import CommandResult, Outcome
+from quiz_sift.ports.process import CommandResult, CommandSpec, Outcome
 
 SUCCESS_STDOUT = Path(__file__).resolve().parents[1] / "fixtures" / "claude_cli" / "success.stdout"
 
 STREAM_EVENT_TYPES = frozenset({"system", "assistant", "user", "result", "rate_limit_event"})
 """stream-json のイベントの `type`。テストファイルにこれを持つリテラルがあれば走査で赤にする。"""
+
+EXECUTABLE_DIR = Path(__file__).resolve().parent / "bin"
+"""PATH に置く fake の `claude` 実行ファイルがあるディレクトリ。中身は `main` を呼ぶだけ。"""
+
+PAYLOAD_KEYS = frozenset({"structured_output", "input"})
+"""キー骨格の比較で中身を見ないキー(応答の本体とツール入力)。形が要求ごとに違って当然の値。"""
 
 SCAN_EXCLUDED_DIRS = frozenset({"support", "measurements"})
 """走査から外す `tests/` 直下のディレクトリ(ファクトリ自身と、実物の採取経路)。"""
@@ -59,10 +66,12 @@ def fake_stdout(
     later_rate_limits: Sequence[Mapping[str, Any]] = (),
     result_count: int = 1,
     junk_line: str | None = None,
+    sync_result_text: bool = True,
 ) -> bytes:
     """成功フィクスチャの骨格から値だけを置き換えた stdout。これが唯一のファクトリである。
 
-    - `structured_output` を置き換えると、`result` の文字列も同じ値の JSON に揃える。
+    - `structured_output` を置き換えると、`result` の文字列も同じ値の JSON に揃える(`sync_result_text` が偽なら
+      揃えず、骨格の文字列のまま残す)。
     - `assistant_stop_reason` は `assistant` イベントすべての `message.stop_reason`。
     - `tool_use_name` は `assistant` イベントの `tool_use` ブロックの `name`。
     - `later_rate_limits` の各要素は、`rate_limit_event` の複製を直後に足し、その `rate_limit_info` の値を
@@ -78,7 +87,8 @@ def fake_stdout(
 
     if structured_output is not _KEEP:
         result["structured_output"] = structured_output
-        result["result"] = json.dumps(structured_output, ensure_ascii=False, separators=(",", ":"))
+        if sync_result_text:
+            result["result"] = json.dumps(structured_output, ensure_ascii=False, separators=(",", ":"))
     _replace(result, "subtype", subtype)
     _replace(result, "is_error", is_error)
     _replace(result, "stop_reason", stop_reason)
@@ -110,6 +120,15 @@ def fake_stdout(
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def max_turns_stdout() -> bytes:
+    """`error_max_turns` の形(D-118)。実物は採れないので、成功フィクスチャの骨格から `result` イベントの
+    `subtype` / `is_error` / `stop_reason` / `structured_output` の4つの値だけを置き換える。
+    """
+    return fake_stdout(
+        subtype="error_max_turns", is_error=True, stop_reason=None, structured_output=None, sync_result_text=False
+    )
+
+
 def exited(stdout: bytes, returncode: int = 0, stderr: bytes = b"") -> CommandResult:
     """子が終了した結果。"""
     return CommandResult(Outcome.EXITED, returncode, stdout, stderr)
@@ -138,9 +157,7 @@ def failure_shape(kind: FailureKind, keys: Sequence[str]) -> CommandResult:
         case FailureKind.PARSE:
             return exited(fake_stdout(result_count=0, junk_line="Error: stream ended unexpectedly"))
         case FailureKind.TRUNCATED:
-            return exited(
-                fake_stdout(subtype="error_max_turns", is_error=True, stop_reason=None, structured_output=None), 1
-            )
+            return exited(max_turns_stdout(), 1)
         case FailureKind.PROVIDER_ERROR:
             return exited(fake_stdout(subtype="error_during_execution", is_error=True, structured_output=None), 1)
         case FailureKind.SCHEMA:
@@ -188,3 +205,61 @@ def _replace(target: dict[str, Any], key: str, value: Any) -> None:
         return
     assert key in target, f"骨格に無いキー {key!r} を置き換えようとした"
     target[key] = value
+
+
+def answer(argv: Sequence[str], stdin: str) -> bytes:
+    """argv の `--json-schema` に合う応答の stdout。成功フィクスチャの骨格に値だけを入れる。
+
+    分類(スキーマに `groups` がある)なら、stdin のプロンプトの `questions[].key` をそのまま1グループに入れて
+    返す(渡したキーと同じ多重集合)。それ以外はスキーマの形を埋めた値を返す(文字列は合成の文、enum は先頭)。
+    """
+    schema = json.loads(argv[list(argv).index("--json-schema") + 1])
+    if "groups" in schema["properties"]:
+        keys = [question["key"] for question in json.loads(stdin)["questions"]]
+        return fake_stdout(structured_output=classification_output([keys]))
+    return fake_stdout(structured_output=_filled(schema))
+
+
+def _filled(schema: Mapping[str, Any]) -> Any:
+    match schema.get("type"):
+        case "object":
+            return {key: _filled(value) for key, value in schema["properties"].items()}
+        case "array":
+            return [_filled(schema["items"])]
+        case _:
+            return schema["enum"][0] if "enum" in schema else "合成の応答"
+
+
+def main() -> None:
+    """PATH に置く fake の `claude` の入口(`EXECUTABLE_DIR/claude`)。stdin を読み、`answer` を stdout へ書く。"""
+    sys.stdout.buffer.write(answer(sys.argv, sys.stdin.read()))
+
+
+class FakeRunner:
+    """`CommandRunner` の fake。spawn だけを差し替え、受けた `CommandSpec` を順に残す。
+
+    `respond` を渡さなければ `answer` で応答する。
+    """
+
+    def __init__(self, respond: Callable[[CommandSpec], CommandResult] | None = None) -> None:
+        self.specs: list[CommandSpec] = []
+        self._respond = respond if respond is not None else (lambda spec: exited(answer(spec.argv, spec.stdin)))
+
+    def run(self, spec: CommandSpec) -> CommandResult:
+        self.specs.append(spec)
+        return self._respond(spec)
+
+
+def skeleton(stdout: bytes) -> list[Any]:
+    """イベント列のキー骨格。値を捨ててキーの入れ子だけを残す(`PAYLOAD_KEYS` の下は見ない)。"""
+    return [_skeleton(json.loads(line), None) for line in stdout.splitlines()]
+
+
+def _skeleton(value: Any, key: str | None) -> Any:
+    if key in PAYLOAD_KEYS:
+        return None
+    if isinstance(value, dict):
+        return {k: _skeleton(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_skeleton(v, None) for v in value]
+    return None
