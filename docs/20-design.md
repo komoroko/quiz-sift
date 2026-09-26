@@ -493,6 +493,11 @@ Open questions に記録してある。
 (ADR-007)。ただし「保存しない」と「露出しない」は別で、**CDP 接続はセッションクッキーを
 読み出せる**(AR-28)。マスク対象に `Cookie` / `Set-Cookie` / `sessionid` 系のパターンを残す。
 
+ログを通らずに `cli.main` の外へ抜けた例外は、インタプリタが `sys.excepthook` で stderr に書く。
+この経路には Filter が効かないので、`cli.main` が `sys.excepthook` を伏せるフックに差し替える。
+フックはトレースバック全文(原因の連鎖を含む)を `mask_secrets` に通し、呼ばれた時点の `sys.stderr` へ書く。
+直前のフックは呼ばない。フック自身が失敗したら型名だけを書き、平文へ戻さない。例外は捕まえない(D-157)。
+
 ### NFR-4: 段階的な再実行性
 
 `pipeline/stage.py` が各ステージを `(inputs_digest) -> artifact` のコンテンツアドレス方式で

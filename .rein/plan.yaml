@@ -1834,6 +1834,24 @@ decisions:
   requirement_ids:
   - R-3
   - NFR-8
+- id: D-157
+  subject: cli.main の外へ抜けた例外のトレースバックで、認証情報をどこで伏せるか
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: cli.main が sys.excepthook を cli.py のモジュール関数(伏せるフック)に差し替える。フックは traceback.format_exception で原因の連鎖を含む全文を整形し、mask_secrets に通して、呼ばれた時点の sys.stderr へ書く。直前のフックは呼ばない。フックの中で例外が起きたら、例外の型名と「トレースバックを伏せた」旨だけを書き、例外を外へ出さない。例外そのものは捕まえずに main の外へ抜けさせる。差し替えは sys.excepthook がそのフックと同一でないときだけ行う。
+  rationale: T-036 の受入テスト(C-015)は、例外が main の外へ抜けることと、sys.excepthook が出すテキストに平文が無いことを求める。main で捕まえて終了コードに変えると、全段の終了の仕方と _exit_code の対応が変わる。例外の args を書き換える方式では、__cause__ / __context__ の連鎖に載った値を伏せられない。直前のフックに渡すと、平文の例外オブジェクトが伏せる処理を経ずに渡る。出力先を差し替えた時点の stderr に束縛すると、閉じたストリームへの書き込みで落ちる。フックが例外を出すと、インタプリタが元のトレースバックを平文で出す(fail-open)。そのため、フックの失敗は型名だけの表示に落とし、外へ出さない。これは握りつぶしではなく、平文へ戻さないための fail-closed である(AR-160〜AR-164)。cli.py の1箇所に閉じ、claim の文面は動かない。
+  requirement_ids:
+  - NFR-3
+- id: D-158
+  subject: C-015 の欠陥(未捕捉例外のトレースバックに認証情報が平文で出る)をどのタスクで直すか
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: /revise --to mandate で T-048(cli.py の未捕捉例外を伏せる)を足し、T-036 を T-048 に依存させる。T-036 の scope と受入基準は変えない。
+  rationale: T-036 は absorb(製品コードを変えない)で、scope はテスト1ファイルに限られる。T-036 の scope を cli.py まで広げると、cli.py を1タスクずつ直列に編集する並び(AR-135 / AR-136)が崩れる。
+  requirement_ids:
+  - NFR-3
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -2104,6 +2122,7 @@ tasks:
   kind: foundation
   blocked_by:
   - T-032
+  - T-048
   claim_ids:
   - C-014
   - C-015
@@ -3274,6 +3293,59 @@ tasks:
     - .venv/bin/python
     - -c
     - import importlib; importlib.import_module('torch'); importlib.import_module('cosyvoice.cli.cosyvoice')
+- id: T-048
+  title: cli.main の外へ抜けた例外のトレースバックで認証情報を伏せる
+  kind: foundation
+  blocked_by:
+  - T-040
+  claim_ids:
+  - C-015
+  domains:
+  - security
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/cli.py
+    - tests/test_cli.py
+  acceptance:
+  - id: A-1
+    statement: '不具合の再現: 合成の API キー(sk-ant-…)・password=・Cookie の dj_session_id / ud_user_jwt の値をメッセージに載せた ConnectionError を llm が送出するとき、cli.main はその例外をそのまま外へ送出する(型が ConnectionError のまま)。main が返ったあとで sys.stderr を新しいバッファに差し替えてから、その例外情報で sys.excepthook を呼ぶ。このとき、新しいバッファに例外の型名と認証情報でないメッセージ部分が出て、4つの合成値のどれも平文で現れない(出力先は呼ばれた時点の sys.stderr)。修正前のコードではこのテストが赤になる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_uncaught_exception_traceback_masks_credentials
+      executor_profile: quality
+  - id: A-2
+    statement: 認証情報を載せない例外(raise X from Y で、認証情報は原因 Y の側だけに載る形を含む)について、sys.excepthook の出力は次のとおりになる。認証情報を載せない例外では、traceback.format_exception で整形したテキストを連結したものと一致する(伏せる以外に書き換えない)。原因の側に載った認証情報は伏せられ、"The above exception was the direct cause" の連鎖表示は残る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_excepthook_masks_the_cause_chain_and_changes_nothing_else
+      executor_profile: quality
+  - id: A-3
+    statement: cli.main を2回呼んだあと、sys.excepthook は cli.py の伏せるフック(モジュール関数)と同一である。sys.excepthook を別の関数に差し替えてから main を呼ぶと、再び伏せるフックに戻る。伏せるフックは、main の前に入っていたフックを呼ばない(記録用のフックを置いて、呼ばれないことで確かめる)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_excepthook_is_installed_by_identity_and_does_not_delegate
+      executor_profile: quality
+  - id: A-4
+    statement: 伏せるフックの中で失敗が起きても平文へ戻らない。mask_secrets が例外を出すように差し替えたうえで、認証情報を載せた例外情報でフックを呼ぶ。このとき、フックは例外を外へ出さず、sys.stderr には例外の型名が出て、合成値は平文で現れない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_excepthook_failure_does_not_fall_back_to_plaintext
+      executor_profile: quality
+  operator_surface: []
+  requires: []
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements
