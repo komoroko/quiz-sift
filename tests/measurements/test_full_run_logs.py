@@ -200,9 +200,8 @@ def _exec(args: argparse.Namespace) -> int:
     commit = _commit()
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         exit_code = subprocess.run(argv, env=env, stdout=stdout, stderr=stderr, check=False).returncode
-    err = stderr_path.read_text(encoding="utf-8", errors="backslashreplace")
-    run_ids = _RUN_ID_LINE.findall(err)
-    summaries = _SUMMARY_LINE.findall(err)
+    # 解析は render で行う。ここで落ちると、戻せない枠を使った実行の記録が journal に残らない。
+    run_ids = _RUN_ID_LINE.findall(stderr_path.read_text(encoding="utf-8", errors="backslashreplace"))
     _append_journal(
         out_root,
         args.deck,
@@ -215,8 +214,7 @@ def _exec(args: argparse.Namespace) -> int:
             "exit_code": exit_code,
             "run_id": run_ids[0] if run_ids else None,
             "stdout": stdout_path.read_text(encoding="utf-8").strip(),
-            "invocations_by_method": invocations_by_method(err),
-            "cluster_summary": summaries[-1] if summaries else None,
+            "stderr": stderr_path.name,
         },
     )
     print(f"exit_code={exit_code} run_id={run_ids[0] if run_ids else None} stderr={stderr_path}", flush=True)
@@ -560,12 +558,24 @@ def _cluster_of_track(name: str) -> str:
     return match.group("cluster")
 
 
+def _parse_stderr(out_root: Path, deck: str, name: str) -> dict[str, Any]:
+    """実行の標準エラーから、メソッド別の子プロセス数と cluster 段の実行サマリを読む。"""
+    err = (_journal_dir(out_root, deck) / name).read_text(encoding="utf-8", errors="backslashreplace")
+    summaries = _SUMMARY_LINE.findall(err)
+    summary = summaries[-1] if summaries else None
+    return {"invocations_by_method": invocations_by_method(err), "cluster_summary": summary}
+
+
 def _render(args: argparse.Namespace) -> int:
     out_root: Path = args.out_root
     journal = _read_journal(out_root, args.deck)
     meter = _meter_lines(out_root, args.deck)
     # 起動前検査に落ちた実行は列に入らず、開始行も無い(D-132)ので、対にしない。
-    executions = [e for e in journal if e["entry"] == "execution" and e["run_id"] is not None]
+    executions = [
+        {**e, **_parse_stderr(out_root, args.deck, e["stderr"])}
+        for e in journal
+        if e["entry"] == "execution" and e["run_id"] is not None
+    ]
 
     full = [e for e in executions if e["kind"] == "full"]
     run_id = full[-1]["run_id"]
