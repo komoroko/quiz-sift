@@ -26,7 +26,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId
 from quiz_sift.domain.recall import RecallKey
 from quiz_sift.ports.llm import ClassificationResult, RecallDraft
-from quiz_sift.safety.gitignore_guard import is_ignored, parse_gitignore
+from quiz_sift.safety.gitignore_guard import IgnoreRule, is_ignored, parse_gitignore
 from quiz_sift.safety.secret_mask import SECRET_MASK
 
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
@@ -181,18 +181,82 @@ def _credential_shapes(text: str, *, python: bool = False) -> list[str]:
 
 
 def _trackable_files(root: Path) -> Iterator[tuple[str, bytes]]:
-    """`.gitignore` の対象でない(git が追跡しうる)ファイル。`.git` の中身は除く。"""
-    rules = parse_gitignore((root / ".gitignore").read_text(encoding="utf-8"))
+    """`.gitignore` の対象でない(git が追跡しうる)ファイル。`.git` の中身は除く。
+
+    走査の途中で見つけた各ディレクトリの `.gitignore` を、そのディレクトリからの相対パスで適用する。
+    `is_ignored` は1ファイル分の規則しか評価せず、階層をまたぐ否定の優先順位を表せない。
+    ルート以外の `.gitignore` に否定の行があれば、無視しすぎの向きに誤らないよう失敗させる(AR-175)。
+    """
+    layers: dict[Path, list[tuple[Path, list[IgnoreRule]]]] = {}
+
+    def ignored(rel: Path, own: list[tuple[Path, list[IgnoreRule]]], *, is_dir: bool = False) -> bool:
+        return any(is_ignored(rel.relative_to(at).as_posix(), rules, is_dir=is_dir) for at, rules in own)
+
     for dirpath, dirnames, filenames in os.walk(root):
         base = Path(dirpath).relative_to(root)
-        dirnames[:] = sorted(
-            d for d in dirnames if d != ".git" and not is_ignored((base / d).as_posix(), rules, is_dir=True)
-        )
+        own = list(layers.pop(base, []))
+        gitignore = Path(dirpath) / ".gitignore"
+        if ".gitignore" in filenames and not gitignore.is_symlink():
+            rules = parse_gitignore(gitignore.read_text(encoding="utf-8"))
+            if base != Path() and any(rule.negated for rule in rules):
+                raise ValueError(f"入れ子の .gitignore の否定は評価できない: {gitignore}")
+            own.append((base, rules))
+        dirnames[:] = sorted(d for d in dirnames if d != ".git" and not ignored(base / d, own, is_dir=True))
+        for d in dirnames:
+            layers[base / d] = own
         for name in sorted(filenames):
-            rel = (base / name).as_posix()
             path = Path(dirpath) / name
-            if name != ".git" and not path.is_symlink() and not is_ignored(rel, rules):
-                yield rel, path.read_bytes()
+            if name != ".git" and not path.is_symlink() and not ignored(base / name, own):
+                yield (base / name).as_posix(), path.read_bytes()
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+
+def test_trackable_files_honor_nested_gitignore(tmp_path: Path) -> None:
+    # 認証情報の形をした値は、このファイル自身に平文で残らないよう実行時に組み立てる。
+    secret = "key = 'sk-ant-api03-" + "RealLookingKey0123456789abcd'"
+    _write_tree(
+        tmp_path,
+        {
+            ".gitignore": "*.log\n",
+            "top.txt": "",
+            "top.log": "",
+            "node_modules/x.js": "",
+            "sub/.gitignore": "node_modules/\n/build/\n",
+            "sub/keep.txt": "",
+            "sub/node_modules/pkg.js": secret,
+            "sub/build/x": "",
+            "sub/deeper/build/x": "",
+            "sub/a/.gitignore": "*.tmp\n",
+            "sub/a/b.tmp": "",
+            "sub/a/c/d.tmp": "",
+            "sub/e.tmp": "",
+            "f.tmp": "",
+        },
+    )
+
+    assert {rel for rel, _ in _trackable_files(tmp_path)} == {
+        ".gitignore",
+        "top.txt",
+        "node_modules/x.js",
+        "sub/.gitignore",
+        "sub/keep.txt",
+        "sub/deeper/build/x",
+        "sub/a/.gitignore",
+        "sub/e.tmp",
+        "f.tmp",
+    }
+
+
+def test_trackable_files_refuse_nested_negation(tmp_path: Path) -> None:
+    _write_tree(tmp_path, {".gitignore": "*.log\n!keep.log\n", "sub/.gitignore": "*.log\n!keep.log\n"})
+
+    with pytest.raises(ValueError, match=re.escape(str(tmp_path / "sub" / ".gitignore"))):
+        list(_trackable_files(tmp_path))
 
 
 def test_c015_credentials_never_reach_logs_or_errors(
