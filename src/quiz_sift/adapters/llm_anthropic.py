@@ -2,6 +2,9 @@
 
 API キーは SDK が環境変数 `ANTHROPIC_API_KEY` から読む(NFR-3)。このモジュールはキーを
 受け取りも保持もしない。応答は structured outputs(`output_config.format`)で JSON に縛る。
+
+既定の `Llm` ではない(ADR-013)。製品の入口からは到達せず、テストコードからの直接構築でだけ使う
+(NFR-8 (c)(d))。
 """
 
 import json
@@ -21,8 +24,8 @@ from quiz_sift.ports.llm import (
     LlmCallError,
     RecallDraft,
     TokenUsage,
-    UsageRecorder,
 )
+from quiz_sift.ports.metering import RunMeter
 
 MAX_TOKENS = 16000
 
@@ -38,16 +41,21 @@ def _usage(response: anthropic.types.Message) -> TokenUsage:
 
 
 class AnthropicLlm:
-    """モデルはメソッドごとに `llm_prompts.MODELS` から選ぶ(ADR-015)。"""
+    """モデルはメソッドごとに `llm_prompts.MODELS` から選ぶ(ADR-015)。
 
-    def __init__(self, client: anthropic.Anthropic, recorder: UsageRecorder) -> None:
-        self._client = client
-        self._recorder = recorder
+    コンストラクタは `ClaudeCliLlm` と同じ `(meter)` の1引数で、`client` は本体で構築する(AR-55)。
+    テストは構築した後に `client` を偽物へ置き換える。
+    """
 
-    def _call(self, method: str, system: str, payload: object, schema: dict[str, object]) -> dict[str, object]:
+    def __init__(self, meter: RunMeter) -> None:
+        self._meter = meter
+        self.client = anthropic.Anthropic()
+
+    def _request(self, method: str, system: str, payload: object, schema: dict[str, object]) -> dict[str, object]:
+        """API 呼び出し1回。"""
         model = prompts.MODELS[method]
         try:
-            response = self._client.messages.create(
+            response = self.client.messages.create(
                 model=model,
                 max_tokens=MAX_TOKENS,
                 thinking={"type": "adaptive"},
@@ -58,7 +66,7 @@ class AnthropicLlm:
         except anthropic.APIError as exc:
             raise LlmCallError(f"{type(exc).__name__}: {exc}") from exc
         # 拒否や打ち切りでも消費したトークンは課金されるので、判定より先に記録する。
-        self._recorder.record(model, _usage(response))
+        self._meter.record(model, _usage(response))
         if response.stop_reason != "end_turn":
             raise LlmCallError(f"stop_reason={response.stop_reason}")
         text = next((block.text for block in response.content if block.type == "text"), None)
@@ -72,7 +80,13 @@ class AnthropicLlm:
             raise LlmCallError("応答が JSON オブジェクトでない")
         return data
 
+    def _call(self, method: str, system: str, payload: object, schema: dict[str, object]) -> dict[str, object]:
+        """1回の Protocol 呼び出し(`llm_calls`)= API 呼び出し1回。"""
+        self._meter.begin_call(method)
+        return self._request(method, system, payload, schema)
+
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
+        self._meter.begin_call("classify_clusters")
         groups: list[GroupProposal] = []
         failures: list[CallFailure] = []
         for start in range(0, len(deck.questions), prompts.CLASSIFY_BATCH_SIZE):
@@ -84,7 +98,7 @@ class AnthropicLlm:
                 "questions": [{"key": k, **prompts.render_question(q)} for k, q in keyed.items()],
             }
             try:
-                data = self._call("classify_clusters", prompts.CLASSIFY_SYSTEM, payload, prompts.CLASSIFY_SCHEMA)
+                data = self._request("classify_clusters", prompts.CLASSIFY_SYSTEM, payload, prompts.CLASSIFY_SCHEMA)
                 proposals = parse_proposals(data, keyed)
             except LlmCallError as exc:
                 failures.append(CallFailure(tuple(q.question_id for q in batch), str(exc)))

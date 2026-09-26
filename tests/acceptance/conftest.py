@@ -23,7 +23,8 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, RecallDraft, UsageRecorder
+from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, RecallDraft
+from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import PcmAudio, Tts
 
 RATE = 16000
@@ -112,7 +113,7 @@ class CliRunner:
         self.tts = tts
         self.tts_model = "model-dir"
 
-    def _llm(self, recorder: UsageRecorder) -> StubLlm:
+    def _llm(self, meter: RunMeter) -> StubLlm:
         return self.llm
 
     def _tts(self, model_dir: str) -> Tts:

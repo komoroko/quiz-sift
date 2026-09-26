@@ -5,7 +5,8 @@ description = "4択問題集を、耳だけでも効率的に学習できる形�
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    # LLM(ADR-002)。adapters 層からのみ import する。
+    # SDK アダプタ(ADR-002)。adapters 層からのみ import する。既定の Llm は CLI 経路で、製品の入口からは
+    # 到達しない(ADR-013)。このサイクルでは通常依存のまま残す(D-103)。
     "anthropic>=0.75.0",
     # デッキ manifest(ADR-011)。mkdocs 経由の暗黙依存にしない。
     "pyyaml>=6.0.2",
@@ -13,6 +14,11 @@ dependencies = [
     "fugashi>=1.5.1",
     "unidic-lite>=1.0.8",
 ]
+
+# 製品の入口はこの1本だけ(NFR-8 (d)、ADR-013)。`python -m quiz_sift.cli` / `python -m quiz_sift.server` も
+# 入口として同じ判定の対象になる。
+[project.scripts]
+quiz-sift = "quiz_sift.cli:main"
 
 [project.optional-dependencies]
 # 音声合成(ADR-004 / D-076)。既定の依存ではない — `uv sync --extra tts` を明示したときだけ入る。
