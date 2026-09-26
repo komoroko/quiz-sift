@@ -1,18 +1,61 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-26T15:07:38+09:00'
+updated_at: '2026-09-27T01:08:51+09:00'
 gates:
   mandate:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-MANDATE-69025471
+      confirmed_at: '2026-09-27T01:08:43+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:2208467b17fe8a9cfcc93af801a405618169cc74bf2c654c98ac1f3092977f92
+      plan_digest: sha256:f8067a929192172b689077ef05505c0785b4ae38f0e1fb250af6b4c8cd19f2c2
+      config_digest: sha256:147c2e1229c689ed2cde5e62483831569f41eab2887ce39f18369f526ecd7519
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      artifact_digest: sha256:9e06e370caba25923ed9a682d008fea1965bb3cd2a70ee7ace5cd67921912108
+      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
+      attested_chain_root: sha256:aabdd01c0f76f92c060d2624c2fa0178a6e380005bfa6654b33b71a8942e10a5
   acceptance:
     status: pending
     receipt: null
   T-047:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-047-646D381A
+      confirmed_at: '2026-09-27T01:08:51+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:b028f223bac29c7f50aad82af8b40b18cf9617c4fa908f8b099d448326563826
+      crossing_digest: sha256:50b60204b241f4bf500bd309180434370ee93f4673e8b530509192446bb3242b
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:668845191ba55ce12bae61a8cd4cf66f593d87e1284df8df9a129e0e2b4eb86e
+      attested_chain_root: sha256:2206fab8aee77a5e5e71b04d560ee6503d5e3bd8ebbb92d0ea3eb69a7c58de8d
 plan:
-  status: draft
+  status: frozen
+  digest: sha256:f8067a929192172b689077ef05505c0785b4ae38f0e1fb250af6b4c8cd19f2c2
+  config_digest: sha256:147c2e1229c689ed2cde5e62483831569f41eab2887ce39f18369f526ecd7519
+  environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+  sources:
+    docs/05-current-state.md: sha256:4de7cc0aefd57739a8d269d90d4c37d955c6d4d9ad99af9dd30831207c13ef3a
+    docs/10-requirements.md: sha256:ee2d1bda47e113ea4113a7a7bf81aaac5cb78404814342009746d45e32e80587
+    docs/20-design.md: sha256:023de88a74726f22a2a13c1da2cfef31c6a9d7185351c1321a4a910a8b27d9e1
+    docs/tasks/T-032.md: sha256:7d2a4b0910bd6fb20884946afe517a13c9bbff165d6006f6cc166bcfde28cf95
+    docs/tasks/T-033.md: sha256:cce01159846722b8df3b807b5ae7852b041a37ec29623c6fa17e92126b02d821
+    docs/tasks/T-034.md: sha256:adfd11e8faa55a173d0651a5a61a039f760a026a3e1dd1555305d36186852c04
+    docs/tasks/T-035.md: sha256:9f32c6c98fdec6dd86e3c32f02523a9a3a7a1fdf8bc629cd50cbc15f7d4a446a
+    docs/tasks/T-036.md: sha256:27a291cadb7bb4ef000eed907e6d11ef3e50b84ec5fc15f5749edefbe6db10e3
+    docs/tasks/T-037.md: sha256:a6a3592d0268518e73de4895f40dddfa4e2bf43150679ddb39b034aba1607a39
+    docs/tasks/T-038.md: sha256:15b04c7ded50010d8ec530a81b50ebf4ca4ebfaab288a2470083aa0440066b02
+    docs/tasks/T-039.md: sha256:353ca6e7b4e6c23f1c5ebe6b1a7b298ee5b8dff595be618580062a12fe2222fe
+    docs/tasks/T-040.md: sha256:fcc1e6b7108ce76404165b32b84086a7c9c359c26370fc2298ee46fd19dff353
+    docs/tasks/T-041.md: sha256:774447f4d18d676f91cf897e7e8bcdf3ef0200dcac5f104d05fbd2c81aef2a08
+    docs/tasks/T-042.md: sha256:c1a7c4b59c2baa1ee9c76c5a9a04a1523c5dfbdb5df6af5cc198b6b5dbc58a81
+    docs/tasks/T-043.md: sha256:9b90a32cc76891aceb015a326a6bf3d4263379030a2335261ab93a9a68517d30
+    docs/tasks/T-044.md: sha256:30e4c22fda46b1868a36d3f02498805d093d099521cbae049adabf96490e1184
+    docs/tasks/T-045.md: sha256:c33283ab2f233f2b3eb41682bb94ef38cfe14af6aa131c7196736b09ae396bb6
+    docs/tasks/T-046.md: sha256:6415df236a6a411f6aca1b6cb3d4f1cc96313f650618cf4c36bfad7248616a99
+    docs/tasks/T-047.md: sha256:151f4602935bea3ece85d3feb249419d148bf40b704f77a9cd5a3ecc7c316cec
+    docs/tasks/T-048.md: sha256:5419aeb2f68ab509f1f69eabf7e612f82e3b0224612a7153cca6166f39af3453
+  frozen_at: '2026-09-27T01:08:43+09:00'
 execution:
   status: idle
 tasks:
