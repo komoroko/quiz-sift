@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-27T05:58:29+09:00'
+updated_at: '2026-09-27T06:25:15+09:00'
 gates:
   mandate:
     status: approved
@@ -1035,26 +1035,112 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: todo
-    attempts: 11
+    status: needs-revision
+    attempts: 12
     handoff:
       last_agent:
         role: implementer
         adapter: claude
-        rc: 1
-        session: 5609c8e1-2698-4106-8fb8-77791476aab2
-        output_tail: '{"duration_api_ms":0,"stop_reason":"stop_sequence","session_id":"5609c8e1-2698-4106-8fb8-77791476aab2","total_cost_usd":0,"usage":{"output_tokens_details":{"thinking_tokens":0},"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"terminal_reason":"api_error","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"is_error":true,"num_turns":1,"subtype":"success","api_error_status":429,"result":"You''ve
-          hit your session limit · resets 6am (Asia/Tokyo)","type":"result","duration_ms":872,"uuid":"d315ded0-e418-4b94-92c5-e711fc3737ca","queued_turn_count":0,"result_index":0}
+        rc: 0
+        session: d31b6a89-f78c-4133-bfa1-c2d5866eea2a
+        output_tail: 'T-047 は `needs-revision` で止めました。実データでは cluster 段が毎回止まる見込みで、直すには範囲外の `src/` か設計を変える必要があります。`rein
+          report` は記録されました(終了コードは 2 で、出力は "recorded in the central audit chain")。
 
-          '
-        at: '2026-09-27T05:58:29+09:00'
+
+          **経緯**
+
+          - 再現性の列の1本目(`cluster --fresh-run`、run_id `5dc47b0e…`)を走らせました。分類は正常に終わりました(N=175、M=37、M/N=0.2114、「その他」0、最大クラスタ比率
+          0.1086、失敗 0、分類の子プロセス 7 本 = ⌈175/25⌉)。
+
+          - 最初のクラスタ c001 の要約が `UngroundedSummary` で exit 1 になりました。停止の種別が other なので、この列は `not_completable`
+          です。
+
+
+          **原因**
+
+          - 要約の指示(`SUMMARIZE_SYSTEM`)は「問題文に無い語句を持ち込まない」の1文だけで、スキーマに長さの制限もありません。
+
+          - そのため Opus が見出し付きで 2507 字の要約を返し、名詞句が 248 個になりました。
+
+          - クラスタの問題本文に無い語句は 10 個でした。デッキ全体と照べても、モデル自身の見出し語など 4 個が残ります。
+
+          - 設計 R-3 は「名詞句がすべて実在すること」を求め、1語でも欠ければ止めます。この条件では、37 クラスタの要約がすべて通る見込みはありません。同じコードで再実行しても、戻せないレート枠を使うだけです。
+
+
+          **必要な決定(どちらか)**
+
+          - (a) 要約の指示とスキーマを変えるタスクを足す(`src/quiz_sift/adapters/llm_prompts.py`。短くする、見出しを付けない、`maxLength`
+          を付けるなど)。段キャッシュの digest は変わります。
+
+          - (b) 要件の「主要な語句が実在」と設計の「全名詞句が実在」のずれを、`/revise` で決め直す。
+
+
+          **消費した枠**
+
+          - 分類 7 本と要約 1 本(Opus、model_turns 16)。
+
+          - 終了時点の使用率は five_hour 0.41、seven_day 0.72。
+
+          - rate_limit_event は届いており、isUsingOverage は偽でした。
+
+
+          **成果物**
+
+          - ハーネス `tests/measurements/test_full_run_logs.py` をコミットしました(6d67b2b)。製品の CLI の実行と journal への記録(`exec`)、無音判定(`silence`)、3つの
+          md の書き出し(`render`)、A-1〜A-6 の判定をこの1ファイルで行います。
+
+          - lint・format・types は緑です。
+
+          - 3つの md はまだ無いので、A-1〜A-6 のテストは赤のままです。
+
+          - 判定関数と `render` は一度も走らせておらず、未検証です。
+
+          - 最初の起動ではハーネス自身の import 漏れで、この実行の journal 行が書かれませんでした。修正済みです。標準エラーは `out/aip-c01/t047/001.stderr`
+          に残っています。
+
+
+          `out/aip-c01/meter.jsonl` には、今回より前(03:42 JST)の、終了行の無い開始行が1行あります。追記専用のログなので、そのまま残しています。'
+        at: '2026-09-27T06:25:13+09:00'
       last_fault:
         kind: ENV_TRANSIENT
         where: 'T-047: implementer'
         rc: 1
         output_tail: You've hit your session limit · resets 6am (Asia/Tokyo)
         at: '2026-09-27T05:58:29+09:00'
-      updated_at: '2026-09-27T05:58:29+09:00'
+      updated_at: '2026-09-27T06:25:15+09:00'
+      report:
+        outcome: needs-revision
+        summary: '実データで cluster 段が必ず止まる製品側の欠陥が見つかった。直すには scope 外の src/ か設計に手を入れる必要がある。経緯: 再現性の列1本目(cluster
+          --fresh-run、run_id 5dc47b0e…、2026-09-27 06:16 JST)で、分類は正常に終わった(N=175、M=37、M/N=0.2114、その他 0、最大
+          0.1086、失敗 0、分類の子プロセス 7 本 = ⌈175/25⌉)。ところが最初の要約 c001 が UngroundedSummary で exit 1 になった(stop.kind=other
+          なので列は not_completable)。原因: SUMMARIZE_SYSTEM は『問題文に無い語句を持ち込まない』の1文だけで、スキーマにも長さの制限が無い。そのため Opus
+          が見出しつきの 2507 字の要約を返し、名詞句が 248 個になった。メンバーの問題本文に実在しない語句は 10 個で、デッキ全体と照合しても 4 個が残る(『判断ポイント』のような、モデル自身の見出し語)。設計
+          R-3 は『名詞句のすべてが実在』で、1語でも欠ければ止める。この条件ではクラスタ 37 個の要約がすべて通る見込みが無く、同じ木のまま再実行してもレート枠(戻せない)を使うだけになる。要る決定は次のどちらか:
+          (a) 要約プロンプトとスキーマを変える(短く、見出しなし、maxLength など。src/quiz_sift/adapters/llm_prompts.py で、inputs_digest
+          が動く)タスクを足す。(b) 要件の『主要な語句が実在』と設計の『全名詞句が実在』のずれを /revise で決め直す。消費した枠: 分類 7 本と要約 1 本(Opus、model_turns
+          16)。終了時点の five_hour の使用率は 0.41、seven_day は 0.72。rate_limit_event は届き、isUsingOverage は偽だった。成果物:
+          実行・記録・判定を1ファイルで行うハーネス tests/measurements/test_full_run_logs.py(exec / silence / render の各サブコマンドと、A-1〜A-6
+          の判定)をコミットした。lint・format・types は緑。3つの md はまだ無いので、A-1〜A-6 のテストは赤。判定関数は実データでも合成データでも一度も走らせていない(未検証)。out/aip-c01/meter.jsonl
+          には以前から終了行の無い開始行が1行ある(run 41a0832d、03:42 JST)。追記専用なので残してある。'
+        at: '2026-09-27T06:24:59+09:00'
+        touched:
+        - tests/measurements/test_full_run_logs.py
+      escalation:
+        kind: agent_needs_revision
+        message: 'T-047: the implementer reported needs-revision — 実データで cluster 段が必ず止まる製品側の欠陥が見つかった。直すには
+          scope 外の src/ か設計に手を入れる必要がある。経緯: 再現性の列1本目(cluster --fresh-run、run_id 5dc47b0e…、2026-09-27 06:16
+          JST)で、分類は正常に終わった(N=175、M=37、M/N=0.2114、その他 0、最大 0.1086、失敗 0、分類の子プロセス 7 本 = ⌈175/25⌉)。ところが最初の要約
+          c001 が UngroundedSummary で exit 1 になった(stop.kind=other なので列は not_completable)。原因: SUMMARIZE_SYSTEM
+          は『問題文に無い語句を持ち込まない』の1文だけで、スキーマにも長さの制限が無い。そのため Opus が見出しつきの 2507 字の要約を返し、名詞句が 248 個になった。メンバーの問題本文に実在しない語句は
+          10 個で、デッキ全体と照合しても 4 個が残る(『判断ポイント』のような、モデル自身の見出し語)。設計 R-3 は『名詞句のすべてが実在』で、1語でも欠ければ止める。この条件ではクラスタ
+          37 個の要約がすべて通る見込みが無く、同じ木のまま再実行してもレート枠(戻せない)を使うだけになる。要る決定は次のどちらか: (a) 要約プロンプトとスキーマを変える(短く、見出しなし、maxLength
+          など。src/quiz_sift/adapters/llm_prompts.py で、inputs_digest が動く)タスクを足す。(b) 要件の『主要な語句が実在』と設計の『全名詞句が実在』のずれを
+          /revise で決め直す。消費した枠: 分類 7 本と要約 1 本(Opus、model_turns 16)。終了時点の five_hour の使用率は 0.41、seven_day
+          は 0.72。rate_limit_event は届き、isUsingOverage は偽だった。成果物: 実行・記録・判定を1ファイルで行うハーネス tests/measurements/test_full_run_logs.py(exec
+          / silence / render の各サブコマンドと、A-1〜A-6 の判定)をコミットした。lint・format・types は緑。3つの md はまだ無いので、A-1〜A-6
+          のテストは赤。判定関数は実データでも合成データでも一度も走らせていない(未検証)。out/aip-c01/meter.jsonl には以前から終了行の無い開始行が1行ある(run 41a0832d、03:42
+          JST)。追記専用なので残してある。'
+        tree: sha256:b2479d3dcc0a60c13772ebda6af18c3b1967bb1157023d495835b47cbd4a1ccd
   T-048:
     status: done
     attempts: 1
