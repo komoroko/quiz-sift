@@ -63,6 +63,9 @@ class Recorder:
     def record(self, model: str, usage: TokenUsage) -> None:
         pass
 
+    def begin_call(self, method: str) -> None:
+        pass
+
 
 class FixtureClient:
     """`messages.create` の要求から statement を読み、手書きの verdict を JSON 応答として返す。"""
@@ -89,7 +92,9 @@ class FixtureClient:
 
 def make_llm(verdicts: dict[str, str | Exception]) -> tuple[AnthropicLlm, FixtureClient]:
     client = FixtureClient(verdicts)
-    return AnthropicLlm(cast(Any, client), Recorder()), client
+    llm = AnthropicLlm(cast(Any, Recorder()))
+    llm.client = cast(Any, client)
+    return llm, client
 
 
 class Emitter:

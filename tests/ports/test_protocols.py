@@ -94,6 +94,9 @@ class Recorder:
     def record(self, model: str, usage: TokenUsage) -> None:
         self.calls.append((model, usage))
 
+    def begin_call(self, method: str) -> None:
+        pass
+
 
 def response(payload: object, *, stop_reason: str = "end_turn") -> SimpleNamespace:
     return SimpleNamespace(
@@ -120,7 +123,9 @@ class FakeClient:
 
 
 def make_llm(client: FakeClient, recorder: Recorder) -> Llm:
-    return AnthropicLlm(cast(Any, client), recorder)
+    llm = AnthropicLlm(cast(Any, recorder))
+    llm.client = cast(Any, client)
+    return llm
 
 
 def test_adapter_records_each_call_with_the_token_breakdown() -> None:

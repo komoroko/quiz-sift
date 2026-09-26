@@ -6,7 +6,7 @@
 各段は前段を `pipeline.stage.StageCache` 越しに呼ぶ。前段の成果物がキャッシュにあればそれを読み、
 無ければその場で作る。どの段から起動しても同じ digest の成果物は作り直さないので、途中の段からの
 再実行で前段の LLM / TTS 呼び出しは 0 回になる。LLM と TTS は最初に要ったときに1度だけ組み立てる —
-キャッシュだけで済む実行は API キーも CosyVoice も要らない。
+キャッシュだけで済む実行は `claude` も CosyVoice も要らない。
 
 成果物は JSON(音声は書き出したディレクトリの tar)で `out/<deck>/<段>/<digest>` に置く。配信側の
 `out/<deck>/audio/` と `out/<deck>/glossary/` は実行のたびにキャッシュから作り直す(AR-14)。
@@ -29,8 +29,9 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO
 
-from quiz_sift import __version__
-from quiz_sift.adapters import llm_anthropic, llm_prompts
+from quiz_sift import __version__, composition
+from quiz_sift.adapters import llm_prompts
+from quiz_sift.adapters.llm_claude_cli import MAX_TURNS
 from quiz_sift.audio.synthesize import synthesize_tracks
 from quiz_sift.cluster.run import Clustering, cluster_deck
 from quiz_sift.decks.registry import deck_data_dir, deck_out_dir, manifest_path
@@ -49,7 +50,8 @@ from quiz_sift.ingest.deck import ingest_deck
 from quiz_sift.pipeline.meter import Meter
 from quiz_sift.pipeline.stage import Stage, StageCache
 from quiz_sift.ports.clock import SystemClock
-from quiz_sift.ports.llm import Llm, RecallDraft, UsageRecorder
+from quiz_sift.ports.llm import Llm, RecallDraft
+from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import Tts
 from quiz_sift.recall.generate import RecallSet, generate_recall_set
 from quiz_sift.recall.verify import RecallMaterial, RecallReport, TermRate
@@ -65,7 +67,7 @@ from quiz_sift.store.deck_scope import DeckScopedStore
 
 logger = logging.getLogger(__name__)
 
-type LlmFactory = Callable[[UsageRecorder], Llm]
+type LlmFactory = Callable[[RunMeter], Llm]
 type TtsFactory = Callable[[str], Tts]
 """`--tts-model` の値を受け取って TTS を組み立てる。"""
 
@@ -78,10 +80,11 @@ AUDIO_DIRNAME = "audio"
 REVIEW_DIRNAME = "review"
 METER_LOG = "meter.jsonl"
 
-# `inputs_digest` に入れるプロンプトとモデル(AR-21)。プロンプトは adapter の定数そのもので、
+# `inputs_digest` に入れるプロンプトとモデル(AR-21)。プロンプトは `llm_prompts` の定数そのもので、
 # 直せば digest が変わって作り直される。含意判定はどの段でも走るので全段に入れる。モデルは段が使う
-# メソッドごとの割り当て(ADR-015)を並べ、どれか1つを変えればその段の digest が動く。
-_LLM_PARAMS = {"max_tokens": llm_anthropic.MAX_TOKENS}
+# メソッドごとの割り当て(ADR-015)を並べ、どれか1つを変えればその段の digest が動く。生成パラメータは
+# CLI 経路に `max_tokens` が無いので `--max-turns` を入れる(AR-62)。
+_LLM_PARAMS = {"max_turns": MAX_TURNS}
 _ENTAILMENT = llm_prompts.ENTAILMENT_SYSTEM
 
 
@@ -452,13 +455,6 @@ class Pipeline:
         return write_review_series(ranks, self.out_dir / AUDIO_DIRNAME, self.out_dir / REVIEW_DIRNAME)
 
 
-def _default_llm(recorder: UsageRecorder) -> Llm:
-    # SDK を import するのは adapters だけ(ADR-002)。adapter はクライアントを組み立てる口を持たないので、
-    # adapter が import した SDK からクライアントを作る。明示的な再エクスポートではないので型検査は黙らせる。
-    client = llm_anthropic.anthropic.Anthropic()  # type: ignore[attr-defined]
-    return llm_anthropic.AnthropicLlm(client, recorder)
-
-
 def _default_tts(model_dir: str) -> Tts:
     # CosyVoice はホストにしか無い(ADR-012)。`--tts-model` を使う実行だけが読み込む。
     from quiz_sift.adapters.tts_cosyvoice import CosyVoiceTts
@@ -561,7 +557,7 @@ def _run(args: argparse.Namespace, handler: logging.Handler, llm_factory: LlmFac
 def main(
     argv: Sequence[str] | None = None,
     *,
-    llm_factory: LlmFactory = _default_llm,
+    llm_factory: LlmFactory = composition.build_default_llm,
     tts_factory: TtsFactory = _default_tts,
 ) -> int:
     """CLI を実行して終了コードを返す。段の検査に落ちた場合は `SystemExit` の派生が非0で抜ける。"""
