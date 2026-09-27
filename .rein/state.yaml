@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-27T11:12:16+09:00'
+updated_at: '2026-09-27T12:46:38+09:00'
 gates:
   mandate:
     status: approved
@@ -1037,67 +1037,8 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: blocked
+    status: todo
     attempts: 22
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: f986b795-7ab9-4e5d-a4ac-b0f17c3a754f
-        output_tail: "T-047 は blocked で止めて報告しました。実データを流す実行を auto mode の分類器が拒否したためです(理由は `[Production Deploy]`)。T-047\
-          \ のゲートは承認済みですが、実 CLI とレート枠を使う実行は私の側からは通りません。拒否を回避する操作はしていません。\n\n**現状**\n- 前回中断した後に、T-049 を含むコミット\
-          \ 6c08b78 で full 列 `7d68547217df41ef82261f5ad9aae071` の `cluster --fresh-run` が1回走っていました。\n\
-          \  - 分類の4本目で five_hour の枠が rejected(1.01)になり、exit 1 で終わっています。\n  - 列の状態は `resumable` です。overage_check\
-          \ は passed で、isUsingOverage は偽でした。\n- five_hour の枠は 11:00 JST にリセットされています。seven_day の使用率は 0.78\
-          \ です。\n- ハーネスについては次の2点を確認しました。\n  - render と A-1〜A-6 の判定は、合成データですべて通りました。\n  - 実データの stderr(`001.stderr`)から、メソッド別の件数と実行サマリを正しく読めました。\n\
-          \  - 確認に使ったスクリプトは一時ファイルで、コミットしていません。コードの変更もありません。\n\n**次の手順(次のどちらか)**\n1. ホストで順に実行してください。どれも\
-          \ `python tests/measurements/test_full_run_logs.py <サブコマンド> --out-root /mnt/d/prog_works/quiz-sift\
-          \ --deck aip-c01 …` の形です。PYTHONPATH には `~/CosyVoice` と `~/CosyVoice/third_party/Matcha-TTS`\
-          \ を通します。\n   - `exec --kind full` で、`cluster`・`recall`・`glossary`・`script`・`audio` の順に走らせます。各段とも\
-          \ `--resume 7d68547217df41ef82261f5ad9aae071` を付け、`audio` にはさらに `--tts-model ~/CosyVoice/pretrained_models/CosyVoice-300M-SFT`\
-          \ を付けます。\n   - 続けて `silence` を1回、`exec --kind repro cluster --fresh-run` を2回、最後に `render` を1回走らせます。\n\
-          \   - md ができたら私を再起動してください。判定とコミットはこちらで行います。\n2. このコマンドを許可する Bash のルールを追加してから、私を再起動してください。"
-        at: '2026-09-27T11:12:14+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-047: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 11am (Asia/Tokyo)
-        at: '2026-09-27T10:52:15+09:00'
-      updated_at: '2026-09-27T11:12:16+09:00'
-      report:
-        outcome: blocked
-        summary: '列の実行が Claude Code の auto mode 分類器に拒否された(理由: [Production Deploy])。拒否されたコマンド: ../../.venv/bin/python
-          tests/measurements/test_full_run_logs.py exec --out-root /mnt/d/prog_works/quiz-sift --deck
-          aip-c01 --kind full cluster --resume 7d68547217df41ef82261f5ad9aae071。gate T-047 は承認済み(GA-T-047-8F362A65)だが、実
-          CLI とレート枠を使う実行はエージェントからは通らない。現状: T-049 込みのコミット 6c08b78 で full 列 7d685472 の cluster --fresh-run
-          が走り、分類4本目で five_hour が rejected(1.01)になり exit 1(stop.kind=rate_limit、sequence.status=resumable、overage_check=passed、isUsingOverage
-          偽)。five_hour は 11:00 JST にリセット済み、seven_day は 0.78。ハーネスの render と A-1〜A-6 の判定は合成データで全て通り、実 stderr(001.stderr)のメソッド振り分けと実行サマリの読み取りも正しかった(未コミットの検証スクリプトで確認、コード変更なし)。要る決定:
-          (1) 人がホストで次を順に走らせる(PYTHONPATH に ~/CosyVoice と ~/CosyVoice/third_party/Matcha-TTS): exec --kind
-          full の cluster/recall/glossary/script を --resume 7d68547217df41ef82261f5ad9aae071 で、audio は加えて
-          --tts-model ~/CosyVoice/pretrained_models/CosyVoice-300M-SFT。続いて silence、exec --kind repro cluster
-          --fresh-run を2回、最後に render。いずれも python tests/measurements/test_full_run_logs.py <sub> --out-root
-          /mnt/d/prog_works/quiz-sift --deck aip-c01 の形。md ができたら再起動すれば判定とコミットを行う。または (2) このコマンドの Bash
-          許可ルールを足して再起動する。'
-        at: '2026-09-27T11:12:05+09:00'
-      salvage_branch: build/quiz-sift-T-047-salvage-20260927-020850
-      salvage_state: restored
-      escalation:
-        kind: agent_blocked
-        message: 'T-047: the implementer reported blocked — 列の実行が Claude Code の auto mode 分類器に拒否された(理由:
-          [Production Deploy])。拒否されたコマンド: ../../.venv/bin/python tests/measurements/test_full_run_logs.py
-          exec --out-root /mnt/d/prog_works/quiz-sift --deck aip-c01 --kind full cluster --resume 7d68547217df41ef82261f5ad9aae071。gate
-          T-047 は承認済み(GA-T-047-8F362A65)だが、実 CLI とレート枠を使う実行はエージェントからは通らない。現状: T-049 込みのコミット 6c08b78 で
-          full 列 7d685472 の cluster --fresh-run が走り、分類4本目で five_hour が rejected(1.01)になり exit 1(stop.kind=rate_limit、sequence.status=resumable、overage_check=passed、isUsingOverage
-          偽)。five_hour は 11:00 JST にリセット済み、seven_day は 0.78。ハーネスの render と A-1〜A-6 の判定は合成データで全て通り、実 stderr(001.stderr)のメソッド振り分けと実行サマリの読み取りも正しかった(未コミットの検証スクリプトで確認、コード変更なし)。要る決定:
-          (1) 人がホストで次を順に走らせる(PYTHONPATH に ~/CosyVoice と ~/CosyVoice/third_party/Matcha-TTS): exec --kind
-          full の cluster/recall/glossary/script を --resume 7d68547217df41ef82261f5ad9aae071 で、audio は加えて
-          --tts-model ~/CosyVoice/pretrained_models/CosyVoice-300M-SFT。続いて silence、exec --kind repro cluster
-          --fresh-run を2回、最後に render。いずれも python tests/measurements/test_full_run_logs.py <sub> --out-root
-          /mnt/d/prog_works/quiz-sift --deck aip-c01 の形。md ができたら再起動すれば判定とコミットを行う。または (2) このコマンドの Bash
-          許可ルールを足して再起動する。'
-        tree: sha256:bb8ff502afd80ab1eeea3af4dcc0a439cab5abef3b4bebfa907373fba18557f0
   T-048:
     status: done
     attempts: 1
