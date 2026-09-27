@@ -60,7 +60,7 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 | Area | Choice | Rationale (ADR) |
 |------|------|-----------|
 | Language/runtime | Python 3.13 / Next.js · React | D-012, D-018 |
-| LLM | **Claude Code CLI(`claude -p`、サブスクリプション認証)**。分類・要約は `claude-opus-5-5`、想起・用語・含意は `claude-haiku-4-5` の混成。`ports/llm.py` のタスク別メソッド越し | ADR-013, ADR-015(ADR-002 を一部 supersede) |
+| LLM | **Claude Code CLI(`claude -p`、サブスクリプション認証)**。分類・要約・含意は `claude-opus-5-5`、想起・用語は `claude-haiku-4-5` の混成。`ports/llm.py` のタスク別メソッド越し | ADR-013, ADR-015(ADR-002 を一部 supersede), ADR-019(含意のモデル) |
 | クラスタリング | LLM に直接分類させ、排他分割と「その他」は後処理で強制 | ADR-003 |
 | TTS | CosyVoice(ローカル OSS、Apache-2.0) | ADR-004 |
 | 形態素解析 | fugashi + unidic(語句実在性の判定) | ADR-010 |
@@ -484,6 +484,8 @@ data/<deck>/*.jsonl ─┬→ ingest ─→ cluster ─→ recall ─→ script 
 ミューテーションに対する検出率の記録。**測れるのは判定器のロジックであってモデルの判定能力ではない**。
 検出率に合格ラインは置かない(D-044)。この2点は人間が承知のうえで残した穴で、下の Risks と
 Open questions に記録してある。
+
+**判定のモデルとプロンプト(ADR-019、D-163)**: 判定は `claude-opus-5-5` で行う。プロンプトは、statement が reference の複数の問題をまとめた要約でありうることを明示する。省略・一般化・reference に書かれていない事柄に触れていないことは矛盾ではなく、statement の主張が正解・解説と両立しないときだけ `contradicted` とする。Haiku と2文のプロンプトは、32 件中 1 件の要約を `contradicted` とした。同じ要約を、修正プロンプトの Haiku と Opus はともに `consistent` と判定した(2026-09-28 の切り分け)。1件で列全体が止まる(D-042)ので、T-047 が完走できなかった。
 
 ### NFR-2: 教材データの保護
 

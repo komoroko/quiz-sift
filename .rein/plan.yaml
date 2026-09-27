@@ -1891,6 +1891,16 @@ decisions:
   requirement_ids:
   - NFR-3
   - NFR-6
+- id: D-163
+  subject: 含意判定が正しいと見られるクラスタ要約を contradicted と判定し、T-047 の列が完走できない(2本の列で再現)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: check_entailment のモデルを claude-opus-5-5 にし、ENTAILMENT_SYSTEM に「statement は reference の複数の問題をまとめた要約でありうる。省略・一般化・reference に書かれていない事柄に触れていないことは矛盾ではない。statement の主張が正解・解説と両立しないときだけ contradicted」を足す(ADR-019。人の選択は「両方」、2026-09-28)。3値の意味と、contradicted と uncertain の両方で止める規則(D-042)は変えない。T-051 を足し、T-047 を T-051 に依存させる。
+  rationale: 2026-09-28 に、リポジトリの外のスクリプトで分類から全クラスタの要約・判定までを止めずに1列走らせた。32 クラスタ中、Haiku と元のプロンプトは 31 件 consistent、1 件 contradicted だった。その1件を、修正プロンプトの Haiku と、元のプロンプトの Opus は、どちらも consistent と判定した。1件で列全体が止まるので、クラスタ段だけで列が通る確率は約 37%(0.97^32)で、この後に数百回の判定が続く。Opus に移すと判定 350〜500 回ぶんの Opus 枠を使い、ADR-015 の「Opus 枠に当たると止まる」短所が重くなる。人はこれを承知で両方を選んだ。
+  requirement_ids:
+  - NFR-1
+  - R-3
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -2544,7 +2554,7 @@ tasks:
       - tests/ports/test_protocols.py::test_anthropic_adapter_shares_the_id_completeness_contract
       executor_profile: quality
   - id: A-4
-    statement: メソッドごとのモデルは、classify_clusters と summarize_cluster が claude-opus-5-5、generate_recall・describe_term・check_entailment が claude-haiku-4-5 である(ADR-015)。
+    statement: メソッドごとのモデルは、classify_clusters・summarize_cluster・check_entailment が claude-opus-5-5、generate_recall・describe_term が claude-haiku-4-5 である(ADR-015、check_entailment は ADR-019)。
     evidence:
       kind: command
       command:
@@ -3000,7 +3010,7 @@ tasks:
       - tests/test_cli.py::test_llm_stages_stop_on_failure_and_summarise
       executor_profile: quality
   - id: A-6
-    statement: 各段の inputs_digest に、その段で使うメソッドのモデル ID(ADR-015 の割り当て)が入る。ある段のモデルだけを変えると、その段の digest が変わってキャッシュが無効化される。
+    statement: 各段の inputs_digest に、その段で使うメソッドのモデル ID(ADR-015 と ADR-019 の割り当て)が入る。ある段のモデルだけを変えると、その段の digest が変わってキャッシュが無効化される。
     evidence:
       kind: command
       command:
@@ -3227,6 +3237,7 @@ tasks:
   - T-045
   - T-046
   - T-049
+  - T-051
   claim_ids:
   - C-003
   - C-007
@@ -3488,6 +3499,64 @@ tasks:
       - -q
       - tests/acceptance/test_cross_cutting.py::test_c015_credentials_never_reach_logs_or_errors
       - tests/acceptance/test_cross_cutting.py::test_c018_gate_steps_need_no_network
+      executor_profile: quality
+  operator_surface: []
+  requires: []
+- id: T-051
+  title: 含意判定のモデルを Opus にし、プロンプトで省略・一般化を矛盾としないと明示する
+  kind: foundation
+  blocked_by:
+  - T-049
+  - T-045
+  claim_ids:
+  - C-013
+  domains:
+  - safety
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_prompts.py
+    - tests/adapters/test_llm_contract.py
+    - tests/adapters/test_llm_claude_cli.py
+    - tests/test_cli.py
+  acceptance:
+  - id: A-1
+    statement: llm_prompts.MODELS は classify_clusters・summarize_cluster・check_entailment が claude-opus-5-5、generate_recall・describe_term が claude-haiku-4-5 である。test_model_per_method_follows_adr_015 は、期待値の check_entailment だけを claude-opus-5-5 に変え、関数名とほかの期待値は変えない。修正前のコードではこのテストが赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_model_per_method_follows_adr_015
+      executor_profile: quality
+  - id: A-2
+    statement: 各段(cluster・recall・glossary・script)の inputs_digest に入るモデル文字列で、check_entailment が claude-opus-5-5 である。test_stage_digest_carries_the_models_it_uses は、期待値の check_entailment だけを claude-opus-5-5 に変え、ほかの期待値と、1段のモデルだけを変えるとその段だけ作り直す検査は変えない。修正前のコードではこのテストが赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_stage_digest_carries_the_models_it_uses
+      executor_profile: quality
+  - id: A-3
+    statement: ENTAILMENT_SYSTEM が次を指示する。(1) reference を正しい情報として statement が矛盾するかを判定し、矛盾しなければ consistent、矛盾すれば contradicted、reference から判断できなければ uncertain(元の2文を残す)。(2) statement は reference の複数の問題をまとめた要約でありうること。(3) reference の一部を省略すること、一般化すること、reference に書かれていない事柄に触れていないことは矛盾ではないこと。(4) statement の主張が reference の正解・解説と両立しないときだけ contradicted とすること。新しいテスト関数が (1)〜(4) の文言を部分文字列で確かめる。修正前のコードではこのテストが赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_entailment_prompt_does_not_treat_omission_or_generalization_as_contradiction
+      executor_profile: quality
+  - id: A-4
+    statement: NFR-1 の手書きフィクスチャのテスト(3値と fail-closed、言い換えに対する誤検出0、ミューテーション検出率の記録)が、名前も assert も変えずに緑のままである。ENTAILMENT_SCHEMA と parse_entailment は変えない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety/test_entailment.py::test_three_verdicts_and_fail_closed
+      - tests/safety/test_entailment.py::test_no_false_positive_on_paraphrase
+      - tests/safety/test_entailment.py::test_mutation_detection_rate_is_recorded
       executor_profile: quality
   operator_surface: []
   requires: []
