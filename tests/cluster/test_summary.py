@@ -188,3 +188,25 @@ def test_general_words_are_not_checked_and_term_free_summaries_still_go_through_
         cluster_deck(llm, deck, Writer(out))
     assert term_free in [statement for _, statement in llm.checked]
     assert not out.exists()
+
+
+RACK_ROWS = {
+    Language.JA: "42U のラックに 1U/2U のサーバーを S3 のバックアップ用に収める構成はどれか。",
+    Language.EN: "Which layout fits 1U/2U servers into a 42U rack for S3 backups?",
+}
+
+
+@pytest.mark.parametrize(
+    ("language", "summary"),
+    [
+        (Language.JA, "2026 年の構成では 42U のラックと 1U/2U、S3 を使う。"),
+        (Language.EN, "In 2026 the layout puts 1U/2U servers into a 42U rack for S3 backups."),
+    ],
+)
+def test_alphanumeric_words_starting_with_a_digit_are_checked_whole(language: Language, summary: str) -> None:
+    deck, _ = _deck(language, {"rack": (RACK_ROWS[language], "")})
+    # 42U や 1U/2U は数字始まりの語全体で照合する(末尾の U だけを切り出さない)。数字だけの 2026 は照合しない。
+    assert ungrounded_terms(summary, _members(deck, "rack")) == ()
+    if language is Language.JA:
+        # 日本語デッキは英数字の語全体で照合するので、本文に無い 48U は止まる。
+        assert ungrounded_terms(summary.replace("42U", "48U"), _members(deck, "rack")) == ("48U",)
