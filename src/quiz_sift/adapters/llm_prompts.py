@@ -18,7 +18,7 @@ MODELS: Final = {
     "summarize_cluster": _OPUS,
     "generate_recall": _HAIKU,
     "describe_term": _HAIKU,
-    "check_entailment": _HAIKU,
+    "check_entailment": _OPUS,
 }
 """`ports.llm.Llm` のメソッドごとのモデル ID(ADR-015)。"""
 
@@ -47,6 +47,10 @@ DESCRIBE_SYSTEM: Final = "あなたは資格試験に出る専門用語を、耳
 ENTAILMENT_SYSTEM: Final = (
     "あなたは reference を正しい情報として、statement がそれと矛盾するかを判定する。"
     "矛盾しなければ consistent、矛盾すれば contradicted、reference から判断できなければ uncertain。"
+    "statement は reference の複数の問題をまとめた要約でありうる。"
+    "reference の一部を省略していること、一般化していること、"
+    "reference に書かれていない事柄に触れていないことは矛盾ではない。"
+    "statement の主張が reference の正解・解説と両立しないときだけ contradicted とする。"
 )
 
 _STRING = {"type": "string"}

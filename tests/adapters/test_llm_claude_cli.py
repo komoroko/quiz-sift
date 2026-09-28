@@ -189,7 +189,7 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
     llm.generate_recall(q, Language.JA)  # haiku
     llm.summarize_cluster(members)  # opus
     llm.classify_clusters(members)  # opus
-    llm.check_entailment(material(q)[-1], q.stem)  # haiku
+    llm.check_entailment(material(q)[-1], q.stem)  # opus
     llm.describe_term("合成用語 固有句", Language.JA)  # haiku
     haiku, opus = runner.specs[0].argv, runner.specs[1].argv
 
