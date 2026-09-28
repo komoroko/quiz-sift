@@ -72,27 +72,23 @@
 
 ### Implemented capabilities
 
-旧 T-001〜T-019、T-021〜T-023、T-031 の分。
+旧 T-001〜T-019、T-021〜T-023、T-031 に加え、サイクル 2026-09-26(中止で閉じた)の T-032〜T-046、T-048〜T-051 の分。
+中止で閉じたので、下の後者は **acceptance(grounded review・依存監査)を経ていない**。各タスクの DoD と受入基準は緑だった。
 
-- R-1、R-2(抽出ロジックと実取得1回)、R-3〜R-8、R-10、R-11、R-12
-- NFR-1〜NFR-6
-- NFR-7 は一部: `RunMeter` はあるが、overhead の較正値が空。
-- NFR-8(CLI 経由・サブスクリプション認証)は未実装。
+- R-1〜R-8、R-10、R-11、R-12、NFR-1〜NFR-6。
+- NFR-7: overhead の較正値あり(T-046)。実行の列の集約と CLI(`--fresh-run` / `--resume`、12 時間の上限、早期停止)がある(T-038、T-045)。
+- NFR-8: 既定の LLM は `ClaudeCliLlm`(`claude -p`、サブスクリプション認証、最小ホーム)。起動前検査・子プロセスの環境の固定・逐語ログ・失敗分類がある(T-039〜T-044)。
+- 要約の実在判定は専門用語の断片だけを照合する(D-161、T-049)。
+- 含意判定は `claude-opus-5-5`。プロンプトは要約の省略・一般化を矛盾としない(ADR-019、T-051)。
 
 ### In-flight / unfinished work
 
-旧サイクルの残りで、どれも Claude Code CLI への移行(ADR-013〜016)に属する。受入基準はアーカイブの `rein/plan.yaml` と `docs/tasks/T-*.md` にある。
-
-| 旧タスク | 内容 | ツリーにあるもの |
+| 項目 | 状態 | 次にやること |
 |---|---|---|
-| T-029 | 実 CLI の契約フィクスチャと init.tools の実測 | **ほぼ完了**(`cbf7f72`)。フィクスチャ4ファイル、判定テスト3本、`claude-cli-contract.md`。受入は未判定 |
-| T-024 | 子プロセスの実行環境(env の固定、Workspace、flock、preflight、タイムアウト、stdin) | 無い |
-| T-025 | LLM の契約の共有化(ID の多重集合の検査、`unassigned`、バッチ25、メソッドごとのモデル) | 無い。`llm_anthropic` は旧パーサ・単一モデル・バッチ50のまま |
-| T-026 | 失敗種別の判定・呼び出しログ・マスクの拡張・CLI の fake | `FailureKind` の列挙だけ |
-| T-027 | `ClaudeCliLlm` アダプタ | 無い |
-| T-028 | 組み立て点の一本化・anthropic を読み込まない・コンソールスクリプト | 無い(`composition.py` は設計書にだけある) |
-| T-030 | overhead の較正 | 型だけ。`OVERHEAD` は空 |
-| T-020 | フル処理100〜200問の実測(不可逆。実 CLI の実行と TTS) | 無い。T-028 と T-030 が前提 |
+| **想起素材のプロンプトと検査の不一致** | 実データで全件落ちる。列 591e7bb9 の recall 段が RecallRejected(ungrounded_keys=175/175、missing_options=47)。`RECALL_SYSTEM` は想起キーを本文の表記のまま抜き出すよう指示しておらず、`recall/verify.py` は `is_present` による実在を要求する | プロンプトを直すタスクを先に置く。直した後に `generic_keys`(全 term が他クラスタにも出る)で止まらないかも実データで確かめる。リポジトリ外の診断スクリプト `~/quiz-sift-diag/diag_recall.py` で、クラスタ段のキャッシュから全問を検査にかけられる |
+| **旧 T-047(不可逆): フル処理100〜200問の実測** | 未完。票は archive の `docs/tasks/T-047.md`。クラスタ段は列 591e7bb9 で完走(n=175)。実装途中の `tests/measurements/test_full_run_logs.py` は `build/quiz-sift-T-047*` ブランチにだけある | 上の修正の後、票の受入基準のまま `cluster --fresh-run` から列を取り直す。C-003・C-007・C-019・C-020 の実データでの証拠はまだ無い。含意判定は 350〜500 回が Opus なので、週次枠の途中で止まって `--resume` を要する見込みが高い |
+
+T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にある(c46dbc8)。次のサイクルの acceptance でセキュリティの指摘になる見込みで、残すか外すかを決める。
 
 ### Known TODOs / open issues (reference only — Issues are never read back as truth)
 
@@ -102,4 +98,5 @@
 
 ## Last updated
 
+- 2026-09-29: サイクル 2026-09-26 を中止で閉じる前に、実装済みと引き継ぎを更新。
 - 2026-09-25: 初回の onboarding 調査(rein 0.10.0 への移行時)。

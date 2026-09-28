@@ -1901,6 +1901,16 @@ decisions:
   requirement_ids:
   - NFR-1
   - R-3
+- id: D-164
+  subject: T-047(不可逆のフル処理)を本サイクルで完走できない。想起素材の段が全件 RecallRejected で止まる
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 本サイクルは acceptance を経ずに中止で閉じる(rein cycle-close --name abandoned-…、人が実行)。T-047 は未完のまま残し、次サイクルでは RECALL_SYSTEM を検査に合わせて直すタスクを先に置いてから、T-047 の受入基準のままフル処理を取り直す(人の判断、2026-09-29)。引き継ぎは docs/05-current-state.md の In-flight に書いた。
+  rationale: 列 591e7bb9 はクラスタ段を完走した(T-049・T-051 の修正が効いた)。続く recall 段で RecallRejected(ungrounded_keys=175/175、missing_options=47)。RECALL_SYSTEM は想起キーを「語・状況・条件の組」と頼むだけで本文の表記のまま抜き出すよう指示せず、recall/verify.py は is_present による実在を要求する。T-049 の要約と同じ形の欠陥(プロンプトと検査の不一致)。人は T-047 を次サイクルへ回すことを選んだ。plan から T-047 を外す案は、rein に state の状態を plan に合わせる手段が無く(state.yaml の手書きは禁止)、plan に残せば acceptance が未完了で開かないので、中止で閉じることにした。
+  requirement_ids:
+  - R-4
+  - NFR-7
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
