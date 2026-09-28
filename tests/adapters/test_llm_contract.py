@@ -80,8 +80,21 @@ def test_model_per_method_follows_adr_015() -> None:
         "summarize_cluster": "claude-opus-5-5",
         "generate_recall": "claude-haiku-4-5",
         "describe_term": "claude-haiku-4-5",
-        "check_entailment": "claude-haiku-4-5",
+        "check_entailment": "claude-opus-5-5",
     }
+
+
+def test_entailment_prompt_does_not_treat_omission_or_generalization_as_contradiction() -> None:
+    """元の2文を残し、要約でありうること・省略と一般化は矛盾でないこと・contradicted の条件を足す(D-163)。"""
+    for sentence in (
+        "あなたは reference を正しい情報として、statement がそれと矛盾するかを判定する。",
+        "矛盾しなければ consistent、矛盾すれば contradicted、reference から判断できなければ uncertain。",
+        "statement は reference の複数の問題をまとめた要約でありうる。",
+        "reference の一部を省略していること、一般化していること、"
+        "reference に書かれていない事柄に触れていないことは矛盾ではない。",
+        "statement の主張が reference の正解・解説と両立しないときだけ contradicted とする。",
+    ):
+        assert sentence in llm_prompts.ENTAILMENT_SYSTEM
 
 
 def test_unknown_verdict_is_not_consistent() -> None:

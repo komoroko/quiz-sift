@@ -399,10 +399,10 @@ def test_stage_digest_carries_the_models_it_uses(root: Path, capsys: pytest.Capt
     """各段の digest に、段が使うメソッドのモデル(ADR-015)が入る。1段のモデルだけを変えるとその段だけ作り直す。"""
     opus, haiku = "claude-opus-5-5", "claude-haiku-4-5"
     expected = (
-        (cli.CLUSTER, {"classify_clusters": opus, "summarize_cluster": opus, "check_entailment": haiku}),
-        (cli.RECALL, {"generate_recall": haiku, "check_entailment": haiku}),
-        (cli.GLOSSARY, {"describe_term": haiku, "check_entailment": haiku}),
-        (cli.SCRIPT, {"check_entailment": haiku}),
+        (cli.CLUSTER, {"classify_clusters": opus, "summarize_cluster": opus, "check_entailment": opus}),
+        (cli.RECALL, {"generate_recall": haiku, "check_entailment": opus}),
+        (cli.GLOSSARY, {"describe_term": haiku, "check_entailment": opus}),
+        (cli.SCRIPT, {"check_entailment": opus}),
     )
     for stage, models in expected:
         assert dict(pair.split("=") for pair in stage.model.split(",")) == models, stage.name
