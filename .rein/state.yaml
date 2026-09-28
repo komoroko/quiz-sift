@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-28T09:13:45+09:00'
+updated_at: '2026-09-28T09:13:55+09:00'
 gates:
   mandate:
     status: approved
@@ -1197,80 +1197,6 @@ tasks:
   T-051:
     status: todo
     attempts: 1
-    handoff:
-      report:
-        outcome: needs-revision
-        summary: スコープ内の変更(MODELS[check_entailment]=claude-opus-5-5、ENTAILMENT_SYSTEM に3文追加、A-1/A-2/A-3
-          のテスト、argv テストのコメント)は実装済みで、e51c445 にコミットした。A-1〜A-3 は修正前に赤、修正後に緑を確認した。ただし tests/ports/test_protocols.py::test_adapter_records_each_call_with_the_token_breakdown(141行と143行)が
-          check_entailment のモデルを claude-haiku-4-5 と assert しており、この変更で赤になる。このファイルは T-051 の scope の外で、チケットの『期待値を変えるテストは2つ』にも入っていないので、チケットと
-          scope の漏れである。直すには scope に tests/ports/test_protocols.py を加え、この2行の期待値を claude-opus-5-5 にする(/revise)。別件として
-          tests/test_gate_environment.py::test_baked_requirements_match_the_lockfile は変更前のコードでも host では赤になる(uv
-          export の出力に ANSI 色コードが混じる)。T-051 とは関係なく、OCI の gate では出ない可能性があるが未確認。lint/format/types/docs/smoke
-          は緑。
-        at: '2026-09-28T09:10:51+09:00'
-        touched:
-        - src/quiz_sift/adapters/llm_prompts.py
-        - tests/adapters/test_llm_contract.py
-        - tests/adapters/test_llm_claude_cli.py
-        - tests/test_cli.py
-      updated_at: '2026-09-28T09:11:01+09:00'
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-051: the implementer reported needs-revision — スコープ内の変更(MODELS[check_entailment]=claude-opus-5-5、ENTAILMENT_SYSTEM
-          に3文追加、A-1/A-2/A-3 のテスト、argv テストのコメント)は実装済みで、e51c445 にコミットした。A-1〜A-3 は修正前に赤、修正後に緑を確認した。ただし tests/ports/test_protocols.py::test_adapter_records_each_call_with_the_token_breakdown(141行と143行)が
-          check_entailment のモデルを claude-haiku-4-5 と assert しており、この変更で赤になる。このファイルは T-051 の scope の外で、チケットの『期待値を変えるテストは2つ』にも入っていないので、チケットと
-          scope の漏れである。直すには scope に tests/ports/test_protocols.py を加え、この2行の期待値を claude-opus-5-5 にする(/revise)。別件として
-          tests/test_gate_environment.py::test_baked_requirements_match_the_lockfile は変更前のコードでも host では赤になる(uv
-          export の出力に ANSI 色コードが混じる)。T-051 とは関係なく、OCI の gate では出ない可能性があるが未確認。lint/format/types/docs/smoke
-          は緑。'
-        tree: sha256:8b250de4a4348a395871e864be833b45bdc9635032e69e9bbd765a5434da2813
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 04f0432e-fcb5-41ac-a64d-c6959b116ccf
-        output_tail: 'T-051 is parked as `needs-revision`. The changes inside its scope are done and committed
-          (e51c445), but one test outside that scope now fails because of them.
-
-
-          **What was done**
-
-          - `MODELS["check_entailment"]` is now `claude-opus-5-5`.
-
-          - `ENTAILMENT_SYSTEM` keeps its original two sentences and has the three additions from the
-          ticket. The first addition says the statement "can be" a summary (要約でありうる), as the ticket asks.
-
-          - The two expected-value tests were updated, a new test checks the added prompt wording, and
-          the argv test comment now says `# opus`.
-
-          - A-1, A-2 and A-3 were red before the fix and are green after it. `lint`, `format`, `types`,
-          `docs` and `smoke` pass.
-
-
-          **Why it is parked**
-
-          - `tests/ports/test_protocols.py::test_adapter_records_each_call_with_the_token_breakdown` (lines
-          141 and 143) still expects `check_entailment` to use `claude-haiku-4-5`, so it fails now.
-
-          - That file is outside T-051''s scope, and the ticket says only two tests change their expected
-          values. Both the ticket and the scope missed it.
-
-          - To fix it, a `/revise` needs to add that file to the scope; then change the expected model
-          on those two lines to `claude-opus-5-5`.
-
-
-          **Unrelated failure**
-
-          - `tests/test_gate_environment.py::test_baked_requirements_match_the_lockfile` also fails when
-          run directly on the host, and it fails the same way on the code from before my change.
-
-          - The cause looks like colour codes in `uv export` output on the host. I haven''t checked whether
-          it also fails in the sandboxed quality gate.
-
-
-          `rein report` exited with code 2 but printed "recorded in the central audit chain", so the report
-          is on record.'
-        at: '2026-09-28T09:10:58+09:00'
 baseline:
   measured_at: '2026-09-27T02:12:55+00:00'
   tree_digest: sha256:56ac6bb128e62cbc33d7f9ba19190eccd5baf1de4996c67302b3de65e15d64c7
