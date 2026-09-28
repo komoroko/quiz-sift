@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-28T08:59:35+09:00'
+updated_at: '2026-09-28T09:00:11+09:00'
 gates:
   mandate:
     status: approved
@@ -1038,74 +1038,8 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: blocked
+    status: todo
     attempts: 48
-    handoff:
-      salvage_branch: build/quiz-sift-T-047-salvage-20260927-120007
-      salvage_state: restored
-      updated_at: '2026-09-27T21:13:08+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 4efa5283-1237-4224-8545-a6560781af2c
-        output_tail: 'T-047 は blocked です。フル処理の列が完走できない状態で止まり、あなたの判断が要ります。報告は `rein report --outcome blocked`
-          で送りました。コマンドの終了コードは 2 でしたが、出力は「recorded in the central audit chain」で、監査チェーンへの記録は済んでいます。
-
-
-          **止まった経緯:**
-
-          - 5時間枠が 21:00 JST にリセットされた後、列 `ed330309…` の cluster 段を `--resume` で再開しました(journal の実行 005)。
-
-          - 分類は失敗 0 件で終わりました。175 問が 42 クラスタに分かれ、M/N=0.2400、「その他」比率 0.0000、最大クラスタ比率 0.1257 です。
-
-          - その後の要約の含意判定で、ある要約に対して contradicted が返りました。設計(D-042)どおり成果物を書かずに exit 1 で終了しています(`EntailmentRejected`)。
-
-          - この停止はレート枠による停止ではないため、列は再開できない状態(not_completable)になりました。
-
-          - 前の列 `4f6872ef…`(orphan-004)でも、含意判定の応答に contradicted が出ていました。含意判定まで進んだ2回とも contradicted が出たことになります。
-
-          - 週次枠は使用率 0.99 で、リセットは 2026-09-28 08:00 JST です。
-
-
-          **決めてほしいこと:**
-
-          1. 週次枠のリセット後に、`cluster --fresh-run` から列を新しく取り直すかどうか。取り直しても contradicted が再び出て、同じように完走できなくなる可能性があります。
-
-          2. 要約と含意判定の品質の問題を、別タスクか `/revise` で扱うかどうか。T-047 の範囲では製品コードを直せません。
-
-
-          full-run.md・reproducibility.md・audio-silence.md はまだ作っていないので、A-1〜A-6 のテストは赤のままです。コミットもしていません。'
-        at: '2026-09-27T21:13:06+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-047: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 9pm (Asia/Tokyo)
-        at: '2026-09-27T20:43:24+09:00'
-      report:
-        outcome: blocked
-        summary: 'フル処理の列 ed33030977094be8b5334c7ee0c0046a を 5h 枠リセット(21:00 JST)後に ''cluster --resume''
-          で再開した(journal 実行 005)。分類は失敗 0 で完了した(n=175 m=42 M/N=0.2400 other=0.0000 max=0.1257)が、要約の含意判定が
-          contradicted を返したため、設計(D-042、20-design.md 481 行)どおり成果物を書かずに exit 1 で止まった(stop.kind=other, EntailmentRejected)。列は
-          not_completable(stopped_other:94db233b…)になり、再開はできない。前の列 4f6872ef…(orphan-004)でも含意判定の応答に contradicted
-          が出ていた。観測できた範囲では、含意判定まで進んだ実行の2回とも contradicted が出ている。週次枠は seven_day utilization 0.99 で、リセットは
-          2026-09-28 08:00 JST。人の判断が要る点は2つ。(1) 枠リセット後に cluster --fresh-run から列を取り直すか。contradicted の再発で再び完走不能になるおそれがある。(2)
-          要約・含意判定の品質を、別タスクまたは /revise で扱うか。T-047 の scope では製品に手を入れられない。未完了: A-1〜A-6 の md は未生成で、テストは赤のまま。コミットした変更はない。'
-        at: '2026-09-27T21:12:57+09:00'
-        touched:
-        - ''
-      escalation:
-        kind: agent_blocked
-        message: 'T-047: the implementer reported blocked — フル処理の列 ed33030977094be8b5334c7ee0c0046a を
-          5h 枠リセット(21:00 JST)後に ''cluster --resume'' で再開した(journal 実行 005)。分類は失敗 0 で完了した(n=175 m=42 M/N=0.2400
-          other=0.0000 max=0.1257)が、要約の含意判定が contradicted を返したため、設計(D-042、20-design.md 481 行)どおり成果物を書かずに
-          exit 1 で止まった(stop.kind=other, EntailmentRejected)。列は not_completable(stopped_other:94db233b…)になり、再開はできない。前の列
-          4f6872ef…(orphan-004)でも含意判定の応答に contradicted が出ていた。観測できた範囲では、含意判定まで進んだ実行の2回とも contradicted が出ている。週次枠は
-          seven_day utilization 0.99 で、リセットは 2026-09-28 08:00 JST。人の判断が要る点は2つ。(1) 枠リセット後に cluster --fresh-run
-          から列を取り直すか。contradicted の再発で再び完走不能になるおそれがある。(2) 要約・含意判定の品質を、別タスクまたは /revise で扱うか。T-047 の scope
-          では製品に手を入れられない。未完了: A-1〜A-6 の md は未生成で、テストは赤のまま。コミットした変更はない。'
-        tree: sha256:b2c0d910baba6207e307a740956356402789c1147b397990b08e589cb8fe3f60
   T-048:
     status: done
     attempts: 1
