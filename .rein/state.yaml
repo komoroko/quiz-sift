@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-29T04:01:31+09:00'
+updated_at: '2026-09-29T04:19:06+09:00'
 gates:
   mandate:
     status: approved
@@ -1027,8 +1027,61 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: todo
-    attempts: 77
+    status: done
+    attempts: 78
+    completed_commit: 936af4c852873b0af4c374f15cc15a0174bd794b
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:8fae476d6bb7dd8f928bf8256b3347bd1b9c90929a88ed82567a7692651ee5f0
+      updated_at: '2026-09-29T04:19:06+09:00'
   T-048:
     status: done
     attempts: 1
@@ -1258,3 +1311,53 @@ baseline:
   tree_digest: sha256:56ac6bb128e62cbc33d7f9ba19190eccd5baf1de4996c67302b3de65e15d64c7
   red_steps: []
   frozen: false
+dependency_audit:
+  ran_at: '2026-09-28T19:28:16+00:00'
+  commit: 936af4c852873b0af4c374f15cc15a0174bd794b
+  dependencies: sha256:db2c3692655012903e0ea3613f5c585a7668a4fc23be2a03b10cf20c5acacbb3
+  passed: false
+  summary: "2K\e[32m|\e[0m Collecting PyYAML (6.0.3)\n\e[2K\e[32m|\e[0m Auditing PyYAML (6.0.3)\n\e[2K\e\
+    [32m|\e[0m Collecting pyyaml_env_tag (1.1)\n\e[2K\e[32m/\e[0m Auditing pyyaml_env_tag (1.1)\n\e[2K\e\
+    [32m/\e[0m Collecting regex (2026.9.10)\n\e[2K\e[32m/\e[0m Collecting regex (2026.9.10)\n\e[2K\e[32m/\e\
+    [0m Auditing regex (2026.9.10)\n\e[2K\e[32m/\e[0m Collecting requests (2.34.2)\n\e[2K\e[32m/\e[0m\
+    \ Auditing requests (2.34.2)\n\e[2K\e[32m/\e[0m Collecting rich (15.0.0)\n\e[2K\e[32m/\e[0m Collecting\
+    \ rich (15.0.0)\n\e[2K\e[32m/\e[0m Auditing rich (15.0.0)\n\e[2K\e[32m/\e[0m Collecting rootutils\
+    \ (1.0.7)\n\e[2K\e[32m/\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m/\e[0m Collecting rootutils\
+    \ (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils\
+    \ (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m-\e[0m Auditing rootutils (1.0.7)\n\
+    \e[2K\e[32m-\e[0m Collecting ruamel.yaml (0.18.17)\n\e[2K\e[32m-\e[0m Auditing ruamel.yaml (0.18.17)\n\
+    \e[2K\e[32m-\e[0m Collecting ruamel.yaml.clib (0.2.15)\n\e[2K\e[32m-\e[0m Collecting ruamel.yaml.clib\
+    \ (0.2.15)\n\e[2K\e[32m\\\e[0m Auditing ruamel.yaml.clib (0.2.15)\n\e[2K\e[32m\\\e[0m Collecting ruff\
+    \ (0.16.7)\n\e[2K\e[32m\\\e[0m Auditing ruff (0.16.7)\n\e[2K\e[32m\\\e[0m Collecting safetensors (0.8.0)\n\
+    \e[2K\e[32m\\\e[0m Collecting safetensors (0.8.0)\n\e[2K\e[32m\\\e[0m Auditing safetensors (0.8.0)\n\
+    \e[2K\e[32m\\\e[0m Collecting scikit-learn (1.9.1)\n\e[2K\e[32m\\\e[0m Auditing scikit-learn (1.9.1)\n\
+    \e[2K\e[32m\\\e[0m Collecting scipy (1.18.1)\n\e[2K\e[32m\\\e[0m Auditing scipy (1.18.1)\n\e[2K\e\
+    [32m\\\e[0m Collecting setuptools (81.0.0)\n\e[2K\e[32m\\\e[0m Collecting setuptools (81.0.0)\n\e\
+    [2K\e[32m\\\e[0m Auditing setuptools (81.0.0)\n\e[2K\e[32m\\\e[0m Collecting shellingham (1.5.4)\n\
+    \e[2K\e[32m\\\e[0m Auditing shellingham (1.5.4)\n\e[2K\e[32m\\\e[0m Collecting six (1.17.0)\n\e[2K\e\
+    [32m\\\e[0m Collecting six (1.17.0)\n\e[2K\e[32m\\\e[0m Auditing six (1.17.0)\n\e[2K\e[32m\\\e[0m\
+    \ Collecting sniffio (1.3.1)\n\e[2K\e[32m\\\e[0m Auditing sniffio (1.3.1)\n\e[2K\e[32m\\\e[0m Collecting\
+    \ sortedcontainers (2.4.0)\n\e[2K\e[32m\\\e[0m Auditing sortedcontainers (2.4.0)\n\e[2K\e[32m\\\e\
+    [0m Collecting soundfile (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting soundfile (0.14.0)\n\e[2K\e[32m|\e\
+    [0m Auditing soundfile (0.14.0)\n\e[2K\e[32m|\e[0m Collecting soupsieve (2.9.2)\n\e[2K\e[32m|\e[0m\
+    \ Auditing soupsieve (2.9.2)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting\
+    \ soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\
+    \e[2K\e[32m/\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e\
+    [0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e[0m Auditing soxr (1.1.0)\n\e[2K\e[32m/\e[0m Collecting\
+    \ sympy (1.14.0)\n\e[2K\e[32m/\e[0m Auditing sympy (1.14.0)\n\e[2K\e[32m/\e[0m Collecting textsearch\
+    \ (0.0.24)\n\e[2K\e[32m/\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch\
+    \ (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch\
+    \ (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m\\\e[0m Collecting textsearch\
+    \ (0.0.24)\n\e[2K\e[32m\\\e[0m Auditing textsearch (0.0.24)\n\e[2K\e[32m\\\e[0m Collecting threadpoolctl\
+    \ (3.7.0)\n\e[2K\e[32m\\\e[0m Auditing threadpoolctl (3.7.0)\n\e[2K\e[32m\\\e[0m Collecting tiktoken\
+    \ (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting tiktoken (0.14.0)\n\e[2K\e[32m\\\e[0m Auditing tiktoken\
+    \ (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting tokenizers (0.23.2)\n\e[2K\e[32m\\\e[0m Auditing tokenizers\
+    \ (0.23.2)\n\e[2K\e[32m\\\e[0m Collecting tomli (2.4.1)\n\e[2K\e[32m\\\e[0m Auditing tomli (2.4.1)\n\
+    \e[2K\e[32m\\\e[0m Collecting tomli_w (1.2.0)\n\e[2K\e[32m\\\e[0m Collecting tomli_w (1.2.0)\n\e[2K\e\
+    [32m\\\e[0m Auditing tomli_w (1.2.0)\n\e[2K\e[32m\\\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e\
+    [32m\\\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e\
+    [2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\
+    \e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\
+    \e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\
+    \e[?25h\n\e[1A\e[2KERROR:pip_audit._cli:torch: Dependency not found on PyPI and could not be audited:\
+    \ torch (2.11.0+cu128)\n"
