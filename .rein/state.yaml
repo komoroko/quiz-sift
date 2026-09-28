@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-28T09:13:55+09:00'
+updated_at: '2026-09-28T19:26:49+09:00'
 gates:
   mandate:
     status: approved
@@ -19,8 +19,16 @@ gates:
     status: pending
     receipt: null
   T-047:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-047-ABD7E150
+      confirmed_at: '2026-09-28T09:15:24+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:4114eb72664f0d3e5128449a3dae33ef1801ebb5204a6eb834cfac2e8559fc2b
+      crossing_digest: sha256:50b60204b241f4bf500bd309180434370ee93f4673e8b530509192446bb3242b
+      environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
+      validation_digest: sha256:668845191ba55ce12bae61a8cd4cf66f593d87e1284df8df9a129e0e2b4eb86e
+      attested_chain_root: sha256:0eb20a7fd0b6cd399d564fca1ee34742b9a83563300b2ccb14a40e7935ecd164
 plan:
   status: frozen
   digest: sha256:4c83acb3179a486dbb5630d9220c5fefe6af16937d1a0c6785e3927de2f72698
@@ -1030,8 +1038,76 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: todo
-    attempts: 48
+    status: blocked
+    attempts: 77
+    handoff:
+      salvage_branch: build/quiz-sift-T-047-salvage-20260928-092005
+      salvage_state: restored
+      updated_at: '2026-09-28T19:26:49+09:00'
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 3ab2a19e-f5f9-4f55-b1a3-1366cf66a239
+        output_tail: 'T-047 は **blocked** で報告しました。今回はフル処理の列を走らせていません。known-gap(risk: high)と blocked の報告は、どちらも制御プレーンに記録されました。コミットはなく、差分もありません。
+
+
+          gate の test が赤い理由は、列が完走できず、テストが読む実測ログ(full-run.md・reproducibility.md・audio-silence.md)がまだ無いためです。列が完走できない原因は
+          recall 段の製品不具合で、まだ直っていません。
+
+
+          - **何が起きたか**: 列 `591e7bb9…` の recall 実行(journal 009)で、175問の呼び出しはすべて成功しました。しかし製品の検査が成果物を拒否しました(`ungrounded_keys=175`、`missing_options=47`)。この停止はレート枠によるものではないので、列は
+          `not_completable` になり、もう完走できません。
+
+          - **原因**: recall のプロンプト(`src/quiz_sift/adapters/llm_prompts.py:41` の `RECALL_SYSTEM`)は、問題本文の語句をそのまま使うよう指示していません。一方、`recall/verify.py`
+          の検査は、キーの語句が本文にそのまま実在することを求めます。モデルが語句を言い換えるので、175問すべてが検査に落ちます。
+
+          - **走らせなかった理由**: このブランチにも作業ブランチにも修正は入っていません。取り直しても同じ検査で落ちるので、戻せないレート枠は使いませんでした。
+
+
+          先へ進めるには、次の2つを判断してください。
+
+
+          1. 修正を入れるかどうかと、その方法です。直す場所は T-047 の scope の外で、recall のプロンプトか、設計 R-4 での検査との整合です。`/revise` か別タスクで入れることになります。
+
+          2. 修正が入ったら、T-047 をリセットし、`cluster --fresh-run` から新しい列を取り直してください。'
+        at: '2026-09-28T19:26:47+09:00'
+      last_fault:
+        kind: ENV_TRANSIENT
+        where: 'T-047: implementer'
+        rc: 1
+        output_tail: You've hit your session limit · resets 6:10pm (Asia/Tokyo)
+        at: '2026-09-28T18:03:21+09:00'
+      retries_left:
+        lint: 2
+        format: 2
+        types: 2
+        test: 1
+        docs: 1
+        smoke: 1
+        negative-control: 1
+        acceptance:A-1: 1
+        acceptance:A-2: 1
+        acceptance:A-3: 1
+        acceptance:A-4: 1
+        acceptance:A-5: 1
+        acceptance:A-6: 1
+      report:
+        outcome: blocked
+        summary: '列 591e7bb9 は recall 段の製品の検査で拒否され not_completable になった(RecallRejected: ungrounded_keys=175/175,
+          missing_options=47)。RECALL_SYSTEM(src/quiz_sift/adapters/llm_prompts.py:41)は terms を本文の語句のまま、括る語句を選択肢の語句のまま出すよう指示していない。一方
+          recall/verify.py は is_present による実在を要求するので、モデルの言い換えがすべて落ちる。このブランチにも作業ブランチにもまだ修正が無く、取り直しても同じ検査で落ちるので、戻せない枠は使っていない。要る判断:
+          scope 外の修正(プロンプトか設計 R-4)を /revise か別タスクで入れ、その後 cluster --fresh-run から列を取り直すこと。gate の test が赤いのは、列が完走しないので実測ログの
+          md が無いためである。'
+        at: '2026-09-28T19:26:38+09:00'
+      escalation:
+        kind: agent_blocked
+        message: 'T-047: the implementer reported blocked — 列 591e7bb9 は recall 段の製品の検査で拒否され not_completable
+          になった(RecallRejected: ungrounded_keys=175/175, missing_options=47)。RECALL_SYSTEM(src/quiz_sift/adapters/llm_prompts.py:41)は
+          terms を本文の語句のまま、括る語句を選択肢の語句のまま出すよう指示していない。一方 recall/verify.py は is_present による実在を要求するので、モデルの言い換えがすべて落ちる。このブランチにも作業ブランチにもまだ修正が無く、取り直しても同じ検査で落ちるので、戻せない枠は使っていない。要る判断:
+          scope 外の修正(プロンプトか設計 R-4)を /revise か別タスクで入れ、その後 cluster --fresh-run から列を取り直すこと。gate の test が赤いのは、列が完走しないので実測ログの
+          md が無いためである。'
+        tree: sha256:35e046e58cfd92b9bf59b7d94c32ec977fedce79733f953186d0c34b55ecff84
   T-048:
     status: done
     attempts: 1
@@ -1195,8 +1271,67 @@ tasks:
       tree: sha256:191c9f29dc521e64b98d0b06ebd5de679d891581fe41cbcc1c39756f2598d733
       updated_at: '2026-09-27T13:28:40+09:00'
   T-051:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 2
+    completed_commit: d80171c5a2ffc7a714fb918fefeaea5e5874e54a
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: c16c624c755a94ff129f1e505f0156808daf04a9
+        step: test
+      tree: sha256:81031e881e5f4dc6a55b3fb075223914a666182f377e77319dd078d2bdf1a65b
+      updated_at: '2026-09-28T09:29:14+09:00'
 baseline:
   measured_at: '2026-09-27T02:12:55+00:00'
   tree_digest: sha256:56ac6bb128e62cbc33d7f9ba19190eccd5baf1de4996c67302b3de65e15d64c7
