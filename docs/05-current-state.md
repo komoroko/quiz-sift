@@ -72,8 +72,7 @@
 
 ### Implemented capabilities
 
-旧 T-001〜T-019、T-021〜T-023、T-031 に加え、サイクル 2026-09-26(中止で閉じた)の T-032〜T-046、T-048〜T-051 の分。
-中止で閉じたので、下の後者は **acceptance(grounded review・依存監査)を経ていない**。各タスクの DoD と受入基準は緑だった。
+旧 T-001〜T-019、T-021〜T-023、T-031 に加え、サイクル 2026-09-26 の T-032〜T-051 の分(T-047 は途中までの記録に作り直した。D-164)。
 
 - R-1〜R-8、R-10、R-11、R-12、NFR-1〜NFR-6。
 - NFR-7: overhead の較正値あり(T-046)。実行の列の集約と CLI(`--fresh-run` / `--resume`、12 時間の上限、早期停止)がある(T-038、T-045)。
@@ -86,7 +85,7 @@
 | 項目 | 状態 | 次にやること |
 |---|---|---|
 | **想起素材のプロンプトと検査の不一致** | 実データで全件落ちる。列 591e7bb9 の recall 段が RecallRejected(ungrounded_keys=175/175、missing_options=47)。`RECALL_SYSTEM` は想起キーを本文の表記のまま抜き出すよう指示しておらず、`recall/verify.py` は `is_present` による実在を要求する | プロンプトを直すタスクを先に置く。直した後に `generic_keys`(全 term が他クラスタにも出る)で止まらないかも実データで確かめる。リポジトリ外の診断スクリプト `~/quiz-sift-diag/diag_recall.py` で、クラスタ段のキャッシュから全問を検査にかけられる |
-| **旧 T-047(不可逆): フル処理100〜200問の実測** | 未完。票は archive の `docs/tasks/T-047.md`。クラスタ段は列 591e7bb9 で完走(n=175)。実装途中の `tests/measurements/test_full_run_logs.py` は `build/quiz-sift-T-047*` ブランチにだけある | 上の修正の後、票の受入基準のまま `cluster --fresh-run` から列を取り直す。C-003・C-007・C-019・C-020 の実データでの証拠はまだ無い。含意判定は 350〜500 回が Opus なので、週次枠の途中で止まって `--resume` を要する見込みが高い |
+| **フル処理100〜200問の完走(元の T-047、不可逆)** | 未完。元の票と受入基準は archive の `docs/tasks/T-047.md` の「元の票」。途中までの記録は `docs/test/measurements/full-run.md`。クラスタ段は列 591e7bb9 で完走(n=175)。実行の道具は `tests/measurements/test_full_run_logs.py`(`exec` / `silence` / `render`) | 上の修正の後、票の受入基準のまま `cluster --fresh-run` から列を取り直す。C-003・C-007・C-019・C-020 の実データでの証拠はまだ無い。含意判定は 350〜500 回が Opus なので、週次枠の途中で止まって `--resume` を要する見込みが高い |
 
 T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にある(c46dbc8)。次のサイクルの acceptance でセキュリティの指摘になる見込みで、残すか外すかを決める。
 
@@ -98,5 +97,5 @@ T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にあ�
 
 ## Last updated
 
-- 2026-09-29: サイクル 2026-09-26 を中止で閉じる前に、実装済みと引き継ぎを更新。
+- 2026-09-29: サイクル 2026-09-26 を閉じる前に、実装済みと引き継ぎを更新。
 - 2026-09-25: 初回の onboarding 調査(rein 0.10.0 への移行時)。

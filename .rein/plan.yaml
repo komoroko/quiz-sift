@@ -1906,8 +1906,8 @@ decisions:
   reach: mandate
   status: settled
   settled_by: human
-  answer: 本サイクルは acceptance を経ずに中止で閉じる(rein cycle-close --name abandoned-…、人が実行)。T-047 は未完のまま残し、次サイクルでは RECALL_SYSTEM を検査に合わせて直すタスクを先に置いてから、T-047 の受入基準のままフル処理を取り直す(人の判断、2026-09-29)。引き継ぎは docs/05-current-state.md の In-flight に書いた。
-  rationale: 列 591e7bb9 はクラスタ段を完走した(T-049・T-051 の修正が効いた)。続く recall 段で RecallRejected(ungrounded_keys=175/175、missing_options=47)。RECALL_SYSTEM は想起キーを「語・状況・条件の組」と頼むだけで本文の表記のまま抜き出すよう指示せず、recall/verify.py は is_present による実在を要求する。T-049 の要約と同じ形の欠陥(プロンプトと検査の不一致)。人は T-047 を次サイクルへ回すことを選んだ。plan から T-047 を外す案は、rein に state の状態を plan に合わせる手段が無く(state.yaml の手書きは禁止)、plan に残せば acceptance が未完了で開かないので、中止で閉じることにした。
+  answer: T-047 を、LLM を呼ばない「フル処理の途中までの実測の記録と次サイクルへの引き継ぎ」に作り直し(可逆。不可逆ゲートは消える)、本サイクルを正規の acceptance で閉じる(人の判断、2026-09-29)。フル処理の完走(元の T-047 の受入基準)は次サイクルへ回し、RECALL_SYSTEM を検査に合わせて直すタスクを先に置く。引き継ぎは docs/05-current-state.md の In-flight と full-run.md に書く。C-003・C-007 の実データでの証拠と、C-019・C-020 の完走の証拠は、本サイクルでは unknown として acceptance に示す。
+  rationale: 列 591e7bb9 はクラスタ段を完走した(T-049・T-051 の修正が効いた)。続く recall 段で RecallRejected(ungrounded_keys=175/175、missing_options=47)。RECALL_SYSTEM は想起キーを「語・状況・条件の組」と頼むだけで本文の表記のまま抜き出すよう指示せず、recall/verify.py は is_present による実在を要求する。T-049 の要約と同じ形の欠陥(プロンプトと検査の不一致)。人は T-047 を次サイクルへ回すことを選んだ。plan から T-047 を外す案は、rein に state の状態を plan に合わせる手段が無く(state.yaml の手書きは禁止)、中止で閉じる案は rein cycle-close が acceptance 未承認を拒否するので、どちらも取れない。
   requirement_ids:
   - R-4
   - NFR-7
@@ -3241,7 +3241,7 @@ tasks:
     - -c
     - import os,sys; sys.exit(0 if os.path.lexists(os.path.expanduser('~/.quiz-sift-claude-home/.claude/.credentials.json')) else 1)
 - id: T-047
-  title: 【不可逆】フル処理の実行の列と artifact 記録
+  title: フル処理の途中までの実測を記録し、完走を次サイクルへ引き継ぐ(LLM は呼ばない)
   kind: integration
   blocked_by:
   - T-045
@@ -3249,111 +3249,57 @@ tasks:
   - T-049
   - T-051
   claim_ids:
-  - C-003
-  - C-007
   - C-019
   - C-020
   domains:
   - measurement
-  risk: critical
+  risk: high
   scope:
     include:
     - docs/test/measurements/full-run.md
-    - docs/test/measurements/reproducibility.md
-    - docs/test/measurements/audio-silence.md
     - tests/measurements/test_full_run_logs.py
   acceptance:
   - id: A-1
-    statement: 100〜200問のフル処理を1つの run_id の列として走らせ、docs/test/measurements/full-run.md に記録する。実行ごとに、argv・実行時刻・コミット ID と、meter.jsonl の開始行・終了行がそのまま写される(教材本文は含まない)。終了行のキー集合は、設計 NFR-7 節の一覧(sequence を含む)をテスト側に写した定数と一致する。最後の終了行の sequence.status は completed で、sequence.estimated_cost の status は記録済み、relative_diff は数値である。
+    statement: docs/test/measurements/full-run.md が、作業ルートの out/aip-c01/t047/journal.jsonl にあるすべての実行(2026-09-26〜28 の9件)について、argv・実行時刻・コミット ID・終了コード・run_id と、その実行の meter.jsonl の開始行・終了行を加工せずに写している。終了行のキー集合は、設計 NFR-7 節の一覧をテスト側に写した定数と一致する。記録は tests/measurements/test_full_run_logs.py の render で journal と meter.jsonl から作り、LLM も TTS も呼ばない。教材本文を含まない(NFR-2)。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_full_run_sequence_is_completed_and_records_every_field
+      - tests/measurements/test_full_run_logs.py::test_partial_record_lists_every_execution
       executor_profile: quality
       produces:
       - docs/test/measurements/full-run.md
       - tests/measurements/test_full_run_logs.py
   - id: A-2
-    statement: キャッシュを迂回した再クラスタリングの記録が docs/test/measurements/reproducibility.md に残る。使うのは、--fresh-run cluster の1実行だけで exit 0 まで走った列2本で、再開した列は使わない(D-142)。2本のそれぞれで、classify_clusters の llm_calls が 1、provider_invocations が ⌈N/25⌉(N は問題数)であり、2本の合計がそれぞれ1回分のちょうど2倍である(D-155)。cluster 段の llm_calls の総数(要約と含意判定を含み、クラスタ数に依存する)は、2本それぞれの値がメソッド別の内訳とともに記録されている。割当一致率が数値として記録されている。
+    statement: full-run.md が、どの列も sequence.status が completed に達していないことを、列(run_id)ごとの status と止まった段・理由(例外名と件数だけ)とともに書いている。クラスタ段を完走した列 591e7bb9 について、M/N・最大クラスタ比率・「その他」比率が数値としてある。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_reproducibility_uses_two_single_execution_fresh_sequences
+      - tests/measurements/test_full_run_logs.py::test_partial_record_states_no_sequence_completed
       executor_profile: quality
-      produces:
-      - docs/test/measurements/reproducibility.md
   - id: A-3
-    statement: 生成した mp3 に対する無音構造判定の実行結果が docs/test/measurements/audio-silence.md に記録され、全クラスタについて真である(3.0 秒以上の無音が、前後を有音に挟まれて検出された)。1件でも偽なら赤。
+    statement: 記録したすべての実行で、開始行の metered_env_names が空で、env_names と要件から写した13変数(テスト側のリテラル)の積集合が空である(C-020 の途中までの証拠)。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_audio_silence_is_true_for_every_cluster
+      - tests/measurements/test_full_run_logs.py::test_partial_record_has_no_metered_credentials
       executor_profile: quality
-      produces:
-      - docs/test/measurements/audio-silence.md
   - id: A-4
-    statement: 実データの M/N・最大クラスタ比率・「その他」比率が full-run.md に数値として記録され、人が圧縮の質を判定できる。3値のいずれかが欠ければ赤(値そのものに合格ラインは設けない。D-004)。
+    statement: full-run.md に「次サイクルへの引き継ぎ」の節があり、フル処理の完走(元の T-047 の A-1〜A-6:列の completed、再現性の2列、無音構造、圧縮3値、metered 変数と overage、レート枠の記録)が未達であること、想起素材の RecallRejected(ungrounded_keys=175/175、missing_options=47)が止めた理由であること、次サイクルでは RECALL_SYSTEM の修正を先に置くことが書かれている。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/measurements/test_full_run_logs.py::test_compression_metrics_are_present
+      - tests/measurements/test_full_run_logs.py::test_partial_record_hands_over_to_the_next_cycle
       executor_profile: quality
-  - id: A-5
-    statement: 列のすべての実行の metered_env_names が空で、実行時の環境変数名の一覧(値は伏せる)が記録されている。記録された env_names と、要件から写した13変数(テスト側のリテラル)の積集合が、どの実行でも空である(AR-137)。その状態で列が completed になり、overage_invocations が 0、最後の実行の failures_by_kind がすべて 0 であることを機械判定する。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/measurements/test_full_run_logs.py::test_sequence_completed_without_metered_credentials_or_overage
-      executor_profile: quality
-  - id: A-6
-    statement: 列の overage_check が passed か unknown のどちらかである。unknown の場合は、invocations_without_rate_limit_event の件数が full-run.md に書かれている。各実行の quota_at_start / quota_at_end が、値として、または null と欠落件数として記録されている(NFR-8 (f)(h))。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/measurements/test_full_run_logs.py::test_overage_check_and_quota_are_recorded
-      executor_profile: quality
-  operator_surface:
-  - kind: security_boundary
-    name: 教材本文が、ホストの Claude Code セッション記録(最小ホーム配下の .claude/projects/**/*.jsonl)に平文で書かれる。リポジトリの外にあり、消しても取り消せない(D-086 が許容)
-    paths:
-    - src/quiz_sift/adapters/llm_claude_cli.py
-    - src/quiz_sift/adapters/claude_process.py
-    reversible: false
-    adr: ADR-014
-  - kind: dependency
-    name: サブスクリプションのレート枠の消費(フル処理の列と、再現性測定の2列ぶん)。枠で止まったら、人が --resume で再開する。課金は発生しない(NFR-8)
-    paths:
-    - src/quiz_sift/pipeline/meter.py
-    - src/quiz_sift/pipeline/run_sequence.py
-    reversible: false
-    adr: ADR-018
-  requires:
-  - says: ホストの PATH に claude(Claude Code CLI)がある
-    probe:
-    - which
-    - claude
-  - says: 最小ホーム ~/.quiz-sift-claude-home が用意され、資格情報ファイルがある(HOME=~/.quiz-sift-claude-home claude /login を1回。ファイルは開かずに存在だけを見る)
-    probe:
-    - python3
-    - -c
-    - import os,sys; sys.exit(0 if os.path.lexists(os.path.expanduser('~/.quiz-sift-claude-home/.claude/.credentials.json')) else 1)
-  - says: CosyVoice の本体がこのホストの Python から import できる(uv sync --extra tts と、CosyVoice のチェックアウトを PYTHONPATH に通すこと。重みの場所は --tts-model で渡す)
-    probe:
-    - .venv/bin/python
-    - -c
-    - import importlib; importlib.import_module('torch'); importlib.import_module('cosyvoice.cli.cosyvoice')
+  operator_surface: []
+  requires: []
 - id: T-048
   title: cli.main の外へ抜けた例外のトレースバックで認証情報を伏せる
   kind: foundation
