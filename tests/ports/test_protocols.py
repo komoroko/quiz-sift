@@ -138,9 +138,9 @@ def test_adapter_records_each_call_with_the_token_breakdown() -> None:
         llm.check_entailment("正解は A", "A ではない")
 
     # 拒否された呼び出しも課金されるので記録される。None は 0 に読む。
-    assert recorder.calls == [("claude-haiku-4-5", TokenUsage(11, 22, 0, 44))] * 2
+    assert recorder.calls == [("claude-opus-5-5", TokenUsage(11, 22, 0, 44))] * 2
     request = client.requests[0]
-    assert request["model"] == "claude-haiku-4-5"
+    assert request["model"] == "claude-opus-5-5"
     assert request["thinking"] == {"type": "adaptive"}
     assert request["output_config"]["format"]["type"] == "json_schema"
 
