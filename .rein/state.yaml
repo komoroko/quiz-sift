@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-29T04:01:06+09:00'
+updated_at: '2026-09-29T04:01:31+09:00'
 gates:
   mandate:
     status: approved
@@ -1027,76 +1027,8 @@ tasks:
       tree: sha256:a856a93e13ab264d6cc376f357fc6bcce5a19d6bab45664137f91a2c5aa9e233
       updated_at: '2026-09-27T02:43:33+09:00'
   T-047:
-    status: blocked
+    status: todo
     attempts: 77
-    handoff:
-      salvage_branch: build/quiz-sift-T-047-salvage-20260928-092005
-      salvage_state: restored
-      updated_at: '2026-09-28T19:26:49+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 3ab2a19e-f5f9-4f55-b1a3-1366cf66a239
-        output_tail: 'T-047 は **blocked** で報告しました。今回はフル処理の列を走らせていません。known-gap(risk: high)と blocked の報告は、どちらも制御プレーンに記録されました。コミットはなく、差分もありません。
-
-
-          gate の test が赤い理由は、列が完走できず、テストが読む実測ログ(full-run.md・reproducibility.md・audio-silence.md)がまだ無いためです。列が完走できない原因は
-          recall 段の製品不具合で、まだ直っていません。
-
-
-          - **何が起きたか**: 列 `591e7bb9…` の recall 実行(journal 009)で、175問の呼び出しはすべて成功しました。しかし製品の検査が成果物を拒否しました(`ungrounded_keys=175`、`missing_options=47`)。この停止はレート枠によるものではないので、列は
-          `not_completable` になり、もう完走できません。
-
-          - **原因**: recall のプロンプト(`src/quiz_sift/adapters/llm_prompts.py:41` の `RECALL_SYSTEM`)は、問題本文の語句をそのまま使うよう指示していません。一方、`recall/verify.py`
-          の検査は、キーの語句が本文にそのまま実在することを求めます。モデルが語句を言い換えるので、175問すべてが検査に落ちます。
-
-          - **走らせなかった理由**: このブランチにも作業ブランチにも修正は入っていません。取り直しても同じ検査で落ちるので、戻せないレート枠は使いませんでした。
-
-
-          先へ進めるには、次の2つを判断してください。
-
-
-          1. 修正を入れるかどうかと、その方法です。直す場所は T-047 の scope の外で、recall のプロンプトか、設計 R-4 での検査との整合です。`/revise` か別タスクで入れることになります。
-
-          2. 修正が入ったら、T-047 をリセットし、`cluster --fresh-run` から新しい列を取り直してください。'
-        at: '2026-09-28T19:26:47+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-047: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 6:10pm (Asia/Tokyo)
-        at: '2026-09-28T18:03:21+09:00'
-      retries_left:
-        lint: 2
-        format: 2
-        types: 2
-        test: 1
-        docs: 1
-        smoke: 1
-        negative-control: 1
-        acceptance:A-1: 1
-        acceptance:A-2: 1
-        acceptance:A-3: 1
-        acceptance:A-4: 1
-        acceptance:A-5: 1
-        acceptance:A-6: 1
-      report:
-        outcome: blocked
-        summary: '列 591e7bb9 は recall 段の製品の検査で拒否され not_completable になった(RecallRejected: ungrounded_keys=175/175,
-          missing_options=47)。RECALL_SYSTEM(src/quiz_sift/adapters/llm_prompts.py:41)は terms を本文の語句のまま、括る語句を選択肢の語句のまま出すよう指示していない。一方
-          recall/verify.py は is_present による実在を要求するので、モデルの言い換えがすべて落ちる。このブランチにも作業ブランチにもまだ修正が無く、取り直しても同じ検査で落ちるので、戻せない枠は使っていない。要る判断:
-          scope 外の修正(プロンプトか設計 R-4)を /revise か別タスクで入れ、その後 cluster --fresh-run から列を取り直すこと。gate の test が赤いのは、列が完走しないので実測ログの
-          md が無いためである。'
-        at: '2026-09-28T19:26:38+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-047: the implementer reported blocked — 列 591e7bb9 は recall 段の製品の検査で拒否され not_completable
-          になった(RecallRejected: ungrounded_keys=175/175, missing_options=47)。RECALL_SYSTEM(src/quiz_sift/adapters/llm_prompts.py:41)は
-          terms を本文の語句のまま、括る語句を選択肢の語句のまま出すよう指示していない。一方 recall/verify.py は is_present による実在を要求するので、モデルの言い換えがすべて落ちる。このブランチにも作業ブランチにもまだ修正が無く、取り直しても同じ検査で落ちるので、戻せない枠は使っていない。要る判断:
-          scope 外の修正(プロンプトか設計 R-4)を /revise か別タスクで入れ、その後 cluster --fresh-run から列を取り直すこと。gate の test が赤いのは、列が完走しないので実測ログの
-          md が無いためである。'
-        tree: sha256:35e046e58cfd92b9bf59b7d94c32ec977fedce79733f953186d0c34b55ecff84
   T-048:
     status: done
     attempts: 1
