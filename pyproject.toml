@@ -79,6 +79,10 @@ torchaudio = { index = "pytorch-cu128" }
 # アップロードから1週間以内の新しいバージョンはインストール対象から除外する。
 # 公開直後のリリース(供給網リスク・初期不具合)を避けるためのクールダウン。
 exclude-newer = "1 week"
+# setuptools 81.0.0 に PYSEC-2026-3447 があり、修正は 83.0.0(D-165)。torch 2.11 が setuptools<82 を
+# 要求するので、この制約で torch は 2.10 系に下がる。torchaudio の wheel は torch への依存を宣言せず
+# 連動して下がらないので、torch と同じ 2.10 系に揃える上限を別に置く(版がずれると拡張の ABI が合わない)。
+constraint-dependencies = ["setuptools>=83", "torchaudio<2.11"]
 
 [tool.ruff]
 exclude = [".git", ".mypy_cache", ".venv", "third_party", ".worktrees", "site", ".rein"]
