@@ -3518,6 +3518,7 @@ tasks:
     - src/quiz_sift/adapters/llm_prompts.py
     - tests/adapters/test_llm_contract.py
     - tests/adapters/test_llm_claude_cli.py
+    - tests/ports/test_protocols.py
     - tests/test_cli.py
   acceptance:
   - id: A-1
@@ -3557,6 +3558,15 @@ tasks:
       - tests/safety/test_entailment.py::test_three_verdicts_and_fail_closed
       - tests/safety/test_entailment.py::test_no_false_positive_on_paraphrase
       - tests/safety/test_entailment.py::test_mutation_detection_rate_is_recorded
+      executor_profile: quality
+  - id: A-5
+    statement: SDK アダプタ(llm_anthropic)でも check_entailment が claude-opus-5-5 で呼ばれ、その記録もこのモデルで残る。test_adapter_records_each_call_with_the_token_breakdown は、モデルの期待値2か所(記録されたモデルと request の model)だけを claude-opus-5-5 に変え、関数名とほかの assert は変えない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/ports/test_protocols.py::test_adapter_records_each_call_with_the_token_breakdown
       executor_profile: quality
   operator_surface: []
   requires: []
