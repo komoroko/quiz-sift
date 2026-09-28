@@ -1911,6 +1911,15 @@ decisions:
   requirement_ids:
   - R-4
   - NFR-7
+- id: D-165
+  subject: 依存の監査(pip-audit)が acceptance で通らない
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: uv.lock で setuptools を 83 以上に上げる。torch 2.11 が setuptools<82 を要求するので、torch / torchaudio は 2.10(+cu128)に下がり、CUDA 系も連動して変わる。再解決で戻らないよう pyproject.toml の [tool.uv] に constraint-dependencies = ["setuptools>=83"] を置く(T-052)。監査コマンドから --strict を外し、PyPI に無い torch / torchaudio の +cu128 はスキップとして出力に残す(config.yaml)。人の判断、2026-09-29。
+  rationale: 2026-09-29 の監査で setuptools 81.0.0 に PYSEC-2026-3447(修正 83.0.0)。--strict では torch / torchaudio の +cu128 が PyPI に無いため必ず失敗する。tts extra を監査対象から外す案は、音声化の依存の脆弱性を見なくなるので採らない。torch 2.10 での実 TTS(CosyVoice)の動作は本サイクルで確かめられず、次サイクルのフル処理(元の T-047)で確かめる。品質ゲートのイメージに焼く requirements.txt は extra を含まないので変わらない(uv export --all-groups に torch と setuptools は無い)。
+  requirement_ids:
+  - NFR-5
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -3524,6 +3533,46 @@ tasks:
       - -q
       - tests/ports/test_protocols.py::test_adapter_records_each_call_with_the_token_breakdown
       executor_profile: quality
+  operator_surface: []
+  requires: []
+- id: T-052
+  title: setuptools を脆弱性の修正版に上げる(torch を 2.10 に下げる)
+  kind: foundation
+  blocked_by:
+  - T-047
+  claim_ids:
+  - C-017
+  domains:
+  - security
+  risk: medium
+  scope:
+    include:
+    - pyproject.toml
+    - uv.lock
+    - tests/test_dependencies.py
+  acceptance:
+  - id: A-1
+    statement: pyproject.toml の [tool.uv] に constraint-dependencies があり、"setuptools>=83" を含む。uv.lock の setuptools は 83 以上で、torch と torchaudio は 2.10 系の +cu128 である。新しいテストがこれを pyproject.toml と uv.lock から読んで確かめる(tomllib で読む。ネットワークは使わない)。修正前のコードではこのテストが赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_dependencies.py::test_setuptools_is_constrained_to_the_fixed_version
+      executor_profile: quality
+      produces:
+      - tests/test_dependencies.py
+  - id: A-2
+    statement: 品質ゲートのイメージに焼く requirements.txt が uv.lock から導出したままである(.rein/oci/quiz-sift/requirements.txt は変えない。extra を含まないので torch と setuptools は入っていない)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_gate_environment.py::test_baked_requirements_match_the_lockfile
+      executor_profile: quality
+  - id: A-3
+    statement: uv.lock の変更は、setuptools・torch・torchaudio と、それに連動して解決し直される CUDA 系(nvidia-*、cuda-*、triton)だけに留まる。ほかのパッケージの版は変えない。
   operator_surface: []
   requires: []
 lenses:
