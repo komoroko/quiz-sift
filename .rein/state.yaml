@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: quiz-sift
-updated_at: '2026-09-29T04:36:03+09:00'
+updated_at: '2026-09-29T04:55:09+09:00'
 gates:
   mandate:
     status: approved
@@ -1309,6 +1309,50 @@ tasks:
         step: test
       tree: sha256:81031e881e5f4dc6a55b3fb075223914a666182f377e77319dd078d2bdf1a65b
       updated_at: '2026-09-28T09:29:14+09:00'
+  T-052:
+    status: done
+    attempts: 1
+    completed_commit: f2956059863da8590776b2037796d8996b47eebb
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: b6722293918bc52ab633bf3fbc3999b86fbf3c8d
+        step: test
+      tree: sha256:d1d06cbfaf2f92af71b40d9671adb57a52f60f4a7864554072761be6c4dbe035
+      updated_at: '2026-09-29T04:55:09+09:00'
 baseline:
   measured_at: '2026-09-27T02:12:55+00:00'
   tree_digest: sha256:56ac6bb128e62cbc33d7f9ba19190eccd5baf1de4996c67302b3de65e15d64c7
