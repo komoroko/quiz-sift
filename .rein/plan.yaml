@@ -1929,6 +1929,19 @@ decisions:
   rationale: 0.11.0 以降の、不可逆タスクの試運転・試行予算、task scope-add、依存監査の mandate 前実行を次のサイクルから使うため。サイクルの途中で上げると config の凍結が動くので、mandate の巻き戻しと再承認が1回要る。残りは /verify だけで、再承認1回で済むうちに上げる。
   requirement_ids:
   - NFR-5
+- id: D-167
+  subject: 0.12 移行で赤になった C-017/C-018 の受入テストを直す
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 修正タスク T-053 を足す(人の判断、2026-09-30)。tests/acceptance/test_cross_cutting.py
+    の _gate_command_steps が quality_gate の各ステップの kind を読んでいたが、D-166 で kind 行を外したため
+    KeyError で赤になった。kind による絞り込みをやめ、quality_gate の全ステップを対象にする。旧形式への分岐は作らない。
+  rationale: 所有タスク T-036 と T-050 には完了済みの後続があり、rein task reset では戻せない。後続まで作り直すより、scope
+    をこのファイルだけに絞ったタスクを足すほうが小さい。移行の時点でテストを走らせず、この赤を mandate の承認前に見落とした。
+  requirement_ids:
+  - NFR-5
+  - NFR-6
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する
@@ -3582,6 +3595,43 @@ tasks:
       executor_profile: quality
   - id: A-3
     statement: uv.lock の変更は、setuptools・torch・torchaudio と、それに連動して解決し直される CUDA 系(nvidia-*、cuda-*、triton)だけに留まる。ほかのパッケージの版は変えない。
+  operator_surface: []
+  requires: []
+- id: T-053
+  title: C-017/C-018 の受入テストを、kind 行の無い quality_gate に合わせる
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-017
+  - C-018
+  domains:
+  - infra
+  risk: low
+  scope:
+    include:
+    - tests/acceptance/test_cross_cutting.py
+  acceptance:
+  - id: A-1
+    statement: loose-rein 0.12 の config.yaml(quality_gate の各ステップに kind が無い)に対して、C-017 の受入テストが緑になる。修正前は
+      KeyError 'kind' で赤。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_cross_cutting.py::test_c017_ci_and_gate_share_steps_and_imported_config_is_local
+      executor_profile: quality
+  - id: A-2
+    statement: 同じ config に対して、C-018 の受入テストが緑になる。修正前は KeyError 'kind' で赤。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_cross_cutting.py::test_c018_gate_steps_need_no_network
+      executor_profile: quality
+  - id: A-3
+    statement: quality_gate のステップを kind で絞り込まず、全ステップを対象にする。kind の有無で分岐する旧形式の扱いを残さない。各テストが確かめる中身(CI と品質ゲートのステップの一致、全ステップがネットワーク遮断のプロファイルで走ること)は弱めない。
   operator_surface: []
   requires: []
 lenses:
