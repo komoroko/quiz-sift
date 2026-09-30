@@ -13,7 +13,7 @@ loop decomposes, reorders and re-runs as it needs to.
 
 `rein build` runs all of this **in code** — none of it is yours to re-derive.
 
-1. **Frontier** — todo tasks whose `blockedBy` are all done, ordered foundation/high fan-out first,
+1. **Frontier** — todo tasks whose `blocked_by` are all done, ordered foundation/high fan-out first,
    then the critical path. Every task runs in `git worktree` isolation (never subtree) on its own
    branch and lands by a merge: a foundation task alone, independent leaves up to `max_parallel`
    (default 3) at a time.
@@ -33,7 +33,14 @@ loop decomposes, reorders and re-runs as it needs to.
    repaired something outside the tree).
 4. **DoD** — the `quality_gate` pipeline in `.rein/config.yaml` (default `test` → `check` →
    `review` → `smoke`), the single definition for every task; a task has no `test` command of its
-   own. A step already established green against **this exact tree, in this exact image** is reused
+   own. Each leaf runs the **command** steps; the **agent** steps read the batch once, below (5a).
+   **The attempt is committed before anything reads it** (`finalize_commit`), so the gate, the
+   reviewer and the merge all read one thing — the task's branch — and work an implementer left
+   uncommitted is never tested by one reader and missing for the next.
+   **A task with `operate` is read before its run**, by the same agent steps, on its own: its run is
+   the costly part (hours, real data, or the irreversible act), and a finding answered after it
+   would send the task round the run again. Every start of the run after the first in one attempt
+   is recorded as an attempt of its own, and one past the task's `attempts.max` is not started. A step already established green against **this exact tree, in this exact image** is reused
    rather than re-run (the evidence ledger). Then the **negative control**: the steps that run the tests
    (`runs_tests: true` — never a linter, whose red is true of any new test file) are re-established
    over the base this change is a change to, with **only the task's test half applied**. If every step is still green, no test in the change exercises it and the green that
@@ -59,25 +66,34 @@ loop decomposes, reorders and re-runs as it needs to.
    either — a step already red at the baseline, or one that failed **identically over a tree the
    implementer did not move**, stops the task at once with `futile:` on its record, read from the
    observation, never from the failure's text (the loop parses no build-tool output).
+5a. **Review the batch in one launch** — once every leaf of the batch has finished its
+   deterministic gate, one reviewer reads all the leaves that passed, before anything merges, and
+   answers **per task**. A leaf's `must_fix` findings go back to that leaf's implementer through
+   the send-back above — its own session resumed, the whole deterministic gate established again —
+   and only the leaves sent back are read again, from cold, within the step's `retries`. A leaf
+   still holding a `must_fix`, or one the reviewer wrote no entry for, does not land; the rest of
+   the batch does. Independence needs a launch that is not the implementer's, not a launch per
+   task.
 6. **Land** — gate-check every path the task changed (merge-stage gate guard: a pending-gate path
    escalates as `gate_violation` and blocks the task instead of landing) → merge into work
    sequentially in **ascending-id order** → **when a batch merged 2+ leaves, re-run the cmd steps
    once on the merged work branch**, since each leaf was green only in isolation. A red goes to a
    fixer within the step's `retries` budget, else the batch's tasks block; a single-leaf join skips
-   it. The `agent` steps run over the join too, and there the reviewer is asked about **what only
-   the join can show — cross-task correctness as much as shape**: the suite that just passed here
-   is the union of the leaves' suites, and no test in it was written with this merge in view, so a
-   green over the merged tree says nothing about the interaction.
+   it. A `stage: integration` agent step reads every join, and a `stage: both` one reads it again
+   only when a merge had to resolve a conflict — otherwise the join is exactly the union the
+   batch's reviewer already read. There the reviewer is asked about **what only the join can show —
+   cross-task correctness as much as shape**: the suite that just passed here is the union of the
+   leaves' suites, and no test in it was written with this merge in view.
 7. **Close** — mark the merged tasks `done`, **each carrying the tree its DoD was established on**
    (`evidence` in `state.yaml`) — or **`awaiting-evidence`** when a criterion nobody here can
    establish is still open, which merges the work and parks only the task, and the acceptance gate cannot open
    while one stands. Then recompute. An empty frontier with unfinished tasks = all
-   blocked/needs-revision → escalate and stop; all done → the acceptance gate below. **Only the human opens
-   `gates.acceptance`.**
+   blocked/needs-revision → escalate and stop; all done → the grounded review below, then `/verify`.
+   **Only the human opens `gates.acceptance`.**
 
 ## Running it — `rein build`
 The installed orchestrator reads `.rein/config.yaml`, `plan.yaml` and `state.yaml`, and launches
-its implementer/reviewer agents headless in the **OCI sandbox** via the adapters set by `rein agent <role> <cli>` (default
+its implementer/reviewer agents headless in the **OCI sandbox** via the adapters set by `rein agent <cli> [--role <role>]` (default
 `claude`), so the requirement is **that CLI installed and authenticated** — any agent (or the
 human in a terminal) may invoke `rein build`. At the
 start it code-checks `gates.mandate == approved` and stops doing nothing if unapproved.
@@ -137,7 +153,7 @@ as a human:
 
 | code | meaning | what to do |
 |---|---|---|
-| `0` | every task is done | go to the acceptance gate |
+| `0` | every task is done | run `/verify` |
 | `1` | a task could not pass the gate, or the frontier is empty with work left | a human reads the escalation |
 | `2` | it refused to start, or the machine failed in a way waiting cannot fix (the mandate gate unapproved, plan not frozen, the agent CLI not on PATH, an unpinned sandbox image) | repair what it names |
 | `3` | the machine failed in a way time fixes — agent capacity exhausted, a signal, another run holding the lock. **No task was marked and no retry budget was spent** | re-run later; it continues from the preserved work |
@@ -212,10 +228,16 @@ exited, and only for the exit code it actually returned.
 fastest; a check measures nothing that has changed and costs a context each time.
 
 The non-deterministic parts are each task's implementation code content and the `review` agent
-step's fixes. Both are absorbed deterministically: after an agent step changes code, the
-already-passed cmd steps are re-run; a red cmd step retries until green, else blocked. With
+step's findings. Both are absorbed deterministically: a finding goes back through the same
+send-back a red step takes, and the whole deterministic gate runs again over the fixed tree; a red
+cmd step retries until green, else blocked. With
 the claude preset the implementer resumes its own session across its retries (a step's final
-retry is forced fresh); the `review` step, the integration fixer, and the security reviewer
+retry is forced fresh), and a task with exactly one upstream task starts by **forking** the session
+that finished that upstream rather than reading the codebase from cold. The fork leaves the
+upstream's session as it was, so two leaves under one foundation never see each other's
+conclusions. Which session finished which task is a cache outside the working tree
+(`$XDG_CACHE_HOME/rein/<repo>/sessions.json`); a miss is a cold start and nothing else. The
+`review` step, the integration fixer, and the security reviewer
 always run in **fresh contexts, independent of the implementer** — independent verification
 is the point; never fold them into the implementer's session.
 
@@ -225,16 +247,19 @@ is the point; never fold them into the implementer's session.
   all of it). Auto-fixable hooks (ruff/format) resolve on the re-run; manual fixes (mypy, tsc)
   are part of the step. In a project without `make`, substitute that project's commands in the
   config steps.
-- **`review`** asks two disciplines — **correctness** (bugs) and **simplification** (reuse,
-  needless complexity, and what the ticket's acceptance criteria do not require: speculative
-  generality, unused knobs/hooks; YAGNI) — and then reads the **tests as evidence**: for each acceptance criterion, which test in this change would go red if
+- **A reviewer step** (`.rein/reviews.yaml`, not `config.yaml`) asks the reviews it lists —
+  the packaged **correctness** (bugs), **simplification** (reuse, needless complexity, and what the
+  ticket's acceptance criteria do not require: speculative generality, unused knobs/hooks; YAGNI)
+  and **security**, and any custom review the file names with a question of its own — and then
+  reads the **tests as evidence**: for each acceptance criterion, which test in this change would go red if
   the behaviour were wrong, and which assertions would hold for any output at all. The negative
   control below can show that the test half is not *inert*; whether the tests are any *good* is
   asked here and nowhere else. **It reports; it does
-  not repair, and it is launched without write access.** Findings go to
-  `.rein/work/T-NNN.findings.json`; the implementer resolves the `must_fix` ones within the
-  step's own `retries` budget and the reviewer looks again. A review whose findings cannot be read
-  stops the step: an unreadable answer is not an answer that found nothing.
+  not repair, and it is launched without write access.** One launch reads the whole batch (5a),
+  and its findings go to `.rein/work/review.<task ids>.findings.json` with one entry per task; each task's
+  implementer resolves its `must_fix` ones within the step's own `retries` budget and the reviewer
+  looks again at the tasks sent back. A review whose findings cannot be read holds back every task
+  it was reading: an unreadable answer is not an answer that found nothing.
   **The code-stage lenses this cycle's mandate froze reach it too** — `rein lens --select code
   --task <T-NNN>`, read back from `plan.lenses` and narrowed to the task in hand. The selection is
   resolved once against the whole plan, because most conditions count what the plan states rather
@@ -250,16 +275,17 @@ is the point; never fold them into the implementer's session.
   the merged tree and not about one task. **`--stage` and `--task` are what say *where* it was
   applied**: without them the count is still right and `rein lens --grid` cannot place the row, so
   a lens applied to one task reads the same as one applied to the whole cycle.
-  Both disciplines are **named to the host that has them**: under Claude Code the reviewer is
-  pointed at `/code-review` and `/simplify`, which read the branch it is on — with the two rules
+  The disciplines are **named to the host that has them**: under Claude Code the reviewer is
+  pointed at `/code-review`, `/simplify` and `/security-review` — only those for the reviews the
+  step lists, reading the branch it is on — with the two rules
   those commands do not carry themselves, that `/simplify`'s fix-applying phase must not run here
   (whoever judges does not repair) and that findings come back through the findings file and never
   through a printed report. The questions are written out in the prompt regardless, so a host
   without them asks exactly the same thing (`adapters.Adapter.disciplines`).
   **Declared `stage: integration`, it reads the tree the merge produced instead** — and takes the
   selection unnarrowed (`rein lens --select code`, no `--task`), because the union of every task's
-  scope is exactly what it is reading. The thing no
-  per-task reviewer can see, because each was right to stay inside its own task's scope:
+  scope is exactly what it is reading. The thing the batch's reviewer could not see, because the
+  merged tree did not exist yet:
   duplication between what two tasks added, one responsibility now in two places, an abstraction
   one task introduced that the next worked around. Its `must_fix` findings go to the integration
   fixer within the step's own budget; its `consider` findings are filed against the merged task
@@ -278,7 +304,7 @@ is the point; never fold them into the implementer's session.
   Register that command's execution permission in the product's committed permission settings
   (`command-preauthorization`) so the smoke step doesn't re-prompt every loop.
 
-## When all tasks complete (the acceptance gate)
+## When all tasks complete
 
 0. **If this cycle ships as a stack, publish it now — as drafts.** `rein pr-stack` cuts the work
    branch into one pull request per task and prints the `gh pr create --draft` lines; `--push`
@@ -314,14 +340,19 @@ is the point; never fold them into the implementer's session.
    The reading runs a deterministic Coverage Manifest, a **blind**
    actual-behaviour extraction (never given the plan), the structured security review, and the
    Expected/Actual comparison — writing `.rein/review.yaml` and recording the pipeline events.
-   **The change is read in *readings*, not in one sitting**: one per task the plan scopes, plus the
-   seam over what two scopes share and what none covers, each launched on its own so one launch
-   holds one task's slice. Most of them are already answered — `rein build` takes each task's
-   reading as it lands — so a regeneration after a review fix re-reads only the task whose code
-   moved. **A blocking security finding that reading turns up is repaired at the task boundary**,
-   by an implementer, in the scope that owns the code it anchored to — once per task, with whatever
-   still stands left to the repair rounds above. The reading was already taken and already paid
-   for; what changes is that the finding is answered before later tasks are built on top of it.
+   **The change is read in *readings*, not in one sitting**: one per dependency chain the plan
+   scopes — a line of tasks each built on the one before and on nothing else, read as the one
+   change it is, and task by task only when the chain's diff will not fit `max_diff_bytes` — plus
+   the seam over what two readings share and what none covers, each launched on its own. Most of
+   them are already answered — `rein build` takes a reading as the last of its tasks lands — so a
+   regeneration after a review fix re-reads only the reading whose code moved. **A blocking
+   security finding that reading turns up is repaired at once only when it is about the task whose
+   work is the tip of the branch** — once, with whatever still stands left to the repair rounds
+   above. A repair is committed on top of the branch, and a stack is cut along the tasks'
+   `completed_commit`s, so a fix for any other task (an earlier task of a chain, a leaf another
+   leaf merged on top of) would sit in the wrong pull request; those are repaired at acceptance,
+   on their own slice. The readings are cut from the task graph with the order and scope added
+   after the mandate (`rein task order`, `rein task scope-add`), the same one `rein dag` counts.
    `coverage.composition` records every reading by name and `unread_paths` names any changed
    path none of them covered, which makes the manifest `insufficient`; a composed reading is
    refused outright at critical risk. The readings are taken **highest-risk first**, by the
@@ -349,40 +380,10 @@ is the point; never fold them into the implementer's session.
    outlives a document the next generation rewrites. Fixing it is the way through, and re-stating
    it is refused only while the code is still there. One that named no anchor is closed by a
    human's `dispute_finding` in the review, never by the reviewer omitting it.
-3. `notify-and-wait`: tell the human the acceptance approval is pending.
-   - **(Only with GitHub integration)** Run `rein issue-sync` to reflect each task's
-     latest status (done → close, etc.) to Issues. Best-effort; do not stop the gate if it
-     fails (auto-skips if `github.enabled: false` / gh/remote absent). It stays outside the
-     deterministic loop — networking does not belong there.
-4. Present the implementation summary as an **`approval-presentation`** and confirm "may we approve
-   this as implementation-complete?". **Open with the review's scope, before any result**: the
-   commit range it is bound to, how large the change is, what the review could **not** read, and
-   whether it fits the review budget. Then the completed tasks, key additions/changes, test results, **the grounded-review
-   results — the three axes and coverage** — and unresolved items. **Do not re-narrate the orient
-   stage in chat**: what was delivered, what moved underneath it, which sandbox and network posture
-   each gate step ran under, what the gate established, and what is still open are all derived into
-   the review itself and read there. Say where it is, not what it says. The human review is
-   completed in `rein ui` — the stage rail walks the reviewer from the scope through the orient
-   brief and the Decision Cards to the freeze button
-   (`.rein/prompts/rules/gate-workflow.md` "The human review before acceptance") — and frozen
-   there or with `rein review complete` before the gate can be requested. Unanswered
-   high/critical Decision Cards block the freeze; say so rather than presenting the gate.
-   - **Smoke-step check**: if the deliverable is runnable (CLI, server, …) and
-     `quality_gate`'s `smoke.run` is still empty, say so explicitly at the gate — the DoD ran
-     without a launch check — and propose the command to fill in plus `required: true` (the loop
-     prints this nudge mechanically at the acceptance gate; with `required: true` set, an empty run refuses
-     to build at all — an unnoticed empty smoke silently defeats its purpose).
-   - **Always present a self-assessment as well** (`.rein/prompts/rules/gate-workflow.md` "Gate self-assessment"),
-     including the outcomes of spots that produced blocked/needs-revision.
-5. **While waiting for approval**, only outcome-independent speculative work
-   (`.rein/prompts/rules/gate-workflow.md` "While a gate is pending"; record it in
-   `docs/speculative-work.md`):
-   concretizing functional test cases in `docs/test/test-plan.md`, a trial run of
-   `make audit`, and other `/verify` prep pulled forward. Do not make changes that could
-   require redoing the implementation.
-6. Once a human approves (acknowledging the `approval-presentation`, or an explicit "approve")
-   — **running the next command (`/verify`) is not itself approval** — ask the human to run
-   `rein approve acceptance` **themselves**, never for them (mechanics: AGENTS.md "Gate rules" 2).
-   Declining is recorded as a change request, not lost — see step 0. Point to "next is `/verify`",
-   and after committing the gate's deliverables, suggest `session-compaction` (pre-compact check:
-   `.rein/prompts/rules/gate-workflow.md` "Context budget").
+3. **(Only with GitHub integration)** Run `rein issue-sync` to reflect each task's latest status
+   (done → close, etc.) to Issues. Best-effort; do not stop if it fails (auto-skips if
+   `github.enabled: false` / gh/remote absent). It stays outside the deterministic loop —
+   networking does not belong there.
+4. Point to "next is `/verify`": it adds the test plan and the dependency audit, and it is the one
+   procedure that presents the acceptance gate. Commit what this phase wrote, and suggest
+   `session-compaction` (pre-compact check: `.rein/prompts/rules/gate-workflow.md` "Context budget").

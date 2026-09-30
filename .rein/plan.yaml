@@ -1920,6 +1920,15 @@ decisions:
   rationale: 2026-09-29 の監査で setuptools 81.0.0 に PYSEC-2026-3447(修正 83.0.0)。--strict では torch / torchaudio の +cu128 が PyPI に無いため必ず失敗する。tts extra を監査対象から外す案は、音声化の依存の脆弱性を見なくなるので採らない。torch 2.10 での実 TTS(CosyVoice)の動作は本サイクルで確かめられず、次サイクルのフル処理(元の T-047)で確かめる。品質ゲートのイメージに焼く requirements.txt は extra を含まないので変わらない(uv export --all-groups に torch と setuptools は無い)。
   requirement_ids:
   - NFR-5
+- id: D-166
+  subject: loose-rein を 0.10.0 から 0.12.1 に上げる(サイクルの途中)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 今すぐ上げる(人の判断、2026-09-30)。0.12.0 の要求どおり config.yaml の quality_gate から review ステップ(kind agent)と各ステップの kind 行を外し、どのレビューを走らせるかは rein sync が初期化した .rein/reviews.yaml(パッケージ既定のレビュアー)に移した。形式は rein-grounded-v10。0.12.0 の sync --force は古い lock のリポジトリで自分自身を拒否する不具合があったので、修正(loose-rein-kit PR 101、0.12.1)のブランチから入れた。plan の中身(タスク・claim・受入基準)は変えていない。
+  rationale: 0.11.0 以降の、不可逆タスクの試運転・試行予算、task scope-add、依存監査の mandate 前実行を次のサイクルから使うため。サイクルの途中で上げると config の凍結が動くので、mandate の巻き戻しと再承認が1回要る。残りは /verify だけで、再承認1回で済むうちに上げる。
+  requirement_ids:
+  - NFR-5
 tasks:
 - id: T-032
   title: 【absorb】取り込み・抽出・複数セットの claim を受入テストに固定する

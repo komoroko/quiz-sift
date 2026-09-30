@@ -1318,52 +1318,50 @@ baseline:
   red_steps: []
   frozen: false
 dependency_audit:
-  ran_at: '2026-09-28T19:28:16+00:00'
-  commit: 936af4c852873b0af4c374f15cc15a0174bd794b
-  dependencies: sha256:db2c3692655012903e0ea3613f5c585a7668a4fc23be2a03b10cf20c5acacbb3
-  passed: false
-  summary: "2K\e[32m|\e[0m Collecting PyYAML (6.0.3)\n\e[2K\e[32m|\e[0m Auditing PyYAML (6.0.3)\n\e[2K\e\
-    [32m|\e[0m Collecting pyyaml_env_tag (1.1)\n\e[2K\e[32m/\e[0m Auditing pyyaml_env_tag (1.1)\n\e[2K\e\
-    [32m/\e[0m Collecting regex (2026.9.10)\n\e[2K\e[32m/\e[0m Collecting regex (2026.9.10)\n\e[2K\e[32m/\e\
-    [0m Auditing regex (2026.9.10)\n\e[2K\e[32m/\e[0m Collecting requests (2.34.2)\n\e[2K\e[32m/\e[0m\
-    \ Auditing requests (2.34.2)\n\e[2K\e[32m/\e[0m Collecting rich (15.0.0)\n\e[2K\e[32m/\e[0m Collecting\
-    \ rich (15.0.0)\n\e[2K\e[32m/\e[0m Auditing rich (15.0.0)\n\e[2K\e[32m/\e[0m Collecting rootutils\
-    \ (1.0.7)\n\e[2K\e[32m/\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m/\e[0m Collecting rootutils\
-    \ (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils\
-    \ (1.0.7)\n\e[2K\e[32m-\e[0m Collecting rootutils (1.0.7)\n\e[2K\e[32m-\e[0m Auditing rootutils (1.0.7)\n\
-    \e[2K\e[32m-\e[0m Collecting ruamel.yaml (0.18.17)\n\e[2K\e[32m-\e[0m Auditing ruamel.yaml (0.18.17)\n\
-    \e[2K\e[32m-\e[0m Collecting ruamel.yaml.clib (0.2.15)\n\e[2K\e[32m-\e[0m Collecting ruamel.yaml.clib\
-    \ (0.2.15)\n\e[2K\e[32m\\\e[0m Auditing ruamel.yaml.clib (0.2.15)\n\e[2K\e[32m\\\e[0m Collecting ruff\
-    \ (0.16.7)\n\e[2K\e[32m\\\e[0m Auditing ruff (0.16.7)\n\e[2K\e[32m\\\e[0m Collecting safetensors (0.8.0)\n\
-    \e[2K\e[32m\\\e[0m Collecting safetensors (0.8.0)\n\e[2K\e[32m\\\e[0m Auditing safetensors (0.8.0)\n\
-    \e[2K\e[32m\\\e[0m Collecting scikit-learn (1.9.1)\n\e[2K\e[32m\\\e[0m Auditing scikit-learn (1.9.1)\n\
-    \e[2K\e[32m\\\e[0m Collecting scipy (1.18.1)\n\e[2K\e[32m\\\e[0m Auditing scipy (1.18.1)\n\e[2K\e\
-    [32m\\\e[0m Collecting setuptools (81.0.0)\n\e[2K\e[32m\\\e[0m Collecting setuptools (81.0.0)\n\e\
-    [2K\e[32m\\\e[0m Auditing setuptools (81.0.0)\n\e[2K\e[32m\\\e[0m Collecting shellingham (1.5.4)\n\
-    \e[2K\e[32m\\\e[0m Auditing shellingham (1.5.4)\n\e[2K\e[32m\\\e[0m Collecting six (1.17.0)\n\e[2K\e\
-    [32m\\\e[0m Collecting six (1.17.0)\n\e[2K\e[32m\\\e[0m Auditing six (1.17.0)\n\e[2K\e[32m\\\e[0m\
-    \ Collecting sniffio (1.3.1)\n\e[2K\e[32m\\\e[0m Auditing sniffio (1.3.1)\n\e[2K\e[32m\\\e[0m Collecting\
-    \ sortedcontainers (2.4.0)\n\e[2K\e[32m\\\e[0m Auditing sortedcontainers (2.4.0)\n\e[2K\e[32m\\\e\
-    [0m Collecting soundfile (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting soundfile (0.14.0)\n\e[2K\e[32m|\e\
-    [0m Auditing soundfile (0.14.0)\n\e[2K\e[32m|\e[0m Collecting soupsieve (2.9.2)\n\e[2K\e[32m|\e[0m\
-    \ Auditing soupsieve (2.9.2)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting\
-    \ soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m|\e[0m Collecting soxr (1.1.0)\n\
-    \e[2K\e[32m/\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e[0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e\
-    [0m Collecting soxr (1.1.0)\n\e[2K\e[32m/\e[0m Auditing soxr (1.1.0)\n\e[2K\e[32m/\e[0m Collecting\
-    \ sympy (1.14.0)\n\e[2K\e[32m/\e[0m Auditing sympy (1.14.0)\n\e[2K\e[32m/\e[0m Collecting textsearch\
-    \ (0.0.24)\n\e[2K\e[32m/\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch\
-    \ (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch\
-    \ (0.0.24)\n\e[2K\e[32m-\e[0m Collecting textsearch (0.0.24)\n\e[2K\e[32m\\\e[0m Collecting textsearch\
-    \ (0.0.24)\n\e[2K\e[32m\\\e[0m Auditing textsearch (0.0.24)\n\e[2K\e[32m\\\e[0m Collecting threadpoolctl\
-    \ (3.7.0)\n\e[2K\e[32m\\\e[0m Auditing threadpoolctl (3.7.0)\n\e[2K\e[32m\\\e[0m Collecting tiktoken\
-    \ (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting tiktoken (0.14.0)\n\e[2K\e[32m\\\e[0m Auditing tiktoken\
-    \ (0.14.0)\n\e[2K\e[32m\\\e[0m Collecting tokenizers (0.23.2)\n\e[2K\e[32m\\\e[0m Auditing tokenizers\
-    \ (0.23.2)\n\e[2K\e[32m\\\e[0m Collecting tomli (2.4.1)\n\e[2K\e[32m\\\e[0m Auditing tomli (2.4.1)\n\
-    \e[2K\e[32m\\\e[0m Collecting tomli_w (1.2.0)\n\e[2K\e[32m\\\e[0m Collecting tomli_w (1.2.0)\n\e[2K\e\
-    [32m\\\e[0m Auditing tomli_w (1.2.0)\n\e[2K\e[32m\\\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e\
-    [32m\\\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e\
-    [2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\
-    \e[2K\e[32m|\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\
-    \e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\e[2K\e[32m/\e[0m Collecting torch (2.11.0+cu128)\n\
-    \e[?25h\n\e[1A\e[2KERROR:pip_audit._cli:torch: Dependency not found on PyPI and could not be audited:\
-    \ torch (2.11.0+cu128)\n"
+  ran_at: '2026-09-30T05:14:45+00:00'
+  commit: 13f5d432655ef2354e3d1c1bc482f57286b5967a
+  dependencies: sha256:d20cb0388f2c6c2ba5d2c4b4f2208b7be2982f4322894a2faca995d661037639
+  passed: true
+  summary: ")\n\e[2K\e[32m\\\e[0m Collecting torchaudio (2.10.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torchaudio\
+    \ (2.10.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torchaudio (2.10.0+cu128)\n\e[2K\e[32m|\e[0m Collecting\
+    \ torchaudio (2.10.0+cu128)\n\e[2K\e[32m|\e[0m Skipping torchaudio: Dependency not found on PyPI and\
+    \ could not be audited: \ntorchaudio (2.10.0+cu128)\n\e[2K\e[1A\e[2K\e[32m|\e[0m Collecting torchmetrics\
+    \ (1.9.0)\n\e[2K\e[32m|\e[0m Auditing torchmetrics (1.9.0)\n\e[2K\e[32m|\e[0m Collecting tqdm (4.70.1)\n\
+    \e[2K\e[32m|\e[0m Auditing tqdm (4.70.1)\n\e[2K\e[32m|\e[0m Collecting transformers (5.17.0)\n\e[2K\e\
+    [32m|\e[0m Collecting transformers (5.17.0)\n\e[2K\e[32m|\e[0m Auditing transformers (5.17.0)\n\e\
+    [2K\e[32m|\e[0m Collecting triton (3.6.0)\n\e[2K\e[32m/\e[0m Auditing triton (3.6.0)\n\e[2K\e[32m/\e\
+    [0m Collecting truststore (0.10.4)\n\e[2K\e[32m/\e[0m Collecting truststore (0.10.4)\n\e[2K\e[32m/\e\
+    [0m Auditing truststore (0.10.4)\n\e[2K\e[32m/\e[0m Collecting typeguard (4.6.0)\n\e[2K\e[32m/\e[0m\
+    \ Auditing typeguard (4.6.0)\n\e[2K\e[32m/\e[0m Collecting typer (0.27.2)\n\e[2K\e[32m/\e[0m Auditing\
+    \ typer (0.27.2)\n\e[2K\e[32m/\e[0m Collecting typing_extensions (4.16.0)\n\e[2K\e[32m/\e[0m Collecting\
+    \ typing_extensions (4.16.0)\n\e[2K\e[32m/\e[0m Auditing typing_extensions (4.16.0)\n\e[2K\e[32m/\e\
+    [0m Collecting typing-inspection (0.4.4)\n\e[2K\e[32m/\e[0m Auditing typing-inspection (0.4.4)\n\e\
+    [2K\e[32m/\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m/\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e\
+    [32m/\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m-\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m-\e\
+    [0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m-\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m-\e[0m\
+    \ Auditing Unidecode (1.4.0)\n\e[2K\e[32m-\e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m-\e[0m\
+    \ Collecting unidic-lite (1.0.8)\n\e[2K\e[32m\\\e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m\\\
+    \e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m\\\e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m\\\
+    \e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m|\e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m|\e\
+    [0m Auditing unidic-lite (1.0.8)\n\e[2K\e[32m|\e[0m Collecting urllib3 (2.7.0)\n\e[2K\e[32m|\e[0m\
+    \ Auditing urllib3 (2.7.0)\n\e[2K\e[32m|\e[0m Collecting virtualenv (21.7.9)\n\e[2K\e[32m|\e[0m Collecting\
+    \ virtualenv (21.7.9)\n\e[2K\e[32m|\e[0m Collecting virtualenv (21.7.9)\n\e[2K\e[32m|\e[0m Collecting\
+    \ virtualenv (21.7.9)\n\e[2K\e[32m/\e[0m Collecting virtualenv (21.7.9)\n\e[2K\e[32m/\e[0m Collecting\
+    \ virtualenv (21.7.9)\n\e[2K\e[32m/\e[0m Auditing virtualenv (21.7.9)\n\e[2K\e[32m/\e[0m Collecting\
+    \ watchdog (6.0.0)\n\e[2K\e[32m/\e[0m Collecting watchdog (6.0.0)\n\e[2K\e[32m/\e[0m Auditing watchdog\
+    \ (6.0.0)\n\e[2K\e[32m/\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m/\e[0m Collecting wetext (0.1.8)\n\
+    \e[2K\e[32m-\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m-\e[0m Collecting wetext (0.1.8)\n\e[2K\e\
+    [32m-\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m\\\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m\\\e\
+    [0m Auditing wetext (0.1.8)\n\e[2K\e[32m\\\e[0m Collecting wget (3.2)\n\e[2K\e[32m\\\e[0m Collecting\
+    \ wget (3.2)\n\e[2K\e[32m\\\e[0m Collecting wget (3.2)\n\e[2K\e[32m\\\e[0m Collecting wget (3.2)\n\
+    \e[2K\e[32m|\e[0m Collecting wget (3.2)\n\e[2K\e[32m|\e[0m Collecting wget (3.2)\n\e[2K\e[32m|\e[0m\
+    \ Auditing wget (3.2)\n\e[2K\e[32m|\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m|\e[0m Collecting\
+    \ x-transformers (2.28.8)\n\e[2K\e[32m|\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m\
+    \ Collecting x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e\
+    [32m/\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m Collecting x-transformers (2.28.8)\n\
+    \e[2K\e[32m/\e[0m Auditing x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m Collecting yarl (1.25.1)\n\e\
+    [2K\e[32m-\e[0m Auditing yarl (1.25.1)\n\e[2K\e[32m-\e[0m Collecting zipp (4.1.0)\n\e[2K\e[32m-\e\
+    [0m Collecting zipp (4.1.0)\n\e[2K\e[32m-\e[0m Auditing zipp (4.1.0)\n\e[2K\e[32m-\e[0m Auditing zipp\
+    \ (4.1.0)\n\e[?25h\n\e[1A\e[2KNo known vulnerabilities found\nName       Skip Reason\n---------- --------------------------------------------------------------------------------\n\
+    torch      Dependency not found on PyPI and could not be audited: torch (2.10.0+cu128)\ntorchaudio\
+    \ Dependency not found on PyPI and could not be audited: torchaudio (2.10.0+cu128)\n"

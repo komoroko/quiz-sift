@@ -1,0 +1,11 @@
+adversarial:
+  requirements: true
+  design: true
+  tasks: true
+steps:
+- name: review
+  reviews:
+  - correctness
+  - simplification
+  retries: 1
+  stage: both
