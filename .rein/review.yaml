@@ -1,17 +1,17 @@
 machine:
   status: generated
   binding:
-    change_digest: sha256:74fccddfab029568cebd3016777e53798719a202b6baa94cb5d13dceaa920f86
+    change_digest: sha256:b114e588655c7e08e8f83b8d72ae188c0259a0c391197e72f27743e02f987468
     host_surface_digest: sha256:9a370fb64fb8dac427685045a27a38ce4f38cb4c55f99e5630c1b92c3d3110d8
     plan_digest: sha256:380b53d70b557212ce5f98b131762cc47e92f55b58d498fbde5eae5ec48e1edb
     config_digest: sha256:c28cd9d9a7efcca69eca6b9ea32ce481b0cd0ca56c59fcaf18151a764be73366
     environment_digest: sha256:f68bb5658d15b37f1d8388edbd3a818ef41f478369680aebc1d16841bf2c78c4
-    coverage_digest: sha256:d2aee541a7cb97ad2b30a4a542448888528bd3cc60507a30c630dc26e18a66b9
+    coverage_digest: sha256:33d6f7f065ab6b455c6c2483a6668cd1f5c65b0729f16590c767a9e2b23bc368
     tasks_digest: sha256:0d8feeb6a3e6f66e088c681fb382eeef9ecef700831ab989b32141da331e8d05
     trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-    subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
-    actual_digest: sha256:31e374019884e9442ae6bfca00016ef0244e656ec7a45d2abbe3531dcca62eda
-    generated_at: '2026-09-30T21:09:09+09:00'
+    subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
+    actual_digest: sha256:36eddcf029de4f4cd14d495e588a02356dd2489c2d276f9d4b92234d34bccf4a
+    generated_at: '2026-09-30T21:18:41+09:00'
     independence:
       actual_extractor:
         group: claude/opus
@@ -24,16 +24,16 @@ machine:
         model: claude-opus-5-5
   summary:
     claims_total: 19
-    aligned: 1
+    aligned: 0
     diverged: 0
     missing: 0
-    unverified: 6
+    unverified: 7
     unknown: 12
   coverage:
-    diff_digest: sha256:755dd3a4109119b2ea5bdcc1db60bbba29af466780ee7294cd9bcc679a9b5c4f
-    analyzed_files: 69
-    analyzed_hunks: 150
-    analyzed_bytes: 696877
+    diff_digest: sha256:fc357b701414f03866cceda978331b8363c184d0ce6b8625743ba91297bf74f3
+    analyzed_files: 70
+    analyzed_hunks: 151
+    analyzed_bytes: 707810
     languages:
       lockfile: token_only
       markdown: token_only
@@ -47,15 +47,14 @@ machine:
       mode: whole
       readings:
       - unit: whole
-        diff_digest: sha256:755dd3a4109119b2ea5bdcc1db60bbba29af466780ee7294cd9bcc679a9b5c4f
-        analyzed_bytes: 696877
+        diff_digest: sha256:fc357b701414f03866cceda978331b8363c184d0ce6b8625743ba91297bf74f3
+        analyzed_bytes: 707810
   actual_extraction:
   - id: AST-001
-    statement: 'classify() は失敗種別を固定順で決める: Outcome.SPAWN → scan.overage_seen(PROVIDER_ERROR) → Outcome.TIMEOUT
-      → stdout の厳格パース失敗(PARSE) → 許可集合外ツール(PROVIDER_ERROR) → subtype が error_max_turns か stop_reason が
-      max_tokens/model_context_window_exceeded(TRUNCATED) → is_error が False 以外(PROVIDER_ERROR) → structured_output
-      が dict でない(SCHEMA) → parse が投げた ContractError の kind。overage の判定はタイムアウトより前にあり、タイムアウトした子でも isUsingOverage
-      真の行があれば PROVIDER_ERROR になる。'
+    statement: classify() は子プロセスの結果を固定順で判定する。SPAWN → overage(scan.overage_seen、PROVIDER_ERROR)→ TIMEOUT
+      → 厳格パース失敗(PARSE)→ 許可外ツール(PROVIDER_ERROR)→ subtype=error_max_turns または stop_reason∈{max_tokens, model_context_window_exceeded}(TRUNCATED)→
+      result.is_error が False 以外(キー欠落を含む。PROVIDER_ERROR)→ structured_output が dict でない(SCHEMA)→ parse
+      が送出した ContractError.kind、の順。overage の検査は TIMEOUT と PARSE より前にある。
     category: control_flow
     confidence: high
     code_anchors:
@@ -64,20 +63,8 @@ machine:
       end_line: 142
       blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
   - id: AST-002
-    statement: scan_rate_limits は stdout を b"\n" で分割し、各行を json.loads する。読めない行は黙って飛ばす。type が rate_limit_event
-      の行はすべて count に数え、rate_limit_info.isUsingOverage が True なら overage_seen を立てる。first/last は RateLimitInfo
-      として読めた(status が文字列の)行からだけ取る。
-    category: failure_handling
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/claude_failure.py
-      start_line: 72
-      end_line: 94
-      blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
-  - id: AST-003
-    statement: _strict_events は stdout 全体が UTF-8 であることを要求する。末尾の改行を1つ除いてから "\n" だけで行に分け、すべての行が type(文字列)を持つ
-      JSON オブジェクトであり、type==result の行がちょうど1つであることを求める。空行が1行でもあれば PARSE になる。init は最初の system/init イベントで、無ければ
-      None。
+    statement: _strict_events は stdout を UTF-8 で decode し、末尾の改行を1つだけ除いてから '\n' で分割し、全行を json.loads する。途中に空行が1つでもあれば、その行が
+      JSON でないとして PARSE 理由を返す。type='result' のイベントがちょうど1件でなければ失敗する。
     category: failure_handling
     confidence: high
     code_anchors:
@@ -85,10 +72,9 @@ machine:
       start_line: 152
       end_line: 175
       blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
-  - id: AST-004
-    statement: '_tool_problem は次のいずれかで失敗を返す: system/init イベントが1つも無い。いずれかの init の tools が文字列のリストでない、または集合として
-      {StructuredOutput} と一致しない。assistant メッセージの content に、type が ''tool_use'' で終わり name が StructuredOutput
-      以外のブロックがある。'
+  - id: AST-003
+    statement: _tool_problem は次のいずれかで失敗を返す。system/init イベントが無い。いずれかの init.tools の集合が {'StructuredOutput'}
+      と一致しない。assistant メッセージ内に type が 'tool_use' で終わり、name が StructuredOutput 以外のブロックがある。
     category: security_boundary
     confidence: high
     code_anchors:
@@ -96,64 +82,52 @@ machine:
       start_line: 178
       end_line: 201
       blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
+  - id: AST-004
+    statement: scan_rate_limits は stdout を行ごとに寛容に読む(読めない行は飛ばす)。rate_limit_event の行数を数え、rate_limit_info.isUsingOverage
+      が True の行が1つでもあれば overage_seen を True にする。status が文字列でない info は first/last に入らないが、count には数える。
+    category: observability
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_failure.py
+      start_line: 72
+      end_line: 94
+      blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
   - id: AST-005
-    statement: SubprocessRunner.run は spec.env のキー集合がちょうど {HOME, PATH, LANG, TZ} でなければ ValueError を投げる。env
-      には spec.env だけを渡す(親の環境は継承しない)。Popen 時の OSError は Outcome.SPAWN として返す。タイムアウトすると子を kill し、残りの出力を集めて
-      Outcome.TIMEOUT(returncode None)を返す。それ以外の BaseException では子を kill・wait してから再送出する。
-    category: security_boundary
+    statement: rate_limit_stop が True になるのは、kind が PROVIDER_ERROR、is_error が True、last が None でない、last.status
+      == 'rejected'、last.is_using_overage が False の5条件をすべて満たすときだけ。is_using_overage が None(キー欠落)なら False
+      を返す。
+    category: control_flow
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 44
-      end_line: 69
-      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+    - path: src/quiz_sift/ports/metering.py
+      start_line: 60
+      end_line: 71
+      blob: git-blob:6e0b1403b25719e973b8b56701c0f52838e386e6
   - id: AST-006
-    statement: Workspace.child_env は HOME を最小ホーム(既定は ~/.quiz-sift-claude-home)にし、PATH は os.environ['PATH']
-      をそのまま写す(未設定なら KeyError)。LANG と TZ は親の値が空または未設定のとき C.UTF-8 と Asia/Tokyo を補う。
-    category: default_value
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 79
-      end_line: 90
-      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
-  - id: AST-007
-    statement: new_cwd は呼び出しごとに tempfile.mkdtemp で quiz-sift-cwd- ディレクトリを作り、抜けるときに shutil.rmtree で消す。rmtree
-      の失敗は握りつぶさない。
+    statement: ClaudeCliLlm._invoke は1回の呼び出しで次を順に行う。meter.begin_invocation、新しい一時 cwd で runner.run、寛容パースした
+      envelope での meter.end_invocation と各 rate_limit_event の record_quota、classify、失敗時の record_failure、log_invocation。end_invocation
+      と record_quota は classify より前に呼ばれ、失敗した呼び出しでも usage が記録される。
     category: side_effect
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 92
-      end_line: 99
-      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 246
+      end_line: 295
+      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
+  - id: AST-007
+    statement: _envelope は stdout に result イベントが複数あれば最後のものを使い、init イベントは最初のものを使う。usage・num_turns・total_cost_usd・is_error
+      の型が合わなければ、それぞれ None にする。
+    category: state_propagation
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 158
+      end_line: 189
+      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
   - id: AST-008
-    statement: 'preflight は次の順に進む: 子の PATH で claude を探す → 最小ホームを O_DIRECTORY で開く → flock(LOCK_EX|LOCK_NB)
-      → _inspect。ロックが取れなければ PreflightError(SystemExit の派生)。成功時は fd をどこにも保存せず閉じもしないので、ロックはプロセスが終わるまで保持される。_inspect
-      が失敗したときだけ fd を閉じる。'
-    category: concurrency
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 101
-      end_line: 121
-      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
-  - id: AST-009
-    statement: '_inspect は次のいずれかで検査を拒否する: .claude/CLAUDE.md が存在する(lexists)。.claude/rules がディレクトリでない、または配下にファイルか
-      symlink ディレクトリがある。.claude/settings.json が UTF-8 JSON オブジェクトでない、または theme 以外のトップレベルキーを持つ。.claude/.credentials.json
-      が存在しない。資格情報は存在だけを確かめ、中身は検証しない。os.walk の読み取りエラーはそのまま送出する。'
-    category: security_boundary
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 123
-      end_line: 169
-      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
-  - id: AST-010
-    statement: 'build_argv が組み立てる argv は次のとおり: claude -p --output-format stream-json --verbose --max-turns
-      3、--json-schema <schema>、--model、--system-prompt、--exclude-dynamic-system-prompt-sections、空の mcpServers
-      を渡す --strict-mcp-config、42 個の固定ツール名を並べた permissions.deny の --settings、--permission-mode default
-      --safe-mode。ペイロードは argv に入らない。'
+    statement: build_argv は claude -p に次を渡す。--output-format stream-json --verbose --max-turns 3、--json-schema、--model、--system-prompt、--exclude-dynamic-system-prompt-sections、--strict-mcp-config
+      --mcp-config '{"mcpServers":{}}'、42 個のツール名を permissions.deny に並べた --settings、--permission-mode default、--safe-mode。教材本文(payload)は
+      stdin で渡す。
     category: security_boundary
     confidence: high
     code_anchors:
@@ -161,54 +135,26 @@ machine:
       start_line: 45
       end_line: 133
       blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
-  - id: AST-011
-    statement: argv_digest は --json-schema と --system-prompt の直後の値を '<omitted>' に置き換え、それ以外(モデルを含む)を compact
-      JSON にして sha256 を取る。
-    category: observability
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 258
+      end_line: 265
+      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
+  - id: AST-009
+    statement: ClaudeCliLlm は CommandSpec に timeout_sec を指定しないので、子プロセス1本のタイムアウトは既定の 600 秒になる。
+    category: default_value
     confidence: high
     code_anchors:
     - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 136
-      end_line: 143
+      start_line: 262
+      end_line: 266
       blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
-  - id: AST-012
-    statement: _envelope は stdout を寛容に1行ずつ読む。result が複数あれば最後のもの、init は最初のものを採り、rate_limit_event の行ごとに
-      RateLimitInfo を集める。usage は4つのトークン数がどれも非負 int のときだけ得られ、それ以外は None。init に skills キーが無ければ skills_digest(None)、形が違えば
-      None になる。
-    category: state_propagation
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 158
-      end_line: 221
-      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
-  - id: AST-013
-    statement: '_invoke は次の順で動く: begin_invocation(argv_digest) → 新しい cwd でペイロードの JSON を stdin に載せて runner.run
-      → classify より先に end_invocation(model, turns, usage, cost, is_error, skills_digest) と各クォータの record_quota
-      → classify → 失敗なら record_failure → log_invocation。再試行はない。'
-    category: control_flow
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 246
-      end_line: 295
-      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
-  - id: AST-014
-    statement: MaterialTextFilter に問題を登録するのは classify_clusters、summarize_cluster、generate_recall だけである。describe_term
-      の term と check_entailment の reference/statement は登録されず、それらの呼び出しのログ記録では stdout/stderr/argv に material
-      のマスクが掛かるかどうかが登録済みの問題本文だけで決まる。
-    category: security_boundary
-    confidence: medium
-    code_anchors:
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 313
-      end_line: 380
-      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
-    unknowns:
-    - MaterialTextFilter.mask の照合方法はこの差分に無い
-  - id: AST-015
-    statement: ClaudeCliLlm.classify_clusters は begin_call を1回だけ呼び、CLASSIFY_BATCH_SIZE(25)ごとに子プロセスを1本起動する。失敗したバッチは
-      CallFailure として記録する。そのバッチで overage を見たか、rate_limit_stop(failure, is_error, last) が真なら、残りのバッチを起動せずに
+    - path: src/quiz_sift/ports/process.py
+      start_line: 14
+      end_line: 15
+      blob: git-blob:f559ef8065721af66f6ba38c7e7efab6adbbe913
+  - id: AST-010
+    statement: classify_clusters は begin_call を1回だけ呼び、デッキを CLASSIFY_BATCH_SIZE(25)問ごとのバッチに分けて各バッチで子プロセスを1本起動する。失敗したバッチは
+      CallFailure に積んで続行する。ただし、そのバッチの判定で overage_seen が True か rate_limit_stop が True なら、残りのバッチを起動せずに
       break する。
     category: control_flow
     confidence: high
@@ -221,9 +167,68 @@ machine:
       start_line: 25
       end_line: 25
       blob: git-blob:b8832d19e8051c369ff8b2939e8397302c8c440e
+  - id: AST-011
+    statement: MaterialTextFilter に問題を登録するのは classify_clusters・summarize_cluster・generate_recall だけ。describe_term
+      と check_entailment は登録しないので、この2つの入力(term、reference、statement)は、ログに出す stdout/stderr の伏せ字の対象として事前に登録されない。
+    category: security_boundary
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 361
+      end_line: 379
+      blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
+    unknowns:
+    - 事前に登録された問題文がこれらの出力の部分文字列に一致して結果的に伏せられるかは、MaterialTextFilter.mask の実装次第で未確認
+  - id: AST-012
+    statement: record_invocation は stdin を sha256 と UTF-8 長だけにし、argv・stdout・stderr は material.mask の後に
+      mask_secrets をかけた文字列で保持する。log_invocation はそれを INFO で logger に出す。argv には --system-prompt と --json-schema
+      の値がそのまま入る。
+    category: observability
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/safety/invocation_log.py
+      start_line: 50
+      end_line: 89
+      blob: git-blob:a3d0a20305c2b9d2e5aba4e00290208cf6f1a2cd
+    unknowns:
+    - stdout は stream-json の生テキストで、文字列が JSON エスケープされている場合に material.mask が一致するかは未確認
+  - id: AST-013
+    statement: SubprocessRunner.run は spec.env のキー集合が {HOME, PATH, LANG, TZ} と一致しなければ ValueError を送出する。一致すれば
+      spec.env だけを渡して Popen する。OSError は SPAWN、TimeoutExpired は kill した後に引数なしの communicate() で残りを回収して
+      TIMEOUT、その他の BaseException は kill と wait の後に再送出する。
+    category: failure_handling
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_process.py
+      start_line: 44
+      end_line: 69
+      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+    unknowns:
+    - kill 後の communicate() にはタイムアウトが無く、孫プロセスがパイプを保持し続けた場合にブロックするかは未確認
+  - id: AST-014
+    statement: Workspace.child_env は HOME に最小ホーム(既定は ~/.quiz-sift-claude-home)を、PATH に os.environ['PATH']
+      を入れる(PATH が未設定なら KeyError)。LANG と TZ は未設定または空文字のとき C.UTF-8 と Asia/Tokyo にする。
+    category: default_value
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_process.py
+      start_line: 79
+      end_line: 90
+      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+  - id: AST-015
+    statement: preflight は次の順に検査する。子の PATH で claude を which で探す。home_root を O_DIRECTORY で open する。flock(LOCK_EX|LOCK_NB)
+      を取る。.claude/CLAUDE.md が存在しない。rules の配下にディレクトリ以外(symlink を含む)が無い。settings.json のトップレベルのキーが {'theme'}
+      の部分集合。.credentials.json が存在する。検査に合格した場合は fd を閉じないので、ロックはプロセスが終わるまで保持される。
+    category: security_boundary
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_process.py
+      start_line: 101
+      end_line: 154
+      blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
   - id: AST-016
-    statement: parse_proposals は groups[].question_ids と unassigned(どちらも文字列配列が必須)を多重集合として合わせ、渡したキー集合と一致しなければ
-      INCOMPLETE_IDS の ContractError を投げる。旧実装のようにバッチに無いキーを黙って落とすことはしない。
+    statement: parse_proposals は、groups[].question_ids と unassigned を合わせた多重集合が渡したキーの集合と一致しないとき INCOMPLETE_IDS
+      の ContractError を送出する。型の不一致は SCHEMA。空の question_ids のグループは受け入れる。
     category: failure_handling
     confidence: high
     code_anchors:
@@ -232,91 +237,136 @@ machine:
       end_line: 70
       blob: git-blob:c3f3b871eb76ac59ab7b56d0b1a8ade02dc260fa
   - id: AST-017
-    statement: 'ContractError は LlmCallError のサブクラスで、kind を持ち、メッセージは ''<kind.value>: '' で始まる。parse_entailment
-      は未知の判定語を SCHEMA として拒否する。'
+    statement: main は sys.excepthook を _masked_excepthook に差し替え、元に戻さない。main() の既定の llm_factory は composition.build_default_llm
+      で、これは ClaudeCliLlm(meter) を返す。既定の preflight は claude_process.default_preflight。
     category: public_interface
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/llm_contract.py
-      start_line: 17
-      end_line: 22
-      blob: git-blob:c3f3b871eb76ac59ab7b56d0b1a8ade02dc260fa
-    - path: src/quiz_sift/adapters/llm_contract.py
-      start_line: 84
-      end_line: 90
-      blob: git-blob:c3f3b871eb76ac59ab7b56d0b1a8ade02dc260fa
-  - id: AST-018
-    statement: 'メソッドごとのモデルは次のとおり: classify_clusters、summarize_cluster、check_entailment が claude-opus-5-5、generate_recall
-      と describe_term が claude-haiku-4-5。'
-    category: default_value
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/llm_prompts.py
-      start_line: 14
-      end_line: 22
-      blob: git-blob:b8832d19e8051c369ff8b2939e8397302c8c440e
-  - id: AST-019
-    statement: composition.build_default_llm は無条件に ClaudeCliLlm(meter) を返し、cli.main の llm_factory の既定値はこれである。AnthropicLlm
-      はコンストラクタで anthropic.Anthropic() を生成し、_meter.record は呼ぶが begin_invocation/end_invocation は呼ばない。
-    category: dependency
-    confidence: high
-    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 697
+      end_line: 709
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
     - path: src/quiz_sift/composition.py
       start_line: 11
       end_line: 12
       blob: git-blob:7450c0cfa6e1de6ab5cb83bde142e318406424bc
-    - path: src/quiz_sift/cli.py
-      start_line: 697
-      end_line: 703
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-    - path: src/quiz_sift/adapters/llm_anthropic.py
-      start_line: 50
-      end_line: 69
-      blob: git-blob:035ac3a0670f517e6c43bf757b0c6721ab9f55e8
-  - id: AST-020
-    statement: '_run での順序は次のとおり: Pipeline の構築(ensure_ignored を含む) → LLM 段なら _register → handler.addFilter
-      → try。_register は、resume のときに resumable を確かめる → preflight() → Meter の構築(この時点で開始行を追記) → stderr へ
-      run_id を出力、の順に進む。preflight や resume 検査に落ちた起動は meter.jsonl に何も書かない。'
+  - id: AST-018
+    statement: _run は LLM 段(cluster/recall/glossary/script/audio)でだけ _register を呼ぶ。_register は resume
+      のときに _check_resumable、続けて preflight() を呼び、その後で Meter を構築する(構築時点で開始行を追記する)。preflight か resume の検査に落ちた場合、開始行は書かれない。cache_mode
+      が normal でも uuid の run_id で Meter を作る。
     category: control_flow
     confidence: high
     code_anchors:
     - path: src/quiz_sift/cli.py
       start_line: 623
-      end_line: 675
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-021
-    statement: LLM 段(cluster/recall/glossary/script/audio)では、cache_mode が fresh でも resume でもないとき、run_id
-      は毎回新しい uuid になり、cache_mode='normal' の開始行が書かれる。StageCache には run_id を渡さない。fresh/resume では run_id
-      が StageCache に渡り、ingest を含むすべての段の inputs_digest に入る。
-    category: state_propagation
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 651
       end_line: 660
       blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-    - path: src/quiz_sift/pipeline/stage.py
-      start_line: 48
-      end_line: 80
-      blob: git-blob:79ec1d12d615a1799e53f2b8829cf8c8d906f752
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 192
+      end_line: 203
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+  - id: AST-019
+    statement: _run は段の実行を try で囲み、BaseException を捕まえて exit_code と例外クラス名を記録した後に再送出する。finally で meter.finish
+      を呼ぶ。finish の中の aggregate が ValueError を送出すると、終了行は書かれず、元の例外はこの例外に置き換わる。
+    category: failure_handling
+    confidence: medium
+    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 662
+      end_line: 675
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 332
+      end_line: 335
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+  - id: AST-020
+    statement: LLM 段は _execution_limit の中で動く。SIGALRM に 12 時間の alarm を設定し、ハンドラは ExecutionLimitExceeded(SystemExit
+      の派生で、code は文字列)を送出する。_exit_code はこの code を 1 に写す。
+    category: concurrency
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 574
+      end_line: 610
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
+  - id: AST-021
+    statement: _recall_drafts はクラスタ順に generate_recall を呼び、LlmCallError を数えながら続行する。meter.stop_seen() が
+      True なら残りを発行せずに break する。失敗が1件以上あれば RecallCallsFailed を送出する。break しても失敗件数が0なら drafts が一部欠けたまま返し、その後
+      _Drafted.generate_recall が drafts[question_id] を引く。
+    category: control_flow
+    confidence: medium
+    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 426
+      end_line: 458
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
+    - path: src/quiz_sift/cli.py
+      start_line: 336
+      end_line: 347
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
+    unknowns:
+    - 同じ実行の前段で overage か枠切れを記録した後に recall で失敗0件のまま break する経路が実際に起きるか、起きたとき generate_recall_set が欠けた問題を引いて
+      KeyError になるかは未確認
   - id: AST-022
-    statement: aggregate は列の最初の開始行の cache_mode が fresh でなければ first_not_fresh を理由に加え、status を not_completable
-      にする。そのため無指定(normal)で起動した LLM 段の終了行に入る sequence.status は常に not_completable になる。
+    statement: Pipeline.llm は self.meter が None なら NoRunMeter を送出する。ingest と review は Meter を作らないので、これらの段でキャッシュに無い前段の
+      LLM 呼び出しが要ると NoRunMeter で終了する。
+    category: failure_handling
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 368
+      end_line: 377
+      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
+  - id: AST-023
+    statement: Meter.stop_seen は、その実行でこれまでに起動したすべての子プロセス(前の段の分も含む)を見て、overage か rate_limit_stop に当たるものが1本でもあれば
+      True を返す。
     category: state_propagation
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/pipeline/run_sequence.py
-      start_line: 160
-      end_line: 183
-      blob: git-blob:b394d6a06cb61d00a0aa6fc2104ba27b0fc4d57a
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 258
+      end_line: 264
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+  - id: AST-024
+    statement: Meter の end_invocation・record_quota・record_failure は、begin_invocation より前に呼ばれると RuntimeError
+      を送出する。record_failure は同じ子プロセスに2回呼ばれても RuntimeError を送出する。
+    category: failure_handling
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 216
+      end_line: 270
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+  - id: AST-025
+    statement: Meter._append は1行を 'a+b' で開いたファイルに追記し、flush と fsync まで行う。既存ファイルの末尾が改行でなければ、先頭に改行を1つ足してから書く。
+    category: persistence
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 337
+      end_line: 351
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+  - id: AST-026
+    statement: 開始行には os.environ の全キー名(env_names)と、METERED_ENV_NAMES の13変数との積集合を書く。値は書かない。
+    category: observability
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 43
+      end_line: 59
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 192
+      end_line: 203
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
     - path: src/quiz_sift/cli.py
-      start_line: 652
-      end_line: 658
+      start_line: 628
+      end_line: 636
       blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-023
-    statement: '次のいずれかがあると not_completable になる: 対になる終了行の無い開始行。exit_code≠0 で ended_by_rate_limit.value
-      が偽の実行。metered_env_names が空でない開始行。overage_invocations>0。最初の開始行より後にある読めない行(対象 run_id に限らない)。それ以外は、最後の開始行の
-      stage が audio で、その終了行が exit 0 なら completed、そうでなければ resumable になる。'
+  - id: AST-027
+    statement: aggregate が not_completable の理由として積むのは次のとき。最初の開始行の cache_mode が fresh でない(通常実行は常にこれに当たる)。終了行の無い開始行がある。exit_code
+      が非0で ended_by_rate_limit が偽の実行がある。metered_env_names が空でない実行がある。overage がある。列の最初の開始行より後に読めない行がある(他の
+      run_id の行でも数える)。
     category: control_flow
     confidence: high
     code_anchors:
@@ -324,10 +374,9 @@ machine:
       start_line: 160
       end_line: 183
       blob: git-blob:b394d6a06cb61d00a0aa6fc2104ba27b0fc4d57a
-  - id: AST-024
-    statement: 'aggregate は次の場合に ValueError を投げる: run_id を持たない行(どの run の行でも)。対象 run_id の行で record が start/end
-      以外、または必須キーが欠けている。開始行の重複。対になる開始行の無い終了行、または終了行の重複。_check_resumable が ResumeRefused に変換するのは UnknownRunError
-      だけなので、これらの ValueError はそのまま抜ける。'
+  - id: AST-028
+    statement: aggregate はログのどこかに run_id キーの無い読める行があると ValueError を送出する。対象 run_id の行の必須キー欠落、開始行の重複、対応する開始行の無い終了行や終了行の重複でも
+      ValueError を送出する。_check_resumable は UnknownRunError だけを ResumeRefused に変換し、ValueError はそのまま伝える。
     category: failure_handling
     confidence: high
     code_anchors:
@@ -339,138 +388,57 @@ machine:
       start_line: 613
       end_line: 620
       blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-025
-    statement: Meter.finish は _finished=True にした後、aggregate(read_log + 今回の終了行) を計算してから _append する。aggregate
-      が例外を投げると終了行は書かれない。この finish は _run の finally の中で呼ばれるので、そこで出た例外は元の例外を置き換える。
-    category: failure_handling
-    confidence: medium
-    code_anchors:
-    - path: src/quiz_sift/pipeline/meter.py
-      start_line: 272
-      end_line: 335
-      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
-    - path: src/quiz_sift/cli.py
-      start_line: 664
-      end_line: 673
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-026
-    statement: Meter は構築した時点で開始行を書く。開始行には親プロセスの全環境変数の名前(sorted(env_names)、値は書かない)と、そのうち METERED_ENV_NAMES(13
-      個)に含まれる名前が入る。cache_mode が fresh/resume/normal 以外なら ValueError になる。
-    category: persistence
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/pipeline/meter.py
-      start_line: 155
-      end_line: 203
-      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
-    - path: src/quiz_sift/cli.py
-      start_line: 628
-      end_line: 636
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-027
-    statement: _append は a+b で開き、ファイル末尾が改行でなければ先頭に改行を足してから、1行を1回の write で書き、flush と os.fsync まで行う。
-    category: persistence
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/pipeline/meter.py
-      start_line: 337
-      end_line: 351
-      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
-  - id: AST-028
-    statement: end_invocation、record_quota、record_failure は、begin_invocation の前に呼ばれると RuntimeError を投げる。record_failure
-      は同じ子への2回目の記録でも RuntimeError を投げる。record_quota はその子の last_quota、イベント数、overage を更新する。
-    category: failure_handling
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/pipeline/meter.py
-      start_line: 216
-      end_line: 270
-      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
   - id: AST-029
-    statement: rate_limit_stop が真になるのは、kind が PROVIDER_ERROR で、かつ is_error が True、かつ last.status が 'rejected'、かつ
-      last.is_using_overage が False(None は不可)のときだけである。
+    statement: 列の status が completed になるのは、理由が無く、最後の開始行の実行が exit_code 0 で終わり、その stage が 'audio' のときだけ。それ以外で理由が無ければ
+      resumable になる。
     category: control_flow
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/ports/metering.py
-      start_line: 60
-      end_line: 71
-      blob: git-blob:6e0b1403b25719e973b8b56701c0f52838e386e6
+    - path: src/quiz_sift/pipeline/run_sequence.py
+      start_line: 176
+      end_line: 183
+      blob: git-blob:b394d6a06cb61d00a0aa6fc2104ba27b0fc4d57a
   - id: AST-030
-    statement: finish の ended_by_rate_limit.value は、失敗した子が1本以上あり、そのすべてが rate_limit_stop を満たすときだけ真になる。status
-      と resetsAt は失敗の有無に関係なく、その実行で最後に観測したクォータから取る。stop.kind は exit_code==0 なら completed、そうでなく value が真なら
-      rate_limit、それ以外は other。overage_check は failed / unknown(rate_limit_event の無い子がある)/ passed のいずれか。
+    statement: ended_by_rate_limit.value が True になるのは、失敗した子プロセスが1本以上あり、そのすべてが rate_limit_stop を満たすときだけ。status
+      と resetsAt 系の値は、その実行で最後に記録された quota から取る。finish の stop.kind は、exit_code 0 なら completed、ended が真なら
+      rate_limit、それ以外は other。
     category: observability
     confidence: high
     code_anchors:
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 396
+      end_line: 415
+      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
     - path: src/quiz_sift/pipeline/meter.py
       start_line: 280
       end_line: 294
       blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
-    - path: src/quiz_sift/pipeline/meter.py
-      start_line: 398
-      end_line: 415
-      blob: git-blob:de63ca1c9110f26864f2b4b1b4f663e8b659a071
   - id: AST-031
-    statement: 想起素材の段では、クラスタ順に generate_recall を1問ずつ呼ぶ。LlmCallError は数えるだけで続行する。meter.stop_seen() が真になったら残りを発行しない。失敗が1件でもあれば
-      RecallCallsFailed(SystemExit)を上げ、成果物は書かない。含意判定は _Drafted が LLM へそのまま渡す。
-    category: control_flow
+    statement: inputs_digest は run_id が None でないときだけ material に run_id を加える。fresh と resume では Pipeline
+      が StageCache に run_id を渡すので、ingest を含む全段のキャッシュ名が run_id ごとに分かれる。
+    category: persistence
     confidence: high
     code_anchors:
+    - path: src/quiz_sift/pipeline/stage.py
+      start_line: 48
+      end_line: 78
+      blob: git-blob:79ec1d12d615a1799e53f2b8829cf8c8d906f752
     - path: src/quiz_sift/cli.py
-      start_line: 425
-      end_line: 459
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-    - path: src/quiz_sift/cli.py
-      start_line: 335
-      end_line: 346
+      start_line: 357
+      end_line: 366
       blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
   - id: AST-032
-    statement: Pipeline.llm は meter が None のとき(ingest/review がキャッシュに無い前段を必要とした場合)NoRunMeter を上げ、LLM を構築しない。
-    category: failure_handling
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 367
-      end_line: 376
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-033
-    statement: LLM 段は signal.alarm(12 時間)の中で走る。SIGALRM のハンドラは ExecutionLimitExceeded(SystemExit)を上げ、終了時には
-      alarm(0) と元のハンドラを戻す。_exit_code は、SystemExit でない例外を 1、code が None なら 0、int でない code を 1 に写す。
-    category: failure_handling
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 574
-      end_line: 610
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-034
-    statement: main は sys.excepthook を _masked_excepthook に置き換え、元に戻さない。フックはトレースバック全体に mask_secrets を掛けてから
-      sys.stderr に書く。マスクに失敗したときは型名だけを書き、元のフックは呼ばない。
+    statement: 要約の語句実在性の検査は、NFKC 正規化した要約から語を切り出す。日本語では英字を含む英数字語とカタカナ2字以上の列、英語では大文字略語と文頭以外の大文字始まり語が対象。漢字だけの語と小文字の語は照合しない。
     category: security_boundary
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 583
-      end_line: 594
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-    - path: src/quiz_sift/cli.py
-      start_line: 708
-      end_line: 709
-      blob: git-blob:355c69aa66ee5172639af5d2d0c7541540159b73
-  - id: AST-035
-    statement: 'record_invocation の扱いは次のとおり: stdin は sha256 と UTF-8 バイト長だけを持つ。argv の各要素と stdout/stderr(backslashreplace
-      でデコード)には material.mask → mask_secrets を掛ける。log_invocation はこれを JSON にして logger.info で出す。'
-    category: observability
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/safety/invocation_log.py
-      start_line: 50
-      end_line: 98
-      blob: git-blob:a3d0a20305c2b9d2e5aba4e00290208cf6f1a2cd
-  - id: AST-036
-    statement: 'mask_secrets に、空白・引用符・=・: を含まない連続部分に続く ''.credentials.json'' を、ディレクトリ部分ごと *** に置き換えるパターンが加わった。sk-ant-
-      のパターンは OAuth トークンも対象にする。'
+    - path: src/quiz_sift/cluster/summary.py
+      start_line: 60
+      end_line: 85
+      blob: git-blob:7b51d28dc62f7a172a4649c7e6e945d0b440c377
+  - id: AST-033
+    statement: mask_secrets は、sk-ant- で始まるトークンに加えて、空白・引用符・'='・':' を含まない連続文字列のうち '.credentials.json' で終わるもの(パス全体)を
+      *** に置き換える。
     category: security_boundary
     confidence: high
     code_anchors:
@@ -478,256 +446,241 @@ machine:
       start_line: 29
       end_line: 34
       blob: git-blob:30615178c67877097cd9a42938168c2c906865d0
-  - id: AST-037
-    statement: 要約の実在性検査は extract_terms をやめ、NFKC 正規化した要約から専門用語を切り出して照合する。日本語デッキでは英字を含む英数字の語とカタカナ2字以上の列、英語デッキでは大文字略語と文頭以外の大文字始まりの語を取る。漢字だけの語、小文字の語、数字だけの語は照合しない。
-    category: control_flow
+  - id: AST-034
+    statement: AnthropicLlm はコンストラクタで anthropic.Anthropic() を構築する。モデルは llm_prompts.MODELS から選ぶ(classify・summarize・entailment
+      は claude-opus-5-5、recall と describe は claude-haiku-4-5)。
+    category: dependency
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/cluster/summary.py
-      start_line: 60
-      end_line: 85
-      blob: git-blob:7b51d28dc62f7a172a4649c7e6e945d0b440c377
-  - id: AST-038
-    statement: overhead 定数は opus-5-5 と haiku-4-5 について埋まっており、各定数に skills_digest が加わった。_overhead_by_model
-      は argv_digests が定数と一致しなければ argv_mismatch、skills_digests が一致しなければ skills_mismatch として unknown を返す。
+    - path: src/quiz_sift/adapters/llm_anthropic.py
+      start_line: 43
+      end_line: 52
+      blob: git-blob:035ac3a0670f517e6c43bf757b0c6721ab9f55e8
+    - path: src/quiz_sift/adapters/llm_prompts.py
+      start_line: 14
+      end_line: 22
+      blob: git-blob:b8832d19e8051c369ff8b2939e8397302c8c440e
+  - id: AST-035
+    statement: skills_digest は、names が None なら文字列 'absent' の sha256、それ以外は名前を並べ替えた JSON 配列の sha256 を返す。_overhead_by_model
+      は、argv か skills のダイジェスト集合が定数の値1つと一致しなければ、そのモデルを unknown と報告する。
     category: observability
     confidence: high
     code_anchors:
     - path: src/quiz_sift/pipeline/overhead.py
       start_line: 31
-      end_line: 65
+      end_line: 37
       blob: git-blob:6200a4b15e61a3db12c5d846821ad076b536601c
   claims:
   - claim_id: C-001
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 取り込み処理に関する Actual Statement が無い
+    - 取り込み(ingest)の検証ロジックを示す Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-002
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - Udemy 抽出・ゴールデンセットに関する Actual Statement が無い
+    - Udemy 抽出・ヘッドレスブラウザに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-003
-    verdict: unverified
     actual_statement_ids:
     - AST-001
     - AST-002
-    - AST-003
-    - AST-013
-    - AST-015
+    - AST-004
+    - AST-005
+    - AST-009
+    - AST-010
     - AST-016
-    - AST-029
+    - AST-020
+    - AST-021
+    - AST-023
     - AST-030
-    - AST-033
+    - AST-032
+    verdict: unverified
     semantic_support:
-      status: supported
+      status: unknown
       assessment_basis: machine_assessed
-      limitations:
-      - 失敗種別・PARSE/TRUNCATED 判定・INCOMPLETE_IDS・再試行なし・12時間上限は一致
-      - クラスタ比率・サマリ3値・llm_calls 2倍・timeout 時の resetsAt ログは Actual に無い
     conformance:
       status: partial
-      scope:
-      - 失敗分類
-      - 12時間タイムアウト
-      - 再試行なし
     unknowns:
-    - 最後の resetsAt が12時間超過時にログへ残るか未確認
-    - サマリ出力の3値が未確認
+    - 失敗種別・PARSE/TRUNCATED の判定・INCOMPLETE_IDS・overage/レート枠の PROVIDER_ERROR・12時間打ち切り・begin_call 1回の llm_calls
+      計上は Actual に整合する記述がある
+    - クラスタ比率・割当一致率・サマリ3値・resetsAt のログ出力は Actual に無い
+    - 要約語句の実在性検査は漢字のみ語と小文字語を照合しないので、主張の『主要な語句』より狭い
+    - 'AST-021: recall で失敗0件のまま break すると drafts が欠けたまま下流へ進みうる(『失敗のある実行は下流へ進まない』との整合が未確認)'
     integrity:
       status: verified
-      code_anchor_digest: sha256:1be6b82afa9afbc7f2c46b4a5eeb2540d76a414c369c49c1c0305c32292c6640
+      code_anchor_digest: sha256:5d964db860d30f32b90d0a2a30e25eb6fd7e35aed6bdde842ae3701c3b74b8e8
   - claim_id: C-004
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 想起キー検証に関する Actual Statement が無い
+    - 想起キー・識別ポイントの検証を示す Actual Statement が無い(generate_recall の存在のみ AST-011 から窺える)
     integrity:
       status: unavailable
   - claim_id: C-005
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - グロッサリ・照合対象なしの扱いが Actual に無い
+    - グロッサリ矛盾検査・照合対象なしの扱い・音声ファイル分離は Actual に無い
     integrity:
       status: unavailable
   - claim_id: C-006
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 台本構成に関する Actual Statement が無い
+    - 台本構成・間マーカー・3分超過の扱いに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-007
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 音声出力に関する Actual Statement が無い
+    - 音声書き出し・無音区間・m3u に関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-008
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - Web UI・出題に関する Actual Statement が無い
+    - Web UI・出題・正答率レポートに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-010
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 再生リスト出力に関する Actual Statement が無い
+    - 誤答率順の再生リスト・学習記録に関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-011
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - 複数セット分離に関する Actual Statement が無い
+    - 複数セットの分離・既習指定の上書きに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-012
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - Web UI・学習記録ストアに関する Actual Statement が無い
+    - Web UI とサーバ側学習記録ストアに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-013
-    verdict: unverified
     actual_statement_ids:
-    - AST-017
-    - AST-031
-    semantic_support:
-      status: unknown
-      assessment_basis: machine_assessed
-      limitations:
-      - 含意判定 LLM 呼び出しとその判定語のスキーマ検査だけが見える
-      - 矛盾時にエラー終了する経路・誤検出0・ミューテーション検出率は Actual に無い
-    conformance:
-      status: partial
-    unknowns:
-    - 矛盾検出時の成果物非出力と非0終了が未確認
-    integrity:
-      status: verified
-      code_anchor_digest: sha256:034545b1ea9e1c6e5e3b21919327d26b38345e78dbd083e03046cd0b78ebaacc
-  - claim_id: C-014
-    verdict: unverified
-    actual_statement_ids:
-    - AST-014
-    - AST-035
-    semantic_support:
-      status: unknown
-      assessment_basis: machine_assessed
-      limitations:
-      - describe_term と check_entailment の入力は MaterialTextFilter に登録されず、ログ上のマスクが登録済み問題本文だけに依存する。教材由来の
-        reference/statement が漏れる可能性がある
-      - mask の照合方法が不明
-    conformance:
-      status: partial
-    unknowns:
-    - ログ出力に教材本文が残らないことは未確認
-    - Git 追跡対象の検査は Actual に無い
-    integrity:
-      status: verified
-      code_anchor_digest: sha256:1a83ec84ce8e2fc63c83f8b8306fe93698d01d63b6149fcc7ae78434be1ccdf3
-  - claim_id: C-015
-    verdict: unverified
-    actual_statement_ids:
+    - AST-011
     - AST-034
-    - AST-035
-    - AST-036
-    - AST-009
-    semantic_support:
-      status: supported
-      assessment_basis: machine_assessed
-      limitations:
-      - ログ・例外のマスクと資格情報ファイルを開かない点は確認できる
-      - リポジトリ内の平文キー不在は Actual に無い
-    conformance:
-      status: partial
-      scope:
-      - ログのマスク
-      - トレースバックのマスク
-    unknowns:
-    - Udemy のパスワードとクッキーの扱いが未確認
-    integrity:
-      status: verified
-      code_anchor_digest: sha256:f59807cd40e29b538da62b3a5815b29ac7c0036e81d72b8d21b4764ef0d38692
-  - claim_id: C-016
     verdict: unverified
-    actual_statement_ids:
-    - AST-021
-    - AST-032
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: partial
     unknowns:
-    - 段階再実行時に前段の llm_calls と provider_invocations が0になるかは未確認
-    - 中間成果物の永続化は StageCache に触れる記述のみ
+    - check_entailment と entailment 用モデルの存在は分かるが、矛盾時にエラー終了する制御、誤検出0件、ミューテーション検出率の記録は Actual に無い
     integrity:
       status: verified
-      code_anchor_digest: sha256:e91f0789de2173a660950cf3866629644da8cfb68eec2efebb306f430e8b90c6
+      code_anchor_digest: sha256:f9e22357314cc325e52f1d379550af1476ac5b96f425fa3bb258cabe8894abf9
+  - claim_id: C-014
+    actual_statement_ids:
+    - AST-011
+    - AST-012
+    verdict: unverified
+    semantic_support:
+      status: unknown
+      assessment_basis: machine_assessed
+    conformance:
+      status: partial
+    unknowns:
+    - stdin は sha256 と長さのみ記録される
+    - describe_term / check_entailment の入力は MaterialTextFilter に事前登録されず、stdout/stderr と argv は INFO ログに出る。material.mask
+      が実際に伏せるかは未確認で、本文が漏れる可能性が残る
+    - Git 追跡・コミットに関する Actual Statement は無い
+    integrity:
+      status: verified
+      code_anchor_digest: sha256:cfd884e1ca8da081ac939a8186a6dcf79bfdf515977464b73b47415946c682f1
+  - claim_id: C-015
+    actual_statement_ids:
+    - AST-012
+    - AST-026
+    - AST-033
+    verdict: unverified
+    semantic_support:
+      status: unknown
+      assessment_basis: machine_assessed
+    conformance:
+      status: partial
+    unknowns:
+    - mask_secrets は sk-ant- トークンと .credentials.json のパスだけを伏せる。Udemy のパスワード・セッションクッキーを伏せる処理は Actual に無い
+    - 開始行には環境変数の名前のみで値は書かれない
+    - リポジトリ内の平文資格情報の有無は Actual から判定できない
+    integrity:
+      status: verified
+      code_anchor_digest: sha256:ccc4b35b19d9428e94ffc7972486f0f7a8c2396773c48b232a8e860e8b0ae5c4
+  - claim_id: C-016
+    actual_statement_ids:
+    - AST-018
+    - AST-022
+    - AST-031
+    verdict: unverified
+    semantic_support:
+      status: unknown
+      assessment_basis: machine_assessed
+    conformance:
+      status: partial
+    unknowns:
+    - run_id ごとのステージキャッシュは存在するが、途中段階再実行での llm_calls と provider_invocations が共に0になることの検証は Actual に無い
+    - ingest / review は Meter を作らず、キャッシュに無い前段 LLM 呼び出しが要ると NoRunMeter で終了する
+    - ホスト実測ログの artifact 記録は Actual に無い
+    integrity:
+      status: verified
+      code_anchor_digest: sha256:72c32125d01f30409e5db6e5a59bef98b20777193c10bba5a400bdadbe37628d
   - claim_id: C-017
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
@@ -739,23 +692,19 @@ machine:
       status: unavailable
   - claim_id: C-018
     verdict: unknown
-    actual_statement_ids: []
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - サンドボックス実行に関する Actual Statement が無い
+    - 品質ゲートのネットワーク遮断実行に関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-019
-    verdict: unverified
     actual_statement_ids:
-    - AST-013
-    - AST-020
-    - AST-021
-    - AST-022
+    - AST-018
+    - AST-019
     - AST-023
     - AST-024
     - AST-025
@@ -764,121 +713,137 @@ machine:
     - AST-028
     - AST-029
     - AST-030
-    - AST-038
+    - AST-035
+    verdict: unverified
     semantic_support:
-      status: supported
+      status: unknown
       assessment_basis: machine_assessed
-      limitations:
-      - 列の登録条件・完走条件・レート制限停止の判定・失敗前のトークン記録・overhead の出所検査は一致
-      - normal で起動した LLM 段は常に not_completable になる(AST-022)
-      - 集計値(和/最大/壁時計)・4値トークン・notional コスト・単価表・較正表は Actual に無い
     conformance:
       status: partial
-      scope:
-      - run_sequence の完走判定
-      - レート制限停止
-      - overhead の unknown 報告
     unknowns:
-    - コスト自算と self-reported の相対差、単価0の扱い、notional の語、両ウィンドウの utilization/resetsAt の記録が未確認
+    - 起動前検査後の登録、終了記録の無い登録の扱い、rate_limit 終了条件(5条件)、overage 0件の完走条件、run_id 単位の集計、オーバーヘッドの unknown 報告は Actual
+      に整合する記述がある
+    - finish 内の aggregate が ValueError を送出すると終了行が書かれず元の例外が置換される(AST-019)
+    - 通常実行の cache_mode は fresh でないため、not_completable の理由に当たる(AST-027)。『完走』が通常実行で成立するか未確認
+    - 並行度・4値トークン・notional コスト・単価表・較正表・壁時計・利用率の記録は Actual に無い
     integrity:
       status: verified
-      code_anchor_digest: sha256:05558544f29052ce1c5140c11383948f9abcd95f92b0016436fb6181f4ac6d81
+      code_anchor_digest: sha256:cd22e4236a4d11ae9e6592edb8055c5d9868fd90300b544df2e2dc345290ca26
   - claim_id: C-020
-    verdict: aligned
     actual_statement_ids:
-    - AST-004
-    - AST-005
-    - AST-006
-    - AST-007
+    - AST-001
+    - AST-003
     - AST-008
-    - AST-009
-    - AST-010
-    - AST-019
+    - AST-013
+    - AST-014
+    - AST-015
+    - AST-017
     - AST-026
-    - AST-029
-    - AST-030
+    - AST-034
+    verdict: unverified
     semantic_support:
-      status: supported
+      status: unknown
       assessment_basis: machine_assessed
-      limitations:
-      - env 4キー固定・最小ホーム・起動前検査・build_default_llm の単一 return・argv の各指定・13個の metered 変数記録・isUsingOverage
-        真は PROVIDER_ERROR・rate_limit_event なしは unknown、いずれも Actual と一致
-      - llm_anthropic.py(anthropic.Anthropic() を生成)が残っており、入口の import グラフから到達不能かは未確認
-      - tools 制限は permissions.deny の42個と init の tools 集合検査で実現しており、claim の argv 記述との一致は確認できていない
     conformance:
       status: partial
-      scope:
-      - 環境変数
-      - 起動前検査
-      - argv
-      - 既定 Llm の選択点
     unknowns:
-    - import グラフ検査と negative control の有無が未確認
-    - 子プロセスの HOME 配下にファイルが作られない確認が未確認
+    - 子環境は HOME/PATH/LANG/TZ の4キーに強制され、argv に stream-json・max-turns 3・--safe-mode・空 MCP・permission-mode
+      default を含み、cwd は新規一時ディレクトリで、preflight は CLAUDE.md・rules・settings.json・資格情報を検査し、overage は PROVIDER_ERROR
+      になる(整合する記述あり)
+    - 有効ツール集合は argv ではなく 42 個の deny 設定と init.tools の事後検査で絞るため、主張の『argv が集合を絞る』とは手段が異なる
+    - llm_anthropic.AnthropicLlm が存在する。エントリの import グラフから到達不能か、negative control があるかは Actual に無い
+    - build_default_llm は ClaudeCliLlm(meter) を返す。本体が return 1つの直接呼び出しかは、行の記述だけでは確認できない
+    - rate_limit_event 未着時に unknown と報告する処理、13個の metered 変数の不在検査は Actual に無い(AST-026 は開始行への記録のみ)
     integrity:
       status: verified
-      code_anchor_digest: sha256:862b4610e713d36a1d2854ddb61bb3f735d49244e7405cd65cc8b74fe524e684
+      code_anchor_digest: sha256:246b3d65677ddb997faa7f2eb36134d47ca23638c53a995928b7c9f170588873
   security:
     findings:
     - id: SEC-001
       severity: medium
       category: sandbox_escape
-      attack_scenario: The preflight is the only barrier that keeps configuration out of the `claude`
-        child. It checks only `.claude/CLAUDE.md`, `.claude/rules/` and the top-level keys of `.claude/settings.json`
-        under the minimal home. The home probe measured that HOME-side settings can inject `env` (for
-        example ANTHROPIC_BASE_URL) even under `--safe-mode`. The preflight does not look at `.claude/settings.local.json`
-        or `$HOME/.claude.json` in the same home. Someone who can write one of those files (another local
-        tool, a synced plugin, a careless edit) can set env such as ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN,
-        or hooks. That redirects every study-material prompt to a server they control, or moves the calls
-        onto a metered path, and the preflight still passes. Not verified on the host whether the CLI
-        reads settings.local.json from HOME under --safe-mode.
+      attack_scenario: Any process running as the user (or the user themself, e.g. via a synced plugin
+        or `claude /login` rewrite) can write child-CLI configuration that the preflight does not inspect.
+        The preflight only checks `.claude/CLAUDE.md`, `.claude/rules/`, the top-level keys of `.claude/settings.json`,
+        and whether `.credentials.json` exists. `~/.claude.json`, the synced `skills/` and `plugins/`
+        trees, and any other settings file the CLI reads are never inspected. The check also runs once,
+        before any child is spawned, and the flock is advisory, so the home can be modified between preflight
+        and each spawn (TOCTOU). If the attacker adds an `env` or hook-bearing config, e.g. `ANTHROPIC_BASE_URL`
+        (measured to take effect under `--safe-mode`, home-probe §2), every child reads it. The result
+        is either redirection to a metered or attacker-controlled endpoint that receives the study material
+        from stdin, or injected instructions, even though preflight passed.
       code_anchors:
       - path: src/quiz_sift/adapters/claude_process.py
-        start_line: 123
-        end_line: 139
+        start_line: 100
+        end_line: 148
         blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
       blocking: false
       status: open
       first_seen:
         trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-        subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
+        subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
     - id: SEC-002
-      severity: low
-      category: denial_of_service
-      attack_scenario: When a call times out, `SubprocessRunner.run` kills only the direct `claude` child
-        and then calls `proc.communicate()` with no timeout. The child's stdout and stderr pipes are inherited
-        by any grandchild it started (node workers, helper processes). If a grandchild survives the kill,
-        it keeps those pipes open and the second communicate() blocks forever. The 10-minute per-call
-        timeout then fails, and the run can only end when the 12-hour alarm fires.
+      severity: medium
+      category: sandbox_escape
+      attack_scenario: Tools are restricted by an enumerated deny list (`permissions.deny`), not an allow
+        list, and the check that only `StructuredOutput` is enabled (`_tool_problem`) runs only after
+        the child has exited. Quiz text scraped from Udemy is untrusted and goes to the model on stdin.
+        If a future `claude` release adds a read-only or no-permission tool not in `DENIED_TOOLS`, an
+        injected instruction in a question can make the model call it, for example to read `~/.quiz-sift-claude-home/.claude/.credentials.json`
+        or other local files. The call executes during the run. `classify` only marks the invocation PROVIDER_ERROR
+        afterwards, and by then the tool output is already in stdout, which is written to the INFO log.
       code_anchors:
-      - path: src/quiz_sift/adapters/claude_process.py
-        start_line: 58
-        end_line: 63
-        blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+      - path: src/quiz_sift/adapters/llm_claude_cli.py
+        start_line: 49
+        end_line: 92
+        blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
+      - path: src/quiz_sift/adapters/claude_failure.py
+        start_line: 180
+        end_line: 210
+        blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
       blocking: false
       status: open
       first_seen:
         trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-        subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
+        subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
     - id: SEC-003
       severity: low
       category: information_disclosure
-      attack_scenario: Every invocation writes the child's full stdout to the INFO log, and that log goes
-        to stderr. MaterialTextFilter masks only question text that appears verbatim. Model output that
-        paraphrases or quotes part of the paid course material (summaries, answers, discriminations, thinking)
-        passes through unmasked. Anyone who collects or shares these stderr logs, such as the full-run
-        journal's .stderr files or a CI log, gets reconstructable course content, which NFR-2 is meant
-        to keep out of anything shareable.
+      attack_scenario: '`log_invocation` writes each child''s full stdout and stderr at INFO. That output
+        includes the model''s restatement of the study material and its tool inputs. Masking only removes
+        registered verbatim material text and known secret shapes. Paraphrased or translated question
+        and answer text, and any file contents a tool returned, pass through. Anyone who can read the
+        stderr logs (terminal scrollback, CI logs, the redirected `NNN.stderr` files) can reconstruct
+        copyrighted Udemy material, contrary to NFR-2.'
       code_anchors:
       - path: src/quiz_sift/safety/invocation_log.py
         start_line: 66
-        end_line: 84
+        end_line: 91
         blob: git-blob:a3d0a20305c2b9d2e5aba4e00290208cf6f1a2cd
       blocking: false
       status: open
       first_seen:
         trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-        subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
+        subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
+    - id: SEC-004
+      severity: low
+      category: denial_of_service
+      attack_scenario: On `TimeoutExpired`, `SubprocessRunner.run` kills only the direct child and then
+        calls `proc.communicate()` with no timeout. If `claude` has spawned a grandchild that inherited
+        the stdout/stderr pipes (a helper, or a subprocess started by a tool), that call blocks until
+        the grandchild exits. The 10-minute per-call timeout therefore stops working, and the run hangs
+        until the 12-hour `signal.alarm` fires, holding the minimal-home lock and blocking every other
+        run.
+      code_anchors:
+      - path: src/quiz_sift/adapters/claude_process.py
+        start_line: 58
+        end_line: 69
+        blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+      blocking: false
+      status: open
+      first_seen:
+        trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
+        subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
   effective_risk: critical
   brief:
     delivered:
@@ -1154,86 +1119,72 @@ machine:
     requirements_on_people:
       undeclared:
       - category: security_boundary
-        statement_id: AST-004
-        statement: '_tool_problem は次のいずれかで失敗を返す: system/init イベントが1つも無い。いずれかの init の tools が文字列のリストでない、または集合として
-          {StructuredOutput} と一致しない。assistant メッセージの content に、type が ''tool_use'' で終わり name が StructuredOutput
-          以外のブロックがある。'
+        statement_id: AST-003
+        statement: _tool_problem は次のいずれかで失敗を返す。system/init イベントが無い。いずれかの init.tools の集合が {'StructuredOutput'}
+          と一致しない。assistant メッセージ内に type が 'tool_use' で終わり、name が StructuredOutput 以外のブロックがある。
         confidence: high
         paths:
         - src/quiz_sift/adapters/claude_failure.py
+      - category: security_boundary
+        statement_id: AST-008
+        statement: build_argv は claude -p に次を渡す。--output-format stream-json --verbose --max-turns 3、--json-schema、--model、--system-prompt、--exclude-dynamic-system-prompt-sections、--strict-mcp-config
+          --mcp-config '{"mcpServers":{}}'、42 個のツール名を permissions.deny に並べた --settings、--permission-mode
+          default、--safe-mode。教材本文(payload)は stdin で渡す。
+        confidence: high
+        paths:
+        - src/quiz_sift/adapters/llm_claude_cli.py
       - category: default_value
-        statement_id: AST-006
-        statement: Workspace.child_env は HOME を最小ホーム(既定は ~/.quiz-sift-claude-home)にし、PATH は os.environ['PATH']
-          をそのまま写す(未設定なら KeyError)。LANG と TZ は親の値が空または未設定のとき C.UTF-8 と Asia/Tokyo を補う。
+        statement_id: AST-009
+        statement: ClaudeCliLlm は CommandSpec に timeout_sec を指定しないので、子プロセス1本のタイムアウトは既定の 600 秒になる。
+        confidence: high
+        paths:
+        - src/quiz_sift/adapters/llm_claude_cli.py
+        - src/quiz_sift/ports/process.py
+      - category: security_boundary
+        statement_id: AST-011
+        statement: MaterialTextFilter に問題を登録するのは classify_clusters・summarize_cluster・generate_recall だけ。describe_term
+          と check_entailment は登録しないので、この2つの入力(term、reference、statement)は、ログに出す stdout/stderr の伏せ字の対象として事前に登録されない。
+        confidence: high
+        paths:
+        - src/quiz_sift/adapters/llm_claude_cli.py
+      - category: default_value
+        statement_id: AST-014
+        statement: Workspace.child_env は HOME に最小ホーム(既定は ~/.quiz-sift-claude-home)を、PATH に os.environ['PATH']
+          を入れる(PATH が未設定なら KeyError)。LANG と TZ は未設定または空文字のとき C.UTF-8 と Asia/Tokyo にする。
         confidence: high
         paths:
         - src/quiz_sift/adapters/claude_process.py
-      - category: security_boundary
-        statement_id: AST-010
-        statement: 'build_argv が組み立てる argv は次のとおり: claude -p --output-format stream-json --verbose --max-turns
-          3、--json-schema <schema>、--model、--system-prompt、--exclude-dynamic-system-prompt-sections、空の
-          mcpServers を渡す --strict-mcp-config、42 個の固定ツール名を並べた permissions.deny の --settings、--permission-mode
-          default --safe-mode。ペイロードは argv に入らない。'
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/llm_claude_cli.py
-      - category: observability
-        statement_id: AST-011
-        statement: argv_digest は --json-schema と --system-prompt の直後の値を '<omitted>' に置き換え、それ以外(モデルを含む)を
-          compact JSON にして sha256 を取る。
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/llm_claude_cli.py
-      - category: security_boundary
-        statement_id: AST-014
-        statement: MaterialTextFilter に問題を登録するのは classify_clusters、summarize_cluster、generate_recall だけである。describe_term
-          の term と check_entailment の reference/statement は登録されず、それらの呼び出しのログ記録では stdout/stderr/argv に
-          material のマスクが掛かるかどうかが登録済みの問題本文だけで決まる。
-        confidence: medium
-        paths:
-        - src/quiz_sift/adapters/llm_claude_cli.py
-      - category: public_interface
-        statement_id: AST-017
-        statement: 'ContractError は LlmCallError のサブクラスで、kind を持ち、メッセージは ''<kind.value>: '' で始まる。parse_entailment
-          は未知の判定語を SCHEMA として拒否する。'
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/llm_contract.py
-      - category: dependency
-        statement_id: AST-019
-        statement: composition.build_default_llm は無条件に ClaudeCliLlm(meter) を返し、cli.main の llm_factory
-          の既定値はこれである。AnthropicLlm はコンストラクタで anthropic.Anthropic() を生成し、_meter.record は呼ぶが begin_invocation/end_invocation
-          は呼ばない。
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/llm_anthropic.py
-        - src/quiz_sift/cli.py
-        - src/quiz_sift/composition.py
       - category: persistence
-        statement_id: AST-027
-        statement: _append は a+b で開き、ファイル末尾が改行でなければ先頭に改行を足してから、1行を1回の write で書き、flush と os.fsync まで行う。
+        statement_id: AST-025
+        statement: Meter._append は1行を 'a+b' で開いたファイルに追記し、flush と fsync まで行う。既存ファイルの末尾が改行でなければ、先頭に改行を1つ足してから書く。
         confidence: high
         paths:
         - src/quiz_sift/pipeline/meter.py
       - category: security_boundary
-        statement_id: AST-034
-        statement: main は sys.excepthook を _masked_excepthook に置き換え、元に戻さない。フックはトレースバック全体に mask_secrets
-          を掛けてから sys.stderr に書く。マスクに失敗したときは型名だけを書き、元のフックは呼ばない。
+        statement_id: AST-032
+        statement: 要約の語句実在性の検査は、NFKC 正規化した要約から語を切り出す。日本語では英字を含む英数字語とカタカナ2字以上の列、英語では大文字略語と文頭以外の大文字始まり語が対象。漢字だけの語と小文字の語は照合しない。
         confidence: high
         paths:
-        - src/quiz_sift/cli.py
+        - src/quiz_sift/cluster/summary.py
       - category: security_boundary
-        statement_id: AST-036
-        statement: 'mask_secrets に、空白・引用符・=・: を含まない連続部分に続く ''.credentials.json'' を、ディレクトリ部分ごと *** に置き換えるパターンが加わった。sk-ant-
-          のパターンは OAuth トークンも対象にする。'
+        statement_id: AST-033
+        statement: mask_secrets は、sk-ant- で始まるトークンに加えて、空白・引用符・'='・':' を含まない連続文字列のうち '.credentials.json'
+          で終わるもの(パス全体)を *** に置き換える。
         confidence: high
         paths:
         - src/quiz_sift/safety/secret_mask.py
+      - category: dependency
+        statement_id: AST-034
+        statement: AnthropicLlm はコンストラクタで anthropic.Anthropic() を構築する。モデルは llm_prompts.MODELS から選ぶ(classify・summarize・entailment
+          は claude-opus-5-5、recall と describe は claude-haiku-4-5)。
+        confidence: high
+        paths:
+        - src/quiz_sift/adapters/llm_anthropic.py
+        - src/quiz_sift/adapters/llm_prompts.py
       - category: observability
-        statement_id: AST-038
-        statement: overhead 定数は opus-5-5 と haiku-4-5 について埋まっており、各定数に skills_digest が加わった。_overhead_by_model
-          は argv_digests が定数と一致しなければ argv_mismatch、skills_digests が一致しなければ skills_mismatch として unknown
-          を返す。
+        statement_id: AST-035
+        statement: skills_digest は、names が None なら文字列 'absent' の sha256、それ以外は名前を並べ替えた JSON 配列の sha256
+          を返す。_overhead_by_model は、argv か skills のダイジェスト集合が定数の値1つと一致しなければ、そのモデルを unknown と報告する。
         confidence: high
         paths:
         - src/quiz_sift/pipeline/overhead.py
@@ -1249,6 +1200,17 @@ machine:
         - path: src/quiz_sift/pipeline/run_sequence.py
           blob: b394d6a06cb61d00a0aa6fc2104ba27b0fc4d57a
           bytes: 9170
+      - task_id: T-040
+        kind: default_value
+        name: メソッドごとのモデル割り当て(分類・要約 = claude-opus-5-5、ほか = claude-haiku-4-5)と、分類のバッチサイズ 25。変えると inputs_digest
+          が動き、全段のキャッシュが1回無効化される
+        paths:
+        - src/quiz_sift/adapters/llm_prompts.py
+        adr: ADR-015
+        as_built:
+        - path: src/quiz_sift/adapters/llm_prompts.py
+          blob: b8832d19e8051c369ff8b2939e8397302c8c440e
+          bytes: 4141
       - task_id: T-041
         kind: dependency
         name: 人が事前に最小ホームを用意しておくこと。合成プロンプトによる実 CLI 呼び出し(成功 2〜4 回、番兵 2 回)ぶんのレート枠を消費する。不正スキーマはモデルを呼ばない
@@ -1270,20 +1232,6 @@ machine:
           blob: 694b83e522ccbb642322c25b4d7df73280e25032
           bytes: 15223
       - task_id: T-044
-        kind: public_interface
-        name: コンソールスクリプト quiz-sift(1本だけ)と、既定 LLM の唯一の選択点 composition.build_default_llm
-        paths:
-        - pyproject.toml
-        - src/quiz_sift/composition.py
-        adr: ADR-013
-        as_built:
-        - path: pyproject.toml
-          blob: 7fe8b0edb6127dc0fef54e7cebdf2bfafa5044ab
-          bytes: 6049
-        - path: src/quiz_sift/composition.py
-          blob: 7450c0cfa6e1de6ab5cb83bde142e318406424bc
-          bytes: 494
-      - task_id: T-044
         kind: dependency
         name: anthropic は、このサイクルでは通常依存のまま残る(D-103)。製品の実行経路からは到達しない
         paths:
@@ -1293,16 +1241,6 @@ machine:
         - path: pyproject.toml
           blob: 7fe8b0edb6127dc0fef54e7cebdf2bfafa5044ab
           bytes: 6049
-      - task_id: T-045
-        kind: public_interface
-        name: LLM 段のオプション --fresh-run と --resume RUN_ID(run_id は stderr に出る)。枠のリセット後に人が --resume で再開する
-        paths:
-        - src/quiz_sift/cli.py
-        adr: ADR-018
-        as_built:
-        - path: src/quiz_sift/cli.py
-          blob: 355c69aa66ee5172639af5d2d0c7541540159b73
-          bytes: 30819
       - task_id: T-046
         kind: dependency
         name: 最小ホームでの実 CLI 呼び出し(合成プロンプトのみ、2モデル × 3点)ぶんのレート枠
@@ -1314,7 +1252,7 @@ machine:
           blob: 5b819d95bf84b33305fe96580b2ac6b14bbad5d7
           bytes: 8635
       as_declared:
-        count: 5
+        count: 6
         entries:
         - task_id: T-037
           kind: observability
@@ -1327,6 +1265,7 @@ machine:
             blob: de63ca1c9110f26864f2b4b1b4f663e8b659a071
             bytes: 17952
           statement_ids:
+          - AST-026
           - AST-030
         - task_id: T-039
           kind: security_boundary
@@ -1340,21 +1279,7 @@ machine:
             blob: 949d55dd0dd57e6366e367dacd842a86164b6a9d
             bytes: 7966
           statement_ids:
-          - AST-005
-          - AST-009
-        - task_id: T-040
-          kind: default_value
-          name: メソッドごとのモデル割り当て(分類・要約 = claude-opus-5-5、ほか = claude-haiku-4-5)と、分類のバッチサイズ 25。変えると inputs_digest
-            が動き、全段のキャッシュが1回無効化される
-          paths:
-          - src/quiz_sift/adapters/llm_prompts.py
-          adr: ADR-015
-          as_built:
-          - path: src/quiz_sift/adapters/llm_prompts.py
-            blob: b8832d19e8051c369ff8b2939e8397302c8c440e
-            bytes: 4141
-          statement_ids:
-          - AST-018
+          - AST-015
         - task_id: T-042
           kind: observability
           name: 逐語ログ(argv・usage・失敗種別・result の is_error・rate_limit_event の最初と最後と件数・overage・マスク済み stdout
@@ -1371,7 +1296,36 @@ machine:
             blob: a3d0a20305c2b9d2e5aba4e00290208cf6f1a2cd
             bytes: 3744
           statement_ids:
-          - AST-035
+          - AST-004
+          - AST-012
+        - task_id: T-044
+          kind: public_interface
+          name: コンソールスクリプト quiz-sift(1本だけ)と、既定 LLM の唯一の選択点 composition.build_default_llm
+          paths:
+          - pyproject.toml
+          - src/quiz_sift/composition.py
+          adr: ADR-013
+          as_built:
+          - path: pyproject.toml
+            blob: 7fe8b0edb6127dc0fef54e7cebdf2bfafa5044ab
+            bytes: 6049
+          - path: src/quiz_sift/composition.py
+            blob: 7450c0cfa6e1de6ab5cb83bde142e318406424bc
+            bytes: 494
+          statement_ids:
+          - AST-017
+        - task_id: T-045
+          kind: public_interface
+          name: LLM 段のオプション --fresh-run と --resume RUN_ID(run_id は stderr に出る)。枠のリセット後に人が --resume で再開する
+          paths:
+          - src/quiz_sift/cli.py
+          adr: ADR-018
+          as_built:
+          - path: src/quiz_sift/cli.py
+            blob: 355c69aa66ee5172639af5d2d0c7541540159b73
+            bytes: 30819
+          statement_ids:
+          - AST-017
         - task_id: T-045
           kind: persistence
           name: out/<deck>/meter.jsonl(gitignored、追記のみ、1実行につき2行)と、列ごとの段成果物(run_id 入りの digest。人が out/<deck>/
@@ -1388,7 +1342,7 @@ machine:
             blob: 79ec1d12d615a1799e53f2b8829cf8c8d906f752
             bytes: 4031
           statement_ids:
-          - AST-026
+          - AST-031
     operations:
       command:
       - bash
@@ -1978,73 +1932,127 @@ machine:
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: SEC-001
+      subject_id: C-020
       disposition: revise_implementation
   - id: STMT-092
-    text: 'Take it out of scope: remove the behaviour rather than carry an undecided risk.'
+    text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: SEC-001
-      disposition: reduce_scope
+      subject_id: C-020
+      disposition: revise_design
   - id: STMT-093
-    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
+    text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: SEC-001
-      disposition: request_expert
+      subject_id: C-020
+      disposition: run_experiment
   - id: STMT-094
+    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: C-020
+      disposition: request_expert
+  - id: STMT-095
+    text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: C-020
+      disposition: dispute_finding
+  - id: STMT-096
+    text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-001
+      disposition: revise_implementation
+  - id: STMT-097
+    text: 'Take it out of scope: remove the behaviour rather than carry an undecided risk.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-001
+      disposition: reduce_scope
+  - id: STMT-098
+    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-001
+      disposition: request_expert
+  - id: STMT-099
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-001
       disposition: dispute_finding
-  - id: STMT-095
+  - id: STMT-100
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-002
       disposition: revise_implementation
-  - id: STMT-096
+  - id: STMT-101
     text: 'Take it out of scope: remove the behaviour rather than carry an undecided risk.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-002
       disposition: reduce_scope
-  - id: STMT-097
+  - id: STMT-102
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-002
       disposition: request_expert
-  - id: STMT-098
+  - id: STMT-103
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-002
       disposition: dispute_finding
-  - id: STMT-099
+  - id: STMT-104
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-003
       disposition: revise_implementation
-  - id: STMT-100
+  - id: STMT-105
     text: 'Take it out of scope: remove the behaviour rather than carry an undecided risk.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-003
       disposition: reduce_scope
-  - id: STMT-101
+  - id: STMT-106
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-003
       disposition: request_expert
-  - id: STMT-102
+  - id: STMT-107
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
       subject_id: SEC-003
+      disposition: dispute_finding
+  - id: STMT-108
+    text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-004
+      disposition: revise_implementation
+  - id: STMT-109
+    text: 'Take it out of scope: remove the behaviour rather than carry an undecided risk.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-004
+      disposition: reduce_scope
+  - id: STMT-110
+    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-004
+      disposition: request_expert
+  - id: STMT-111
+    text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
+    epistemic_status: machine_inferred
+    applicability:
+      subject_id: SEC-004
       disposition: dispute_finding
   decision_cards:
   - id: DC-001
@@ -2119,25 +2127,21 @@ machine:
       actual_statement_ids:
       - AST-001
       - AST-002
-      - AST-003
-      - AST-013
-      - AST-015
+      - AST-004
+      - AST-005
+      - AST-009
+      - AST-010
       - AST-016
-      - AST-029
+      - AST-020
+      - AST-021
+      - AST-023
       - AST-030
-      - AST-033
+      - AST-032
       conformance:
         status: partial
-        scope:
-        - 失敗分類
-        - 12時間タイムアウト
-        - 再試行なし
       semantic_support:
-        status: supported
+        status: unknown
         assessment_basis: machine_assessed
-        limitations:
-        - 失敗種別・PARSE/TRUNCATED 判定・INCOMPLETE_IDS・再試行なし・12時間上限は一致
-        - クラスタ比率・サマリ3値・llm_calls 2倍・timeout 時の resetsAt ログは Actual に無い
       expected_choice: revise_implementation
     requires_domains:
     - analysis
@@ -2367,16 +2371,13 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-017
-      - AST-031
+      - AST-011
+      - AST-034
       conformance:
         status: partial
       semantic_support:
         status: unknown
         assessment_basis: machine_assessed
-        limitations:
-        - 含意判定 LLM 呼び出しとその判定語のスキーマ検査だけが見える
-        - 矛盾時にエラー終了する経路・誤検出0・ミューテーション検出率は Actual に無い
       expected_choice: revise_implementation
     requires_domains:
     - safety
@@ -2398,17 +2399,13 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-014
-      - AST-035
+      - AST-011
+      - AST-012
       conformance:
         status: partial
       semantic_support:
         status: unknown
         assessment_basis: machine_assessed
-        limitations:
-        - describe_term と check_entailment の入力は MaterialTextFilter に登録されず、ログ上のマスクが登録済み問題本文だけに依存する。教材由来の
-          reference/statement が漏れる可能性がある
-        - mask の照合方法が不明
       expected_choice: revise_implementation
     requires_domains:
     - security
@@ -2430,21 +2427,14 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-034
-      - AST-035
-      - AST-036
-      - AST-009
+      - AST-012
+      - AST-026
+      - AST-033
       conformance:
         status: partial
-        scope:
-        - ログのマスク
-        - トレースバックのマスク
       semantic_support:
-        status: supported
+        status: unknown
         assessment_basis: machine_assessed
-        limitations:
-        - ログ・例外のマスクと資格情報ファイルを開かない点は確認できる
-        - リポジトリ内の平文キー不在は Actual に無い
       expected_choice: revise_implementation
     requires_domains:
     - security
@@ -2466,8 +2456,9 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-021
-      - AST-032
+      - AST-018
+      - AST-022
+      - AST-031
       conformance:
         status: partial
       semantic_support:
@@ -2546,10 +2537,8 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-013
-      - AST-020
-      - AST-021
-      - AST-022
+      - AST-018
+      - AST-019
       - AST-023
       - AST-024
       - AST-025
@@ -2558,35 +2547,19 @@ machine:
       - AST-028
       - AST-029
       - AST-030
-      - AST-038
+      - AST-035
       conformance:
         status: partial
-        scope:
-        - run_sequence の完走判定
-        - レート制限停止
-        - overhead の unknown 報告
       semantic_support:
-        status: supported
+        status: unknown
         assessment_basis: machine_assessed
-        limitations:
-        - 列の登録条件・完走条件・レート制限停止の判定・失敗前のトークン記録・overhead の出所検査は一致
-        - normal で起動した LLM 段は常に not_completable になる(AST-022)
-        - 集計値(和/最大/壁時計)・4値トークン・notional コスト・単価表・較正表は Actual に無い
       expected_choice: revise_implementation
     requires_domains:
     - observability
   - id: DC-019
-    question: 'SEC-001 (sandbox_escape, severity medium): The preflight is the only barrier that keeps
-      configuration out of the `claude` child. It checks only `.claude/CLAUDE.md`, `.claude/rules/` and
-      the top-level keys of `.claude/settings.json` under the minimal home. The home probe measured that
-      HOME-side settings can inject `env` (for example ANTHROPIC_BASE_URL) even under `--safe-mode`. The
-      preflight does not look at `.claude/settings.local.json` or `$HOME/.claude.json` in the same home.
-      Someone who can write one of those files (another local tool, a synced plugin, a careless edit)
-      can set env such as ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN, or hooks. That redirects every study-material
-      prompt to a server they control, or moves the calls onto a metered path, and the preflight still
-      passes. Not verified on the host whether the CLI reads settings.local.json from HOME under --safe-mode.
-      What is done about it?'
-    risk: medium
+    question: 'C-020 is ''unverified'': the implementation was not shown to satisfy what the plan says
+      it must. What happens to it?'
+    risk: high
     options:
     - id: A
       statement_id: STMT-091
@@ -2596,111 +2569,207 @@ machine:
       statement_id: STMT-093
     - id: D
       statement_id: STMT-094
+    - id: E
+      statement_id: STMT-095
+    evidence:
+      expected: null
+      actual_statement_ids:
+      - AST-001
+      - AST-003
+      - AST-008
+      - AST-013
+      - AST-014
+      - AST-015
+      - AST-017
+      - AST-026
+      - AST-034
+      conformance:
+        status: partial
+      semantic_support:
+        status: unknown
+        assessment_basis: machine_assessed
+      expected_choice: revise_implementation
+    requires_domains:
+    - pipeline
+    - infra
+  - id: DC-020
+    question: 'SEC-001 (sandbox_escape, severity medium): Any process running as the user (or the user
+      themself, e.g. via a synced plugin or `claude /login` rewrite) can write child-CLI configuration
+      that the preflight does not inspect. The preflight only checks `.claude/CLAUDE.md`, `.claude/rules/`,
+      the top-level keys of `.claude/settings.json`, and whether `.credentials.json` exists. `~/.claude.json`,
+      the synced `skills/` and `plugins/` trees, and any other settings file the CLI reads are never inspected.
+      The check also runs once, before any child is spawned, and the flock is advisory, so the home can
+      be modified between preflight and each spawn (TOCTOU). If the attacker adds an `env` or hook-bearing
+      config, e.g. `ANTHROPIC_BASE_URL` (measured to take effect under `--safe-mode`, home-probe §2),
+      every child reads it. The result is either redirection to a metered or attacker-controlled endpoint
+      that receives the study material from stdin, or injected instructions, even though preflight passed.
+      What is done about it?'
+    risk: medium
+    options:
+    - id: A
+      statement_id: STMT-096
+    - id: B
+      statement_id: STMT-097
+    - id: C
+      statement_id: STMT-098
+    - id: D
+      statement_id: STMT-099
     evidence:
       finding:
         id: SEC-001
         severity: medium
         category: sandbox_escape
-        attack_scenario: The preflight is the only barrier that keeps configuration out of the `claude`
-          child. It checks only `.claude/CLAUDE.md`, `.claude/rules/` and the top-level keys of `.claude/settings.json`
-          under the minimal home. The home probe measured that HOME-side settings can inject `env` (for
-          example ANTHROPIC_BASE_URL) even under `--safe-mode`. The preflight does not look at `.claude/settings.local.json`
-          or `$HOME/.claude.json` in the same home. Someone who can write one of those files (another
-          local tool, a synced plugin, a careless edit) can set env such as ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN,
-          or hooks. That redirects every study-material prompt to a server they control, or moves the
-          calls onto a metered path, and the preflight still passes. Not verified on the host whether
-          the CLI reads settings.local.json from HOME under --safe-mode.
+        attack_scenario: Any process running as the user (or the user themself, e.g. via a synced plugin
+          or `claude /login` rewrite) can write child-CLI configuration that the preflight does not inspect.
+          The preflight only checks `.claude/CLAUDE.md`, `.claude/rules/`, the top-level keys of `.claude/settings.json`,
+          and whether `.credentials.json` exists. `~/.claude.json`, the synced `skills/` and `plugins/`
+          trees, and any other settings file the CLI reads are never inspected. The check also runs once,
+          before any child is spawned, and the flock is advisory, so the home can be modified between
+          preflight and each spawn (TOCTOU). If the attacker adds an `env` or hook-bearing config, e.g.
+          `ANTHROPIC_BASE_URL` (measured to take effect under `--safe-mode`, home-probe §2), every child
+          reads it. The result is either redirection to a metered or attacker-controlled endpoint that
+          receives the study material from stdin, or injected instructions, even though preflight passed.
         code_anchors:
         - path: src/quiz_sift/adapters/claude_process.py
-          start_line: 123
-          end_line: 139
+          start_line: 100
+          end_line: 148
           blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
         blocking: false
         status: open
         first_seen:
           trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-          subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
-      expected_choice: revise_implementation
-    requires_domains:
-    - security
-  - id: DC-020
-    question: 'SEC-002 (denial_of_service, severity low): When a call times out, `SubprocessRunner.run`
-      kills only the direct `claude` child and then calls `proc.communicate()` with no timeout. The child''s
-      stdout and stderr pipes are inherited by any grandchild it started (node workers, helper processes).
-      If a grandchild survives the kill, it keeps those pipes open and the second communicate() blocks
-      forever. The 10-minute per-call timeout then fails, and the run can only end when the 12-hour alarm
-      fires. What is done about it?'
-    risk: low
-    options:
-    - id: A
-      statement_id: STMT-095
-    - id: B
-      statement_id: STMT-096
-    - id: C
-      statement_id: STMT-097
-    - id: D
-      statement_id: STMT-098
-    evidence:
-      finding:
-        id: SEC-002
-        severity: low
-        category: denial_of_service
-        attack_scenario: When a call times out, `SubprocessRunner.run` kills only the direct `claude`
-          child and then calls `proc.communicate()` with no timeout. The child's stdout and stderr pipes
-          are inherited by any grandchild it started (node workers, helper processes). If a grandchild
-          survives the kill, it keeps those pipes open and the second communicate() blocks forever. The
-          10-minute per-call timeout then fails, and the run can only end when the 12-hour alarm fires.
-        code_anchors:
-        - path: src/quiz_sift/adapters/claude_process.py
-          start_line: 58
-          end_line: 63
-          blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
-        blocking: false
-        status: open
-        first_seen:
-          trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-          subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
+          subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
       expected_choice: revise_implementation
     requires_domains:
     - security
   - id: DC-021
-    question: 'SEC-003 (information_disclosure, severity low): Every invocation writes the child''s full
-      stdout to the INFO log, and that log goes to stderr. MaterialTextFilter masks only question text
-      that appears verbatim. Model output that paraphrases or quotes part of the paid course material
-      (summaries, answers, discriminations, thinking) passes through unmasked. Anyone who collects or
-      shares these stderr logs, such as the full-run journal''s .stderr files or a CI log, gets reconstructable
-      course content, which NFR-2 is meant to keep out of anything shareable. What is done about it?'
+    question: 'SEC-002 (sandbox_escape, severity medium): Tools are restricted by an enumerated deny list
+      (`permissions.deny`), not an allow list, and the check that only `StructuredOutput` is enabled (`_tool_problem`)
+      runs only after the child has exited. Quiz text scraped from Udemy is untrusted and goes to the
+      model on stdin. If a future `claude` release adds a read-only or no-permission tool not in `DENIED_TOOLS`,
+      an injected instruction in a question can make the model call it, for example to read `~/.quiz-sift-claude-home/.claude/.credentials.json`
+      or other local files. The call executes during the run. `classify` only marks the invocation PROVIDER_ERROR
+      afterwards, and by then the tool output is already in stdout, which is written to the INFO log.
+      What is done about it?'
+    risk: medium
+    options:
+    - id: A
+      statement_id: STMT-100
+    - id: B
+      statement_id: STMT-101
+    - id: C
+      statement_id: STMT-102
+    - id: D
+      statement_id: STMT-103
+    evidence:
+      finding:
+        id: SEC-002
+        severity: medium
+        category: sandbox_escape
+        attack_scenario: Tools are restricted by an enumerated deny list (`permissions.deny`), not an
+          allow list, and the check that only `StructuredOutput` is enabled (`_tool_problem`) runs only
+          after the child has exited. Quiz text scraped from Udemy is untrusted and goes to the model
+          on stdin. If a future `claude` release adds a read-only or no-permission tool not in `DENIED_TOOLS`,
+          an injected instruction in a question can make the model call it, for example to read `~/.quiz-sift-claude-home/.claude/.credentials.json`
+          or other local files. The call executes during the run. `classify` only marks the invocation
+          PROVIDER_ERROR afterwards, and by then the tool output is already in stdout, which is written
+          to the INFO log.
+        code_anchors:
+        - path: src/quiz_sift/adapters/llm_claude_cli.py
+          start_line: 49
+          end_line: 92
+          blob: git-blob:694b83e522ccbb642322c25b4d7df73280e25032
+        - path: src/quiz_sift/adapters/claude_failure.py
+          start_line: 180
+          end_line: 210
+          blob: git-blob:4f7a8f9f7c29d9f26a1694ab7398d6b3914c9d56
+        blocking: false
+        status: open
+        first_seen:
+          trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
+          subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
+      expected_choice: revise_implementation
+    requires_domains:
+    - security
+  - id: DC-022
+    question: 'SEC-003 (information_disclosure, severity low): `log_invocation` writes each child''s full
+      stdout and stderr at INFO. That output includes the model''s restatement of the study material and
+      its tool inputs. Masking only removes registered verbatim material text and known secret shapes.
+      Paraphrased or translated question and answer text, and any file contents a tool returned, pass
+      through. Anyone who can read the stderr logs (terminal scrollback, CI logs, the redirected `NNN.stderr`
+      files) can reconstruct copyrighted Udemy material, contrary to NFR-2. What is done about it?'
     risk: low
     options:
     - id: A
-      statement_id: STMT-099
+      statement_id: STMT-104
     - id: B
-      statement_id: STMT-100
+      statement_id: STMT-105
     - id: C
-      statement_id: STMT-101
+      statement_id: STMT-106
     - id: D
-      statement_id: STMT-102
+      statement_id: STMT-107
     evidence:
       finding:
         id: SEC-003
         severity: low
         category: information_disclosure
-        attack_scenario: Every invocation writes the child's full stdout to the INFO log, and that log
-          goes to stderr. MaterialTextFilter masks only question text that appears verbatim. Model output
-          that paraphrases or quotes part of the paid course material (summaries, answers, discriminations,
-          thinking) passes through unmasked. Anyone who collects or shares these stderr logs, such as
-          the full-run journal's .stderr files or a CI log, gets reconstructable course content, which
-          NFR-2 is meant to keep out of anything shareable.
+        attack_scenario: '`log_invocation` writes each child''s full stdout and stderr at INFO. That output
+          includes the model''s restatement of the study material and its tool inputs. Masking only removes
+          registered verbatim material text and known secret shapes. Paraphrased or translated question
+          and answer text, and any file contents a tool returned, pass through. Anyone who can read the
+          stderr logs (terminal scrollback, CI logs, the redirected `NNN.stderr` files) can reconstruct
+          copyrighted Udemy material, contrary to NFR-2.'
         code_anchors:
         - path: src/quiz_sift/safety/invocation_log.py
           start_line: 66
-          end_line: 84
+          end_line: 91
           blob: git-blob:a3d0a20305c2b9d2e5aba4e00290208cf6f1a2cd
         blocking: false
         status: open
         first_seen:
           trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
-          subject_head_sha: e6bd1676ff10bf4e6cf466dc94cb5a8eca77d51c
+          subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
+      expected_choice: revise_implementation
+    requires_domains:
+    - security
+  - id: DC-023
+    question: 'SEC-004 (denial_of_service, severity low): On `TimeoutExpired`, `SubprocessRunner.run`
+      kills only the direct child and then calls `proc.communicate()` with no timeout. If `claude` has
+      spawned a grandchild that inherited the stdout/stderr pipes (a helper, or a subprocess started by
+      a tool), that call blocks until the grandchild exits. The 10-minute per-call timeout therefore stops
+      working, and the run hangs until the 12-hour `signal.alarm` fires, holding the minimal-home lock
+      and blocking every other run. What is done about it?'
+    risk: low
+    options:
+    - id: A
+      statement_id: STMT-108
+    - id: B
+      statement_id: STMT-109
+    - id: C
+      statement_id: STMT-110
+    - id: D
+      statement_id: STMT-111
+    evidence:
+      finding:
+        id: SEC-004
+        severity: low
+        category: denial_of_service
+        attack_scenario: On `TimeoutExpired`, `SubprocessRunner.run` kills only the direct child and then
+          calls `proc.communicate()` with no timeout. If `claude` has spawned a grandchild that inherited
+          the stdout/stderr pipes (a helper, or a subprocess started by a tool), that call blocks until
+          the grandchild exits. The 10-minute per-call timeout therefore stops working, and the run hangs
+          until the 12-hour `signal.alarm` fires, holding the minimal-home lock and blocking every other
+          run.
+        code_anchors:
+        - path: src/quiz_sift/adapters/claude_process.py
+          start_line: 58
+          end_line: 69
+          blob: git-blob:949d55dd0dd57e6366e367dacd842a86164b6a9d
+        blocking: false
+        status: open
+        first_seen:
+          trusted_base_sha: c7b1d84a0ed8a8562fc4708e5c1031bc66e98cf5
+          subject_head_sha: 68951688ba8d813ab6707b1720cf80d1265bd8a8
       expected_choice: revise_implementation
     requires_domains:
     - security
