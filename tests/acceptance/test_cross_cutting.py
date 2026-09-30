@@ -369,10 +369,6 @@ def _yaml(path: Path) -> Any:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _gate_command_steps(config: dict[str, Any]) -> list[dict[str, Any]]:
-    return [step for step in config["quality_gate"] if step["kind"] == "command"]
-
-
 def _strings(value: object) -> Iterator[str]:
     if isinstance(value, str):
         yield value
@@ -401,7 +397,7 @@ def _outside_repo(value: str) -> list[str]:
 def test_c017_ci_and_gate_share_steps_and_imported_config_is_local() -> None:
     config = _yaml(ROOT / ".rein" / "config.yaml")
     gate_steps = set()
-    for step in _gate_command_steps(config):
+    for step in config["quality_gate"]:
         command = step["command"]
         assert command[:2] == ["bash", "gate.sh"] and len(command) == 3, command
         gate_steps.add(command[2])
@@ -494,7 +490,7 @@ def _dial_out() -> None:
 def test_c018_gate_steps_need_no_network(no_network: list[object]) -> None:
     config = _yaml(ROOT / ".rein" / "config.yaml")
     default = config["executors"]["quality_gate_profile"]
-    for step in _gate_command_steps(config):
+    for step in config["quality_gate"]:
         profile = config["executor_profiles"][step.get("executor_profile", default)]
         assert profile["kind"] == "oci" and profile["network_profile"] == "none", step["name"]
 
