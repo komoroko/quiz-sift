@@ -61,41 +61,45 @@
 
 ## Existing documents
 
-- [00-product-brief.md](00-product-brief.md)、[10-requirements.md](10-requirements.md)(R-1〜R-12、R-9 は欠番。NFR-1〜NFR-8)、[20-design.md](20-design.md)
-- [decisions/](decisions/) の ADR-001〜ADR-016(ADR-013〜016 が Claude Code CLI への移行)
-- [tasks/](tasks/) の T-001〜T-031
-- [test/measurements/](test/measurements/): pre-commit、gitignore 等価性、ui-e2e、抽出、ゴールデンセット、claude-cli-contract の実測ログ
+- [00-product-brief.md](00-product-brief.md)。
+- [archive/2026-10-06-fisrt/](archive/2026-10-06-fisrt/): 2026-10-06 に閉じたサイクルの成果物。要件(R-1〜R-12、R-9 は欠番。NFR-1〜NFR-8)、設計、ADR-001〜ADR-019、T-001〜T-053、test-plan、実測ログ(`test/measurements/`)、retrospective、SSOT(`rein/`)。
 - [archive/2026-09-25-cli-migration-unclosed/](archive/2026-09-25-cli-migration-unclosed/README.md): rein 0.9.6 のサイクルの SSOT。閉じずに保存した。
-- `test/test-plan.md`、`retrospective.md`、`speculative-work.md` は実質テンプレートのまま。
+- `docs/` 直下の `10-requirements.md`・`20-design.md`・`tasks/`・`test/` などは、次のサイクル用のテンプレートに戻っている。
 
 ## Implementation status
 
 ### Implemented capabilities
 
-旧 T-001〜T-019、T-021〜T-023、T-031 に加え、サイクル 2026-09-26 の T-032〜T-051 の分(T-047 は途中までの記録に作り直した。D-164)。
+旧 T-001〜T-019、T-021〜T-023、T-031 に加え、2026-10-06 に閉じたサイクルの T-032〜T-053 の分(T-047 は途中までの記録に作り直した。D-164)。acceptance は GA-ACCEPTANCE-C4F439E1。
 
 - R-1〜R-8、R-10、R-11、R-12、NFR-1〜NFR-6。
 - NFR-7: overhead の較正値あり(T-046)。実行の列の集約と CLI(`--fresh-run` / `--resume`、12 時間の上限、早期停止)がある(T-038、T-045)。
 - NFR-8: 既定の LLM は `ClaudeCliLlm`(`claude -p`、サブスクリプション認証、最小ホーム)。起動前検査・子プロセスの環境の固定・逐語ログ・失敗分類がある(T-039〜T-044)。
 - 要約の実在判定は専門用語の断片だけを照合する(D-161、T-049)。
 - 含意判定は `claude-opus-5-5`。プロンプトは要約の省略・一般化を矛盾としない(ADR-019、T-051)。
+- torch / torchaudio は 2.10、setuptools は PYSEC-2026-3447 の修正版(T-052)。依存の監査は passed。
+- C-017/C-018 の受入テストは `quality_gate` の全ステップを対象にする(T-053)。
 
 ### In-flight / unfinished work
 
 | 項目 | 状態 | 次にやること |
 |---|---|---|
 | **想起素材のプロンプトと検査の不一致** | 実データで全件落ちる。列 591e7bb9 の recall 段が RecallRejected(ungrounded_keys=175/175、missing_options=47)。`RECALL_SYSTEM` は想起キーを本文の表記のまま抜き出すよう指示しておらず、`recall/verify.py` は `is_present` による実在を要求する | プロンプトを直すタスクを先に置く。直した後に `generic_keys`(全 term が他クラスタにも出る)で止まらないかも実データで確かめる。リポジトリ外の診断スクリプト `~/quiz-sift-diag/diag_recall.py` で、クラスタ段のキャッシュから全問を検査にかけられる |
+| **実 TTS(CosyVoice)を torch 2.10 で動かしていない** | T-052 で torch を 2.10 に下げてから未実行 | `--tts-model` を渡して audio 段を1クラスタ走らせる |
+| **セキュリティの指摘 SEC-001〜SEC-004(blocking なし)** | 最小ホームの settings 経由の差し込み(medium)、ツール制限が拒否リスト(medium)、子の stdout の INFO ログで言い換えた教材がマスクされない(low)、タイムアウト時に孫プロセスが pipe を持つと `communicate()` が戻らない(low)。詳細は archive の `rein/review.yaml` | 次のサイクルで扱うか決める |
 | **フル処理100〜200問の完走(元の T-047、不可逆)** | 未完。元の票と受入基準は archive の `docs/tasks/T-047.md` の「元の票」。途中までの記録は `docs/test/measurements/full-run.md`。クラスタ段は列 591e7bb9 で完走(n=175)。実行の道具は `tests/measurements/test_full_run_logs.py`(`exec` / `silence` / `render`) | 上の修正の後、票の受入基準のまま `cluster --fresh-run` から列を取り直す。C-003・C-007・C-019・C-020 の実データでの証拠はまだ無い。含意判定は 350〜500 回が Opus なので、週次枠の途中で止まって `--resume` を要する見込みが高い |
 
-T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にある(c46dbc8)。次のサイクルの acceptance でセキュリティの指摘になる見込みで、残すか外すかを決める。
+T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にある(c46dbc8)。残すか外すかは未決。
 
 ### Known TODOs / open issues (reference only — Issues are never read back as truth)
 
 - ソースに TODO / FIXME は無い。
 - T-029 の採取時、CLI 自身が最小ホームに `settings.json`(theme だけ)・`skills/`・`plugins/`・`projects/` を書いた。旧 T-024 の「settings.json があれば preflight が拒否する」と衝突する見込み。NFR-8 (b) と合わせて判断が要る。
-- 追跡中のバイナリ・扱いにくいファイル: `docs/test/measurements/ui-e2e/01〜04-*.png`(旧 T-021)、空の `tests/fixtures/claude_cli/invalid_schema.stdout`(旧 T-029)。次の計画で受入基準の `artifact` として宣言しないと、`rein doctor` が coverage 不足を出す。
+- 追跡中の扱いにくいファイル: 空の `tests/fixtures/claude_cli/invalid_schema.stdout`(旧 T-029)。次の計画で受入基準の `artifact` として宣言しないと、`rein doctor` が coverage 不足を出す。
 
 ## Last updated
+
+- 2026-10-06: サイクル `2026-10-06-fisrt` を閉じた後に、文書の置き場・実装済み・引き継ぎを更新。loose-rein を 0.13.0 に上げる。
 
 - 2026-09-29: サイクル 2026-09-26 を閉じる前に、実装済みと引き継ぎを更新。
 - 2026-09-25: 初回の onboarding 調査(rein 0.10.0 への移行時)。
