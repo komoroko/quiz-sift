@@ -31,8 +31,7 @@
       "Bash(make check:*)",
       "Bash(python -m pytest:*)",
       "Bash(make audit:*)",
-      "Bash(uv run pytest:*)",
-      "Bash(uv run *:*)"
+      "Bash(uv run pytest:*)"
     ]
   },
   "hooks": {
