@@ -26,7 +26,7 @@ def test_selector_kind_negative_control_goes_red() -> None:
     assert len(kinds) == 2
     assert selector_kind_is_uniform(result.evidences) is False
     # フォールバックの枝は受験者の選択を正解として取り込んでいる。だから判定が赤くなる必要がある。
-    assert [q.answer_label for q in result.questions] == ["C", "D"]
+    assert [q.answer_labels for q in result.questions] == [("C",), ("D",)]
 
     # 対照: 同じ形の問題を正解マークだけで揃えれば緑になる。赤は入力から来ている。
     uniform = page_html(question_html(1, correct=2, selected=1), question_html(2, correct=3, selected=3))

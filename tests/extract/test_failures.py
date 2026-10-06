@@ -50,12 +50,11 @@ def test_element_and_fetch_failures_are_separate() -> None:
     ("block", "field"),
     [
         (question_html(1), ExtractField.ANSWER),
-        (question_html(1, correct=(0, 2)), ExtractField.ANSWER),
+        (question_html(1, correct=(0, 1, 2, 3)), ExtractField.ANSWER),
         (question_html(1, correct=0, option_texts=["a", "b", "c"]), ExtractField.OPTIONS),
-        # 実物の複数選択問題: 選択肢5件・正解マーク2つ。
-        (question_html(1, correct=(1, 3), option_texts=["a", "b", "c", "d", "e"]), ExtractField.OPTIONS),
+        (question_html(1, correct=0, option_texts=list("abcdefg")), ExtractField.OPTIONS),
     ],
-    ids=["no-mark", "two-correct-marks", "three-options", "multi-select"],
+    ids=["no-mark", "every-option-marked", "three-options", "seven-options"],
 )
 def test_element_failures_name_the_field(block: str, field: ExtractField) -> None:
     result = extract([FetchedPage("https://example.invalid/quiz/1", page_html(block))])
@@ -71,6 +70,6 @@ def test_empty_text_cannot_be_constructed() -> None:
     evidence = AnswerEvidence(SelectorKind.CORRECT_MARK, "/x")
     options = tuple(ExtractedOption(label, NonEmptyText(label)) for label in "ABCD")
     with pytest.raises(TypeError):
-        ExtractedQuestion("q1", "", options, "A", None, evidence)  # type: ignore[arg-type]
+        ExtractedQuestion("q1", "", options, ("A",), None, evidence)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        ExtractedQuestion("q1", NonEmptyText("s"), options, "A", "", evidence)  # type: ignore[arg-type]
+        ExtractedQuestion("q1", NonEmptyText("s"), options, ("A",), "", evidence)  # type: ignore[arg-type]
