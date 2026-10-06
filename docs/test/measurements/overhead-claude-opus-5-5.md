@@ -12,16 +12,16 @@ argv は `ClaudeCliLlm` と同じ `build_argv` の形(`--safe-mode` を含む)�
 
 | k | material | input_tokens | cache_creation_input_tokens | cache_read_input_tokens | 入力合計 | num_turns | skills_digest |
 |---|---|---|---|---|---|---|---|
-| 1 | 800 | 2 | 1718 | 0 | 1720 | 2 | `ed36efc60ca4981b830e199aeebe39322fbc8a3e750e0b39b9daeae6afcd2774` |
-| 2 | 1600 | 2 | 2515 | 0 | 2517 | 2 | `ed36efc60ca4981b830e199aeebe39322fbc8a3e750e0b39b9daeae6afcd2774` |
-| 3 | 2400 | 2 | 3315 | 0 | 3317 | 2 | `ed36efc60ca4981b830e199aeebe39322fbc8a3e750e0b39b9daeae6afcd2774` |
+| 1 | 800 | 2 | 1860 | 0 | 1862 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
+| 2 | 1600 | 2 | 2659 | 0 | 2661 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
+| 3 | 2400 | 2 | 3462 | 0 | 3464 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
 
 ## 記録
 
 ```yaml
 model: claude-opus-5-5
-measured_at: '2026-09-26T11:25:59+09:00'
-cli_version: 2.1.283
+measured_at: '2026-10-06T19:26:50+09:00'
+cli_version: 2.1.290
 collector: tests/measurements/measure_overhead.py
 env_keys:
 - HOME
@@ -47,20 +47,22 @@ argv:
 - --strict-mcp-config
 - --mcp-config
 - '{"mcpServers":{}}'
-- --settings
-- '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+- --setting-sources
+- ''
+- --tools
+- ''
 - --permission-mode
 - default
 - --safe-mode
-argv_digest: caf33f6f31c8a4b02c627ca95209cc48dc1b4e616984c79549e4bcaa0d773954
+argv_digest: 7be15268ad5b8c2990489105260475a37ed97b7305bfc1a6706663709d9fde86
 block:
   unit: ' the'
   repeat: 800
   tokens: 800
 bucket: cache_creation_input_tokens
 regression:
-  intercept: 921.0
-  slope: 798.5
+  intercept: 1060.3333333333335
+  slope: 801.0
   num_turns: 2
-  per_turn_tokens: 460.5
+  per_turn_tokens: 530.1666666666667
 ```

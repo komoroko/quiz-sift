@@ -45,54 +45,14 @@ from quiz_sift.safety.log_filter import MaterialTextFilter
 MAX_TURNS = 3
 """`--json-schema` の結果は `StructuredOutput` ツール経由で届くので、成功でも2ターンかかる(AR-57)。"""
 
-DENIED_TOOLS = (
-    "Agent",
-    "AskUserQuestion",
-    "Bash",
-    "BashOutput",
-    "CronCreate",
-    "CronDelete",
-    "CronList",
-    "DesignSync",
-    "Edit",
-    "EnterPlanMode",
-    "EnterWorktree",
-    "ExitPlanMode",
-    "ExitWorktree",
-    "Glob",
-    "Grep",
-    "KillShell",
-    "LS",
-    "LSP",
-    "ListAgents",
-    "Monitor",
-    "MultiEdit",
-    "NotebookEdit",
-    "NotebookRead",
-    "PushNotification",
-    "Read",
-    "RemoteTrigger",
-    "ReportFindings",
-    "ScheduleWakeup",
-    "SendMessage",
-    "Skill",
-    "Task",
-    "TaskCreate",
-    "TaskGet",
-    "TaskList",
-    "TaskOutput",
-    "TaskStop",
-    "TaskUpdate",
-    "TodoWrite",
-    "ToolSearch",
-    "WebFetch",
-    "WebSearch",
-    "Write",
-)
-"""`--settings` の `permissions.deny` に並べるツール名(T-041 の採取と同じ列挙)。
+SETTING_SOURCES = ""
+"""`--setting-sources` の値。空にしてユーザ・プロジェクト・ローカルの設定ファイルを1つも読ませない(NFR-8、C-023)。"""
 
-列挙の正しさは列挙の側では保証しない。有効ツールが `{StructuredOutput}` だけであることは、`init.tools`
-の実測(ホスト)と `claude_failure` の判定(呼び出しごと)が確かめる。
+ENABLED_TOOLS = ""
+"""`--tools` の値。空の許可リストでも `init.tools` は `{StructuredOutput}` になる(T-054 の実測。C-024)。
+
+拒否リストは持たない(D-208)。有効ツールが `{StructuredOutput}` だけであることは、`init.tools` の実測(ホスト)と
+`claude_failure` の判定(呼び出しごと)が確かめる。
 """
 
 BODY_FLAGS = ("--json-schema", "--system-prompt")
@@ -125,8 +85,10 @@ def build_argv(model: str, system_prompt: str, schema: Mapping[str, object]) -> 
         "--strict-mcp-config",
         "--mcp-config",
         _compact({"mcpServers": {}}),
-        "--settings",
-        _compact({"permissions": {"deny": list(DENIED_TOOLS)}}),
+        "--setting-sources",
+        SETTING_SOURCES,
+        "--tools",
+        ENABLED_TOOLS,
         "--permission-mode",
         "default",
         "--safe-mode",

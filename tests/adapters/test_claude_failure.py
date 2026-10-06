@@ -139,16 +139,23 @@ def test_truncated_parse_and_spawn_inputs_land_in_their_kinds() -> None:
     assert kind_of(exited(b"", 127, b"claude: command not found\n")) is FailureKind.PARSE
 
 
-FIXTURE_RATE_LIMIT = RateLimitInfo(
-    status="allowed",
-    resets_at=1790383200,
-    five_hour=QuotaWindow(utilization=0.53, resets_at=1790383200),
-    seven_day=QuotaWindow(utilization=0.45, resets_at=1790550000),
-    rate_limit_type="five_hour",
-    is_using_overage=False,
-    overage_status="rejected",
-)
-"""成功フィクスチャ(T-041 の実物)の `rate_limit_event` を書き写した値。"""
+def _fixture_rate_limit() -> RateLimitInfo:
+    """成功フィクスチャの `rate_limit_event` を、製品のパーサを通さずキーごとに読んだ値。"""
+    (event,) = (event for event in success_events() if event["type"] == "rate_limit_event")
+    info = event["rate_limit_info"]
+    windows = info["unifiedWindows"]
+    return RateLimitInfo(
+        status=info["status"],
+        resets_at=info["resetsAt"],
+        five_hour=QuotaWindow(windows["five_hour"]["utilization"], windows["five_hour"]["resetsAt"]),
+        seven_day=QuotaWindow(windows["seven_day"]["utilization"], windows["seven_day"]["resetsAt"]),
+        rate_limit_type=info["rateLimitType"],
+        is_using_overage=info["isUsingOverage"],
+        overage_status=info["overageStatus"],
+    )
+
+
+FIXTURE_RATE_LIMIT = _fixture_rate_limit()
 
 
 def test_overage_scan_covers_parse_and_timeout_output() -> None:

@@ -2,8 +2,10 @@
 
 サンドボックスには `claude` が無いので、証拠は `tests/measurements/collect_claude_cli.py` がホストで採った
 `tests/fixtures/claude_cli/` と `docs/test/measurements/claude-cli-contract.md` で、このテストはその中身を
-機械判定する。期待する argv の形は設計 NFR-8 節の (e) からここに書き写しており、採取スクリプトの定数は
-読まない(採取側の定数と突き合わせると、両方が同じ誤りを持ったとき緑になる)。
+機械判定する。期待する argv の形は設計 NFR-8 節の (e) と、T-054 の結論で選んだフラグ(ユーザ設定の遮断・
+空の許可リスト。拒否リストは無い。D-208)からここに書き写しており、採取スクリプトの定数は読まない(採取側の
+定数と突き合わせると、両方が同じ誤りを持ったとき緑になる)。それとは別に、フィクスチャの argv が製品の
+`build_argv` の出力そのものであることも確かめる(T-060 A-7)。
 
 判定(各受入基準に1本):
 
@@ -26,6 +28,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from quiz_sift.adapters.llm_claude_cli import argv_digest, build_argv
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "claude_cli"
@@ -60,7 +64,8 @@ VALUED_FLAGS = {
     "--model",
     "--system-prompt",
     "--mcp-config",
-    "--settings",
+    "--setting-sources",
+    "--tools",
     "--permission-mode",
 }
 BARE_FLAGS = {"-p", "--verbose", "--exclude-dynamic-system-prompt-sections", "--strict-mcp-config", "--safe-mode"}
@@ -112,11 +117,9 @@ def assert_design_argv(argv: list[str]) -> dict[str, str]:
     assert valued["--model"] in MODELS
     assert valued["--permission-mode"] == "default"
     assert json.loads(valued["--mcp-config"]) == {"mcpServers": {}}
-    settings = json.loads(valued["--settings"])
-    assert list(settings) == ["permissions"] and list(settings["permissions"]) == ["deny"], settings
-    deny = settings["permissions"]["deny"]
-    assert isinstance(deny, list) and deny and all(isinstance(t, str) for t in deny)
-    assert "StructuredOutput" not in deny
+    # ユーザ設定を1つも読まず、有効ツールは空の許可リストで絞る(T-054 の結論)。
+    assert valued["--setting-sources"] == ""
+    assert valued["--tools"] == ""
     assert "--dangerously-skip-permissions" not in argv
     return valued
 
@@ -229,3 +232,17 @@ def test_success_fixtures_carry_a_rate_limit_event() -> None:
             {"status": info["status"], "isUsingOverage": info["isUsingOverage"]} for info in infos
         ], name
         assert 1 <= meta(name)["attempts"] <= 3, (name, meta(name)["attempts"])
+
+
+def test_contract_fixtures_were_taken_with_the_product_argv() -> None:
+    """フィクスチャの argv は製品の `build_argv` の出力そのもので、採取側の独自 argv ではない(T-060 A-7)。"""
+    for name, model in SUCCESSES.items():
+        argv = meta(name)["argv"]
+        assert_design_argv(argv)
+        system_prompt = argv[argv.index("--system-prompt") + 1]
+        schema = json.loads(argv[argv.index("--json-schema") + 1])
+        assert argv == list(build_argv(model, system_prompt, schema)), name
+
+    # 不正スキーマは `--json-schema` の値だけが違う。本文フラグの値を伏せたダイジェストで突き合わせる。
+    invalid = meta("invalid_schema")["argv"]
+    assert argv_digest(invalid) == argv_digest(build_argv(meta("invalid_schema")["model"], "", {}))
