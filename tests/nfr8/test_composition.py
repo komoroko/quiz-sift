@@ -105,7 +105,7 @@ def test_single_static_selection_point() -> None:
 
     # src/ 全体で、Llm の実装を構築する式は composition.py の1箇所だけ。
     classes = llm_classes()
-    assert {"ClaudeCliLlm", "AnthropicLlm"} <= classes  # 走査が空振りしていない
+    assert "ClaudeCliLlm" in classes  # 走査が空振りしていない
     assert selected in classes
     assert constructions(classes) == [f"composition.py:{returned.value.lineno}"]
 
@@ -135,7 +135,7 @@ def test_selection_point_check_goes_red_on_each_escape() -> None:
 
 
 def test_construction_scan_sees_attribute_calls(tmp_path: Path) -> None:
-    """構築の走査が属性越しの呼び出しも数えること(cli が SDK アダプタを直接組み立てていた形)。"""
+    """構築の走査が属性越しの呼び出しも数えること(cli がアダプタを直接組み立てる形)。"""
     (tmp_path / "composition.py").write_text("def build_default_llm(meter):\n    return ClaudeCliLlm(meter)\n")
-    (tmp_path / "cli.py").write_text("llm = llm_anthropic.AnthropicLlm(meter)\n")
+    (tmp_path / "cli.py").write_text("llm = llm_claude_cli.ClaudeCliLlm(meter)\n")
     assert constructions(llm_classes(), tmp_path) == ["cli.py:1", "composition.py:2"]

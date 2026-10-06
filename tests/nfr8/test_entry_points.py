@@ -11,6 +11,8 @@ import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src"
 PACKAGE = SRC / "quiz_sift"
@@ -31,9 +33,6 @@ METERED = frozenset(
     }
 )
 """metered API へ HTTP を発行しうる第三者パッケージ(従量課金の SDK と、その下で使われる HTTP クライアント)。"""
-
-METERED_PRODUCT_MODULES = frozenset({"quiz_sift.adapters.llm_anthropic"})
-"""metered API を呼ぶ製品側のモジュール。"""
 
 
 def module_path(name: str) -> Path | None:
@@ -127,23 +126,24 @@ def test_no_entry_point_reaches_a_metered_client() -> None:
 
     modules, external = reachable(entries)
     assert "quiz_sift.composition" in modules and "quiz_sift.adapters.llm_claude_cli" in modules
-    assert modules & METERED_PRODUCT_MODULES == set()
     assert external & METERED == set(), sorted(external)
 
-    cli = PACKAGE / "cli.py"
-    assert not any(target.endswith("llm_anthropic") for target in imported("quiz_sift.cli", cli))
 
+def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """判定が赤くなり得ること: 入口の cli が関数の中で `anthropic` を遅延 import すると、辿った外部パッケージに入る。"""
+    sdk_cli = tmp_path / "cli.py"
+    sdk_cli.write_text(
+        "from quiz_sift.adapters import llm_prompts\n\n\ndef build():\n    import anthropic\n\n    return anthropic\n",
+        encoding="utf-8",
+    )
+    real = module_path
+    monkeypatch.setattr(
+        sys.modules[__name__], "module_path", lambda name: sdk_cli if name == "quiz_sift.cli" else real(name)
+    )
 
-def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path) -> None:
-    """判定が赤くなり得ること: 切り替え前の cli の import 文からは、SDK アダプタと `anthropic` に到達する。"""
-    old_cli = tmp_path / "cli.py"
-    old_cli.write_text("from quiz_sift.adapters import llm_anthropic, llm_prompts\n", encoding="utf-8")
-    targets = imported("quiz_sift.cli", old_cli)
-    assert "quiz_sift.adapters.llm_anthropic" in targets
-
-    modules, external = reachable(targets)
-    assert "quiz_sift.adapters.llm_anthropic" in modules
-    assert "anthropic" in external
+    modules, external = reachable({"quiz_sift.cli"})
+    assert {"quiz_sift.cli", "quiz_sift.adapters.llm_prompts"} <= modules
+    assert "anthropic" in external & METERED
 
 
 def main_calls(path: Path) -> list[ast.Call]:
