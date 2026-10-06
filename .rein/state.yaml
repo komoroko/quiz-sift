@@ -421,9 +421,9 @@ tasks:
   T-071:
     status: todo
 dependency_audit:
-  ran_at: '2026-10-06T02:28:11+00:00'
-  commit: 32f90c98392051b34e9068582e9566dd6434fae3
-  dependencies: sha256:68793e47f771b8fbc25e4d5f0a47fd1ead240f0ccadc1ead575abedb9d80c32a
+  ran_at: '2026-10-06T11:57:42+00:00'
+  commit: 894378e65684d96d55cc50553f54ba2d616c1bbd
+  dependencies: sha256:388622e9c8a4b601dac0bf9aff7ab83d3781061ae15bcc7ca2bc587012fafb44
   passed: true
   summary: 'No known vulnerabilities found
 
