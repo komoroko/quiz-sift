@@ -19,7 +19,9 @@
 判定(各受入基準に1本):
 
 - A-2: 記録のデッキのダイジェストがフィクスチャと一致し、cluster と recall の実行が同じ列で、recall の実行が
-  exit 0 で終わり、想起素材の検査の件数 `CHECKS` がすべて 0 で、素材が全問ぶんあり、含意判定が `consistent`。
+  exit 0 で終わり、想起素材の検査の件数 `CHECKS` がすべて 0 で、素材が全問ぶんある。含意判定の結果は製品が
+  ログに出さないので記録に無い。成果物は判定が `consistent` のときだけ書かれるので、exit 0 の recall が全問の
+  素材を書いたことから通過を推論する。
 - A-3: 全問の再生成回数(0〜`MAX_REGENERATIONS`)と、呼び出し数・トークン数・190 問への外挿・前サイクルの
   列の比から推定した枠の使用率・utilization の生の値があり、どれも記録した終了行から計算し直した値と一致する。
 """
@@ -335,11 +337,12 @@ recall の成果物の `report` の件数。成果物は、検査と含意判定
 | 項目 | 値 |
 |---|---|
 | 素材の件数 | {len(recall["materials"])} |
-| 判定した主張の件数 | {claims} |
-| 判定 | `consistent` |
+| 判定に渡る主張の件数(素材から数えた値) | {claims} |
 
-主張は、素材ごとの答えの要素と識別ポイント1件である。判定が `consistent` でなければ `EntailmentRejected` で
-止まり、成果物は書かれない。
+判定の結果は製品がログに出さないので、ここには実測した値が無い。recall の成果物は、含意判定が `consistent`
+のときだけ書かれる(`safety.entailment.emit_if_consistent`。それ以外は `EntailmentRejected` で止まる)。上の
+素材は exit 0 の recall が書いた成果物から数えたもので、判定の通過はそこから推論している。主張の件数も判定器に
+渡った件数の実測ではなく、素材ごとの答えの要素と識別ポイント1件を数えた値である。
 
 ## 問題ごとの再生成回数
 
@@ -494,8 +497,8 @@ def check_recall_passed(text: str) -> None:
     entailment = _table(_section(text, "含意判定"))
     assert int(entailment["素材の件数"][0]) == len(questions), "素材が全問ぶん無い"
     minimum = sum(len(q["answers"]) + 1 for q in questions)
-    assert int(entailment["判定した主張の件数"][0]) == minimum, "判定した主張が答えの要素と識別ポイントの数と違う"
-    assert entailment["判定"][0] == "consistent", "含意判定が consistent でない"
+    claims = entailment["判定に渡る主張の件数(素材から数えた値)"][0]
+    assert int(claims) == minimum, "主張の件数が答えの要素と識別ポイントの数と違う"
 
 
 def check_usage_recorded(text: str) -> None:
@@ -567,44 +570,57 @@ def test_c026_record_has_regenerations_and_extrapolated_usage() -> None:
 # ---- 判定が赤になること ----
 
 
-def _broken(check: Any, text: str) -> None:
+def _broken(check: Any, text: str, message: str) -> None:
+    """壊した記録で、狙った判定(`message` を含む AssertionError)が赤になる。"""
     assert text != _read(), "記録を壊せていない"
     try:
         check(text)
-    except AssertionError:
+    except AssertionError as error:
+        assert message in str(error), f"狙いと別の判定で赤になった: {error}"
         return
     raise AssertionError("壊した記録で判定が赤にならない")
 
 
 def test_record_with_a_nonzero_check_is_red() -> None:
     text = re.sub(r"^\| `missing_options` \| 0 \|$", "| `missing_options` | 1 |", _read(), count=1, flags=re.M)
-    _broken(check_recall_passed, text)
+    _broken(check_recall_passed, text, "検査 missing_options の件数が 0 でない")
 
 
 def test_record_with_a_failed_recall_is_red() -> None:
+    """表と終了行の両方を非0にして、整合の判定を越えて exit 0 の判定に届かせる。"""
     text = _read()
     heading, body = _sections(text, "実行 ")[-1]
-    _broken(check_recall_passed, text.replace(body, body.replace("| 終了コード | `0` |", "| 終了コード | `1` |"), 1))
+    failed = body.replace("| 終了コード | `0` |", "| 終了コード | `1` |").replace(
+        '"stop": {"exit_code": 0,', '"stop": {"exit_code": 1,'
+    )
+    _broken(check_recall_passed, text.replace(body, failed, 1), f"{heading} が exit 0 で終わっていない")
 
 
 def test_record_from_another_deck_is_red() -> None:
-    _broken(check_recall_passed, re.sub(r"sha256:[0-9a-f]{64}", "sha256:" + "0" * 64, _read(), count=1))
+    _broken(
+        check_recall_passed,
+        re.sub(r"sha256:[0-9a-f]{64}", "sha256:" + "0" * 64, _read(), count=1),
+        "記録のデッキがフィクスチャと違う",
+    )
 
 
 def test_record_missing_a_regeneration_is_red() -> None:
     text = _read()
     first = _rows(_section(text, "問題ごとの再生成回数"))[0]
-    _broken(check_usage_recorded, text.replace(f"| `{first[0]}` | {first[1]} |\n", "", 1))
+    _broken(check_usage_recorded, text.replace(f"| `{first[0]}` | {first[1]} |\n", "", 1), "再生成回数が全問ぶん無い")
 
 
 def test_record_with_a_wrong_extrapolation_is_red() -> None:
     text = re.sub(r"^(\| トークン数 \| \d+ \| )[^|]+\|$", r"\g<1>1 |", _read(), count=1, flags=re.M)
-    _broken(check_usage_recorded, text)
+    _broken(check_usage_recorded, text, "トークン数 の外挿が計算し直した値と違う")
 
 
 def test_record_with_a_wrong_estimate_is_red() -> None:
-    text = re.sub(r"^\| seven_day \| [^|]+ \|$", "| seven_day | 0 |", _read(), count=1, flags=re.M)
-    _broken(check_usage_recorded, text)
+    """比の表ではなく、推定使用率の表の行を壊す。"""
+    head, marker, tail = _read().partition("| 枠 | 推定使用率 |")
+    assert marker, "推定使用率の表が無い"
+    tail = re.sub(r"^\| seven_day \| [^|]+ \|$", "| seven_day | 0 |", tail, count=1, flags=re.M)
+    _broken(check_usage_recorded, head + marker + tail, "seven_day の推定が違う")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
