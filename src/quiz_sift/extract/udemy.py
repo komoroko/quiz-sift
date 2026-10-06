@@ -60,7 +60,7 @@ OPTION_LABELS = "ABCDEF"
 assert len(OPTION_LABELS) == max(OPTION_COUNTS)
 
 
-class AnswerForm(Enum):
+class _AnswerForm(Enum):
     """選択アイコンの印から判別した問題の形。"""
 
     SINGLE = "single"
@@ -243,7 +243,7 @@ def _identify_answer(option_elements: Sequence[Element]) -> tuple[tuple[int, ...
         if len(marked) == len(option_elements):
             return None
         return tuple(marked), AnswerEvidence(SelectorKind.CORRECT_MARK, option_elements[marked[0]].path)
-    if answer_form(option_elements) is not AnswerForm.SINGLE:
+    if _answer_form(option_elements) is not _AnswerForm.SINGLE:
         return None
     selected = [position for position, element in enumerate(option_elements) if is_user_selected(element)]
     if len(selected) != 1:
@@ -251,7 +251,7 @@ def _identify_answer(option_elements: Sequence[Element]) -> tuple[tuple[int, ...
     return (selected[0],), AnswerEvidence(SelectorKind.USER_SELECTED, option_elements[selected[0]].path)
 
 
-def answer_form(option_elements: Sequence[Element]) -> AnswerForm:
+def _answer_form(option_elements: Sequence[Element]) -> _AnswerForm:
     """選択アイコンの印から、問題が単一選択か複数選択かを判別する。
 
     単一選択の問題でも受験者が選んだ選択肢は `#icon-success` などに変わるので、印は全選択肢から集める。
@@ -260,10 +260,10 @@ def answer_form(option_elements: Sequence[Element]) -> AnswerForm:
     single = any(icon.startswith(SINGLE_SELECT_ICON_PREFIX) for icon in icons)
     multi = any(icon.startswith(MULTI_SELECT_ICON_PREFIX) for icon in icons)
     if single and not multi:
-        return AnswerForm.SINGLE
+        return _AnswerForm.SINGLE
     if multi and not single:
-        return AnswerForm.MULTI
-    return AnswerForm.UNKNOWN
+        return _AnswerForm.MULTI
+    return _AnswerForm.UNKNOWN
 
 
 def _is_correct_mark(option: Element) -> bool:

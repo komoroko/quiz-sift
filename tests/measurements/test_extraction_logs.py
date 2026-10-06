@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from quiz_sift.extract.udemy import FetchedPage
+    from quiz_sift.extract.udemy import ExtractResult, FetchedPage
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXTRACTION_LOG = ROOT / "docs" / "test" / "measurements" / "extraction-run.md"
@@ -497,15 +497,13 @@ _COUNT_ROWS = (
 )
 
 
-def rerun_counts(pages: "Sequence[FetchedPage]") -> RerunCounts:
-    """ページの列を抽出し直して件数を数える。"""
+def rerun_counts(result: "ExtractResult") -> RerunCounts:
+    """1回の抽出の結果から件数を数える。書き出す問題と記録する件数を同じ抽出から出すため、抽出はしない。"""
     from collections import Counter
 
     from quiz_sift.extract.evidence import SelectorKind
     from quiz_sift.extract.failures import ExtractField
-    from quiz_sift.extract.udemy import extract
 
-    result = extract(pages)
     report = result.report
     pairs = Counter((len(q.answer_labels), len(q.options)) for q in result.questions)
     reasons = Counter(failure.missing_field.value for failure in report.extraction_failures)
@@ -739,6 +737,17 @@ def test_golden_and_deck_source_commands_write_judgeable_records(
     record = refetch.read_text(encoding="utf-8")
     check_refetch_record(record)
     assert "| デッキの全問数 | 5 |" in record and reason in record
+
+
+def test_rerun_counts_count_the_given_extraction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """記録の件数は、書き出した問題と同じ1回の抽出から数える。rerun_counts は抽出し直さない。"""
+    from quiz_sift.extract import udemy
+
+    pages, _ = _saved_pages(_synthetic_out_root(tmp_path, monkeypatch))
+    result = udemy.extract(pages)
+    monkeypatch.setattr(udemy, "extract", lambda *args: pytest.fail("rerun_counts が抽出し直した"))
+    counts = rerun_counts(result)
+    assert (counts.extracted, counts.extraction_failures) == (len(result.questions), 2)
 
 
 # ---- デッキの出どころの記録 ----
@@ -1060,10 +1069,12 @@ def _main(argv: list[str]) -> int:
         result = extract(pages)
         write_questions(out_root / QUESTIONS, result.questions, out_root)
         write_report(out_root / REPORT, result, out_root)
-        RERUN_LOG.write_text(render_rerun_log(rerun_counts(pages), raw, command, _commit()), encoding="utf-8")
+        RERUN_LOG.write_text(render_rerun_log(rerun_counts(result), raw, command, _commit()), encoding="utf-8")
         return 0
     if args.command == "deck-source":
-        counts = rerun_counts(pages)
+        from quiz_sift.extract.udemy import extract
+
+        counts = rerun_counts(extract(pages))
         decision = NOT_NEEDED if args.decision == "not-needed" else REFETCHED
         REFETCH_LOG.write_text(
             render_refetch_log(counts.extracted, counts.pairs, decision, args.reason, raw, command, _commit()),

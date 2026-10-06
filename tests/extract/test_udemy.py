@@ -136,3 +136,11 @@ def test_five_and_six_option_blocks_are_extracted() -> None:
         (4, ExtractField.OPTIONS),
     ]
     assert (result.report.question_blocks, result.report.extracted) == (6, 3)
+
+
+def test_answer_form_helpers_are_private() -> None:
+    """単一選択の判別は `_identify_answer` の内部手順で、公開名にしない(docstring の `_answer_form` と揃える)。"""
+    from quiz_sift.extract import udemy
+
+    assert hasattr(udemy, "_answer_form") and hasattr(udemy, "_AnswerForm")
+    assert not hasattr(udemy, "answer_form") and not hasattr(udemy, "AnswerForm")
