@@ -13,7 +13,7 @@
 正解は2段で同定し、マッチした段を `SelectorKind` として全問の根拠に残す(AR-4):
 
 1. 正解マーク(`CORRECT_CLASS_PREFIX`)の付いた選択肢が1つ以上 → その全件を正解にする `CORRECT_MARK`
-2. 正解マークが1つも無く、選択アイコンの印で単一選択と判別でき(`_answer_form`)、受験者の選択
+2. 正解マークが1つも無く、選択アイコンの印で単一選択と判別でき(`_is_single_select`)、受験者の選択
    (選択アイコンが `SELECTED_ICONS` のどれか)がちょうど1つ → `USER_SELECTED`
 
 2段目は受験者が誤答していれば誤るので、「根拠の要素種別が全問で同一」の判定で見つかるように
@@ -27,7 +27,6 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
 
 from quiz_sift.domain.question import OPTION_COUNTS
 from quiz_sift.extract.evidence import AnswerEvidence, SelectorKind
@@ -58,15 +57,6 @@ MULTI_SELECT_ICON_PREFIX = "#icon-checkbox-"
 OPTION_LABELS = "ABCDEF"
 """選択肢 ID。ページ上の並び順に先頭から振る。"""
 assert len(OPTION_LABELS) == max(OPTION_COUNTS)
-
-
-class _AnswerForm(Enum):
-    """選択アイコンの印から判別した問題の形。"""
-
-    SINGLE = "single"
-    MULTI = "multi"
-    UNKNOWN = "unknown"
-    """印が無いか、単一選択と複数選択の印が混ざっている。"""
 
 
 class NonEmptyText(str):
@@ -243,7 +233,7 @@ def _identify_answer(option_elements: Sequence[Element]) -> tuple[tuple[int, ...
         if len(marked) == len(option_elements):
             return None
         return tuple(marked), AnswerEvidence(SelectorKind.CORRECT_MARK, option_elements[marked[0]].path)
-    if _answer_form(option_elements) is not _AnswerForm.SINGLE:
+    if not _is_single_select(option_elements):
         return None
     selected = [position for position, element in enumerate(option_elements) if is_user_selected(element)]
     if len(selected) != 1:
@@ -251,19 +241,17 @@ def _identify_answer(option_elements: Sequence[Element]) -> tuple[tuple[int, ...
     return (selected[0],), AnswerEvidence(SelectorKind.USER_SELECTED, option_elements[selected[0]].path)
 
 
-def _answer_form(option_elements: Sequence[Element]) -> _AnswerForm:
-    """選択アイコンの印から、問題が単一選択か複数選択かを判別する。
+def _is_single_select(option_elements: Sequence[Element]) -> bool:
+    """選択アイコンの印から、問題が単一選択と判別できるか。
+
+    複数選択の印がある問題、印が無い問題、両方の印が混ざった問題は単一選択と判別しない。
 
     単一選択の問題でも受験者が選んだ選択肢は `#icon-success` などに変わるので、印は全選択肢から集める。
     """
     icons = {href for option in option_elements for href in _selection_icons(option)}
     single = any(icon.startswith(SINGLE_SELECT_ICON_PREFIX) for icon in icons)
     multi = any(icon.startswith(MULTI_SELECT_ICON_PREFIX) for icon in icons)
-    if single and not multi:
-        return _AnswerForm.SINGLE
-    if multi and not single:
-        return _AnswerForm.MULTI
-    return _AnswerForm.UNKNOWN
+    return single and not multi
 
 
 def _is_correct_mark(option: Element) -> bool:
