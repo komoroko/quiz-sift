@@ -42,11 +42,16 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from quiz_sift.extract.udemy import FetchedPage
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXTRACTION_LOG = ROOT / "docs" / "test" / "measurements" / "extraction-run.md"
@@ -74,7 +79,14 @@ LABELS = frozenset("ABCDEF")
 NO_SELECTION = "-"
 """受験者が何も選ばなかった問題の「受験者の選択」欄。"""
 RERUN_HEADINGS = ("## 実行条件", "## 件数", "## (N, M) の組ごとの件数", "## 抽出の失敗の理由ごとの件数")
-REFETCH_HEADINGS = ("## 実行条件", "## 判断", "## 件数", "## (N, M) の組ごとの件数", "## 期待件数との差", "## 不足の理由")
+REFETCH_HEADINGS = (
+    "## 実行条件",
+    "## 判断",
+    "## 件数",
+    "## (N, M) の組ごとの件数",
+    "## 期待件数との差",
+    "## 不足の理由",
+)
 EXPECTED_TOTAL = 190
 EXPECTED_PAIRS = {(2, 5): 13, (3, 6): 2}
 """フル処理に使うデッキの期待件数(T-059): 全 190 問、5択2正解 13 問、6択3正解 2 問。"""
@@ -485,7 +497,7 @@ _COUNT_ROWS = (
 )
 
 
-def rerun_counts(pages: list[object]) -> RerunCounts:
+def rerun_counts(pages: "Sequence[FetchedPage]") -> RerunCounts:
     """ページの列を抽出し直して件数を数える。"""
     from collections import Counter
 
@@ -493,7 +505,7 @@ def rerun_counts(pages: list[object]) -> RerunCounts:
     from quiz_sift.extract.failures import ExtractField
     from quiz_sift.extract.udemy import extract
 
-    result = extract(pages)  # type: ignore[arg-type]
+    result = extract(pages)
     report = result.report
     pairs = Counter((len(q.answer_labels), len(q.options)) for q in result.questions)
     reasons = Counter(failure.missing_field.value for failure in report.extraction_failures)
@@ -590,7 +602,9 @@ def check_rerun_record(text: str) -> RerunCounts:
     assert set(totals) == {label for label, _ in _COUNT_ROWS}, f"件数の項目が規定と違う: {sorted(totals)}"
     values = {name: _count(totals[label]) for label, name in _COUNT_ROWS}
     pairs = _pairs_from(_section(text, "## (N, M) の組ごとの件数"))
-    reasons = {reason: _count(count) for reason, count in _table_rows(_section(text, "## 抽出の失敗の理由ごとの件数"), 2)}
+    reasons = {
+        reason: _count(count) for reason, count in _table_rows(_section(text, "## 抽出の失敗の理由ごとの件数"), 2)
+    }
     assert set(reasons) == {field.value for field in ExtractField}, f"失敗の理由が規定と違う: {sorted(reasons)}"
     counts = RerunCounts(**values, pairs=pairs, reasons=reasons)
     assert counts.question_blocks > 0, "全問数が 0"
@@ -599,6 +613,14 @@ def check_rerun_record(text: str) -> RerunCounts:
     assert sum(reasons.values()) == counts.extraction_failures, "理由ごとの件数の和が抽出の失敗の件数と合わない"
     assert counts.user_selected <= counts.extracted, "推定経路の件数が抽出の件数を超える"
     return counts
+
+
+def _reasons(**counts: int) -> dict[str, int]:
+    """抽出の失敗の理由(`ExtractField` の値)ごとの件数。指定しない理由は 0。"""
+    from quiz_sift.extract.failures import ExtractField
+
+    assert set(counts) <= {field.value for field in ExtractField}
+    return {field.value: counts.get(field.value, 0) for field in ExtractField}
 
 
 def _synthetic_option(text: str, *, correct: bool, selected: bool, multi: bool) -> str:
@@ -619,7 +641,9 @@ def _synthetic_page(*blocks: tuple[int, tuple[int, ...], tuple[int, ...], bool])
     html = []
     for number, (options, correct, selected, multi) in enumerate(blocks, start=1):
         body = "".join(
-            _synthetic_option(f"合成本文 選択肢 {number}-{i}", correct=i in correct, selected=i in selected, multi=multi)
+            _synthetic_option(
+                f"合成本文 選択肢 {number}-{i}", correct=i in correct, selected=i in selected, multi=multi
+            )
             for i in range(options)
         )
         html.append(
@@ -673,13 +697,46 @@ def test_rerun_record_holds_counts_only(tmp_path: Path, monkeypatch: pytest.Monk
     assert (counts.question_blocks, counts.extracted, counts.extraction_failures, counts.fetch_failures) == (7, 5, 2, 0)
     assert counts.pairs == {(1, 4): 2, (1, 5): 1, (2, 5): 1, (3, 6): 1}
     assert counts.user_selected == 1
-    assert counts.reasons == {"stem": 0, "options": 1, "option_text": 0, "answer": 1}
+    assert counts.reasons == _reasons(options=1, answer=1)
     assert "| 全問数 | 7 |" in text
     assert "| 2 | 5 | 1 |" in text
     # 抽出し直した問題は ingest の入力として out/ に書き直される。
     written = (out_root / QUESTIONS).read_text(encoding="utf-8").splitlines()
     assert len(written) == 5
     assert RERUN_LOG == record  # 記録先の差し替えが効いていること(既定は docs/test/measurements/extraction-rerun.md)
+
+
+def test_golden_and_deck_source_commands_write_judgeable_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """golden は集合ラベルを受けて golden-set-nofm.md を、deck-source は extraction-refetch.md を書く。
+
+    どちらも本文は書かない。
+    """
+    out_root = _synthetic_out_root(tmp_path)
+    golden, refetch = tmp_path / "golden-set-nofm.md", tmp_path / "extraction-refetch.md"
+    monkeypatch.setattr(sys.modules[__name__], "GOLDEN_NOFM_LOG", golden)
+    monkeypatch.setattr(sys.modules[__name__], "REFETCH_LOG", refetch)
+    labels = ["p001-q001=B", "p001-q002=A,D", "p001-q003=B,C,F", "p001-q004=C", "p002-q002=E"]
+    argv = ["golden", "--out-root", str(out_root), "--label-source", "合成ページの正解マーク"]
+    assert _main([*argv, *(f"--label={label}" for label in labels)]) == 0
+
+    text = golden.read_text(encoding="utf-8")
+    assert "合成本文" not in text
+    rows = {row.question_id: row for row in recorded_golden_rows(text)}
+    assert rows["p001-q002"] == GoldenRow("p001-q002", frozenset("A"), frozenset("AD"), frozenset("AD"), "correct-mark")
+    assert rows["p001-q004"].selector_kind == "user-selected"
+    assert rows["p002-q002"].extracted_labels == frozenset("E")
+    assert all(row.agrees for row in rows.values())
+    # 抽出の失敗だった問題・読めない記号はラベルとして受けない。
+    assert _main([*argv, "--label=p002-q001=B"]) == 2
+    assert _main([*argv, "--label=p001-q001=G"]) == 2
+
+    reason = "合成ページは5問しかない"
+    assert _main(["deck-source", "--out-root", str(out_root), "--decision", "refetched", "--reason", reason]) == 0
+    record = refetch.read_text(encoding="utf-8")
+    check_refetch_record(record)
+    assert "| デッキの全問数 | 5 |" in record and reason in record
 
 
 # ---- デッキの出どころの記録 ----
@@ -758,7 +815,9 @@ def check_refetch_record(text: str) -> None:
     assert [row[0] for row in recorded] == [item for item, _, _ in expected], "期待件数との差の項目が規定と違う"
     shortfall = 0
     for (item, want, actual), row in zip(expected, recorded, strict=True):
-        assert [_count(cell) for cell in row[1:]] == [want, actual, max(0, want - actual)], f"{item} の差が件数と合わない"
+        assert [_count(cell) for cell in row[1:]] == [want, actual, max(0, want - actual)], (
+            f"{item} の差が件数と合わない"
+        )
         shortfall += max(0, want - actual)
     reason = _section(text, "## 不足の理由").strip()
     if shortfall:
@@ -795,7 +854,14 @@ def test_deck_source_record_states_counts_and_shortfall() -> None:
 
 
 _FULL_PAIRS = {(1, 4): 175, (2, 5): 13, (3, 6): 2}
-_GOOD_RERUN = RerunCounts(190, 190, 0, 0, 0, _FULL_PAIRS, {"stem": 0, "options": 0, "option_text": 0, "answer": 0})
+_GOOD_RERUN = RerunCounts(190, 190, 0, 0, 0, _FULL_PAIRS, _reasons())
+
+
+def _without_user_wrong(text: str, question_ids: tuple[str, ...]) -> str:
+    """`question_ids` の行の受験者の選択を正解に揃え、受験者の誤答を減らす。"""
+    for question_id in question_ids:
+        text = text.replace(f"| {question_id} | A | B |", f"| {question_id} | B | B |")
+    return text
 
 
 def _defective_records() -> list[tuple[str, str]]:
@@ -804,7 +870,9 @@ def _defective_records() -> list[tuple[str, str]]:
     golden = _synthetic_golden_log(_good_nofm_rows())
     full = render_refetch_log(190, _FULL_PAIRS, NOT_NEEDED, NO_SELECTION, RAW, ["deck-source"], "0123456789ab")
     short_pairs = {(1, 4): 175, (2, 5): 11, (3, 6): 2}
-    short = render_refetch_log(188, short_pairs, REFETCHED, "2問は再取得でも複数選択の印が無い", RAW, ["x"], "0123456789ab")
+    short = render_refetch_log(
+        188, short_pairs, REFETCHED, "2問は再取得でも複数選択の印が無い", RAW, ["x"], "0123456789ab"
+    )
     return [
         ("rerun", rerun.replace("| 全問数 | 190 |", "| 全問数 | 191 |")),
         ("rerun", rerun.replace("| 2 | 5 | 13 |", "| 2 | 5 | 十三 |")),
@@ -815,7 +883,7 @@ def _defective_records() -> list[tuple[str, str]]:
         ("rerun", rerun.replace("| 抽出 | 190 |\n", "| 抽出 | 190 |\n合成本文 問題文 1\n")),
         ("golden", golden.replace("| p001-q013 | - | A,C,F | A,C,F |", "| p001-q013 | - | A,C,F | A,C |")),
         ("golden", golden.replace("| p001-q013 | - | A,C,F | A,C,F |", "| p001-q013 | - | A | A |")),
-        ("golden", golden.replace("| p001-q001 | A | B |", "| p001-q001 | B | B |").replace("| p001-q002 | A | B |", "| p001-q002 | B | B |")),
+        ("golden", _without_user_wrong(golden, ("p001-q001", "p001-q002", "p001-q003"))),
         ("golden", golden.replace("`13/13`", "`12/13`")),
         ("refetch", full.replace("| デッキの全問数 | 190 |", "| デッキの全問数 | 189 |")),
         ("refetch", full.replace("| (2, 5) | 13 | 13 | 0 |", "| (2, 5) | 13 | 12 | 1 |")),
@@ -839,7 +907,13 @@ def test_person_record_judges_go_red_on_synthetic_defects() -> None:
     )
     check_refetch_record(
         render_refetch_log(
-            188, {(1, 4): 175, (2, 5): 11, (3, 6): 2}, REFETCHED, "2問は再取得でも複数選択の印が無い", RAW, ["x"], "0"*12
+            188,
+            {(1, 4): 175, (2, 5): 11, (3, 6): 2},
+            REFETCHED,
+            "2問は再取得でも複数選択の印が無い",
+            RAW,
+            ["x"],
+            "0" * 12,
         )
     )
     for judge, record in _defective_records():
@@ -898,47 +972,72 @@ def _fetch_run(out_root: Path, url: str) -> int:
     return 0
 
 
-def _saved_questions(out_root: Path) -> tuple[bytes, dict[str, tuple[str, str, str]]]:
-    """保存済みの生 HTML から、問題 ID → (受験者の選択, 抽出ラベル, selector_kind)。"""
-    from quiz_sift.extract.html_tree import parse_html
-    from quiz_sift.extract.udemy import (
-        OPTION,
-        OPTION_LABELS,
-        QUESTION_BLOCK_CLASS_PREFIX,
-        FetchedPage,
-        _is_user_selected,
-        extract,
-    )
+def _saved_pages(out_root: Path) -> tuple[list["FetchedPage"], list[tuple[str, str]]]:
+    """保存済みの生 HTML(ページ順)と、その (パス, digest) の列。"""
+    from quiz_sift.extract.udemy import FetchedPage
 
-    raw = (out_root / RAW_PAGE).read_bytes()
-    html = raw.decode("utf-8")
-    blocks = parse_html(html).find_by_class_prefix(QUESTION_BLOCK_CLASS_PREFIX)
-    choices = {}
-    for number, block in enumerate(blocks, start=1):
-        options = block.find_all(*OPTION)
-        if len(options) != len(OPTION_LABELS):
-            continue  # 抽出の失敗(複数選択問題)。ゴールデンセットには入らない。
-        selected = [OPTION_LABELS[i] for i, option in enumerate(options) if _is_user_selected(option)]
-        choices[f"p001-q{number:03d}"] = "".join(selected) or NO_SELECTION
-    return raw, {
-        question.local_id: (choices[question.local_id], question.answer_label, question.evidence.selector_kind.value)
-        for question in extract([FetchedPage(RAW_PAGE.as_posix(), html)]).questions
+    paths = sorted((out_root / RAW_DIR).glob("page-*.html"))
+    assert paths, f"保存済みの生 HTML が無い: {out_root / RAW_DIR}"
+    pages = [FetchedPage(path.relative_to(out_root).as_posix(), path.read_text(encoding="utf-8")) for path in paths]
+    raw = [(page.url, _digest(path.read_bytes())) for page, path in zip(pages, paths, strict=True)]
+    return pages, raw
+
+
+def _saved_questions(pages: "Sequence[FetchedPage]") -> dict[str, tuple[frozenset[str], frozenset[str], str]]:
+    """抽出できた問題 ID → (受験者の選択, 抽出した正解の集合, selector_kind)。"""
+    from quiz_sift.extract.html_tree import parse_html
+    from quiz_sift.extract.udemy import OPTION, OPTION_LABELS, QUESTION_BLOCK_CLASS_PREFIX, extract, is_user_selected
+
+    choices: dict[str, frozenset[str]] = {}
+    for page_number, page in enumerate(pages, start=1):
+        blocks = parse_html(page.html).find_by_class_prefix(QUESTION_BLOCK_CLASS_PREFIX)
+        for number, block in enumerate(blocks, start=1):
+            options = block.find_all(*OPTION)
+            selected = (
+                label for label, option in zip(OPTION_LABELS, options, strict=False) if is_user_selected(option)
+            )
+            choices[f"p{page_number:03d}-q{number:03d}"] = frozenset(selected)
+    return {
+        question.local_id: (
+            choices[question.local_id],
+            frozenset(question.answer_labels),
+            question.evidence.selector_kind.value,
+        )
+        for question in extract(pages).questions
     }
+
+
+def _parse_label_args(items: list[str]) -> dict[str, frozenset[str]] | str:
+    """`p001-q010=A,C` の列を読む。読めなければ理由の文字列。"""
+    labels: dict[str, frozenset[str]] = {}
+    for item in items:
+        question_id, sep, cell = item.partition("=")
+        if not sep or not re.fullmatch(r"p\d{3}-q\d{3}", question_id) or question_id in labels:
+            return f"--label は p001-qNNN=<A-F をカンマ区切り> の形で、問題 ID を重複させない: {item!r}"
+        try:
+            labels[question_id] = parse_labels(cell)
+        except AssertionError as error:
+            return str(error)
+    return labels or "--label を1件以上渡す"
 
 
 def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tests/measurements/test_extraction_logs.py")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("fetch", "fetch-run", "golden-candidates", "golden"):
+    for name in ("fetch", "fetch-run", "golden-candidates", "golden", "rerun", "deck-source"):
         sub = commands.add_parser(name)
         sub.add_argument("--out-root", type=Path, required=True, help="out/ を持つリポジトリのルート")
         if name.startswith("fetch"):
             sub.add_argument("--url", default=DEFAULT_URL)
         if name == "golden":
-            sub.add_argument("--label", action="append", default=[], help="正解ラベル。p001-q003=B")
+            sub.add_argument("--label", action="append", default=[], help="正解の集合ラベル。p001-q010=A,C")
             sub.add_argument("--label-source", required=True, help="ラベルを誰が何を見て読んだか(ログに逐語で残す)")
+        if name == "deck-source":
+            sub.add_argument("--decision", choices=("not-needed", "refetched"), required=True)
+            sub.add_argument("--reason", default=NO_SELECTION, help="期待件数に届かなかった理由")
     args = parser.parse_args(argv)
     out_root: Path = args.out_root.resolve()
+    command = ["PYTHONPATH=src", "python", "tests/measurements/test_extraction_logs.py", *argv]
 
     if args.command == "fetch-run":
         return _fetch_run(out_root, args.url)
@@ -951,30 +1050,43 @@ def _main(argv: list[str]) -> int:
         EXTRACTION_LOG.write_text(render_extraction_log(run, _commit()), encoding="utf-8")
         return done.returncode
 
-    raw, questions = _saved_questions(out_root)
-    if args.command == "golden-candidates":
-        for question_id, (choice, label, kind) in questions.items():
-            print(
-                f"{question_id} user={choice} extracted={label} {kind}{'  (受験者の誤答)' if choice != label else ''}"
-            )
+    pages, raw = _saved_pages(out_root)
+    if args.command == "rerun":
+        from quiz_sift.extract.udemy import extract
+        from quiz_sift.extract.writer import write_questions, write_report
+
+        result = extract(pages)
+        write_questions(out_root / QUESTIONS, result.questions, out_root)
+        write_report(out_root / REPORT, result, out_root)
+        RERUN_LOG.write_text(render_rerun_log(rerun_counts(pages), raw, command, _commit()), encoding="utf-8")
         return 0
-    pairs = [item.split("=", 1) for item in args.label]
-    labels = dict(pair for pair in pairs if len(pair) == 2)
-    if len(pairs) != GOLDEN_SIZE or len(labels) != GOLDEN_SIZE or not set(labels.values()) <= LABELS:
-        print(f"--label p001-qNNN=<A-D> を {GOLDEN_SIZE} 件渡す", file=sys.stderr)
+    if args.command == "deck-source":
+        counts = rerun_counts(pages)
+        decision = NOT_NEEDED if args.decision == "not-needed" else REFETCHED
+        REFETCH_LOG.write_text(
+            render_refetch_log(counts.extracted, counts.pairs, decision, args.reason, raw, command, _commit()),
+            encoding="utf-8",
+        )
+        return 0
+
+    questions = _saved_questions(pages)
+    if args.command == "golden-candidates":
+        for question_id, (choice, extracted, kind) in questions.items():
+            wrong = "  (受験者の誤答)" if choice != extracted else ""
+            print(f"{question_id} user={format_labels(choice)} extracted={format_labels(extracted)} {kind}{wrong}")
+        return 0
+    labels = _parse_label_args(args.label)
+    if isinstance(labels, str):
+        print(labels, file=sys.stderr)
         return 2
     unknown = sorted(set(labels) - set(questions))
     if unknown:
         print(f"抽出できた問題に無い ID: {unknown}", file=sys.stderr)
         return 2
-    rows = []
-    for question_id, label in labels.items():
-        choice, extracted, kind = questions[question_id]
-        rows.append(GoldenRow(question_id, choice, label, extracted, kind))
-    command = ["PYTHONPATH=src", sys.executable, "tests/measurements/test_extraction_logs.py", *argv]
-    GOLDEN_LOG.write_text(
-        render_golden_log(rows, _digest(raw), command, _commit(), args.label_source), encoding="utf-8"
-    )
+    rows = [
+        GoldenRow(qid, questions[qid][0], label, questions[qid][1], questions[qid][2]) for qid, label in labels.items()
+    ]
+    GOLDEN_NOFM_LOG.write_text(render_golden_log(rows, raw, command, _commit(), args.label_source), encoding="utf-8")
     return 0
 
 

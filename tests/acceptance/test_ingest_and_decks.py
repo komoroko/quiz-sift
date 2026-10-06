@@ -287,7 +287,8 @@ def test_c002_marked_answers_become_the_answer_set(workspace: Path) -> None:
     target = write_deck(workspace, DeckId("extracted"), []) / "questions.jsonl"
     write_questions(target, result.questions, workspace)
     rows = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
-    assert [row["answers"] for row in rows] == [["B", "D"], ["A", "C", "F"], ["A", "B"], ["C"], ["A", "B", "C", "D", "E"]]
+    expected = [["B", "D"], ["A", "C", "F"], ["A", "B"], ["C"], ["A", "B", "C", "D", "E"]]
+    assert [row["answers"] for row in rows] == expected
     ingested = ingest_deck(workspace / "data", DeckId("extracted"))
     assert ingested.report.rejected == ()
     assert [q.answer_count for q in ingested.deck.questions] == [2, 3, 2, 1, 5]
