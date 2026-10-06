@@ -9,9 +9,11 @@ import・`SubprocessRunner()`・`Workspace()` の構築はファイルシステ�
 
 import contextlib
 import fcntl
+import functools
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
@@ -30,6 +32,12 @@ MINIMAL_HOME_NAME = ".quiz-sift-claude-home"
 ALLOWED_SETTINGS_KEYS = frozenset({"theme"})
 """最小ホームの `.claude/settings.json` に許すトップレベルのキー(ADR-017、D-122)。"""
 
+KILL_GRACE_SEC = 5
+"""プロセスグループに SIGKILL を送ってから pipe の終端を待つ秒数(D-186)。"""
+
+DEFERRED_SIGNALS = frozenset({signal.SIGHUP, signal.SIGTERM, signal.SIGALRM, signal.SIGINT})
+"""spawn の間だけ遅らせるシグナル。どれもハンドラが例外を送出しうる(12 時間の上限・D-221・Ctrl-C)。"""
+
 FALLBACK_LANG = "C.UTF-8"
 FALLBACK_TZ = "Asia/Tokyo"
 
@@ -39,11 +47,20 @@ class PreflightError(SystemExit):
 
 
 class SubprocessRunner:
-    """`CommandRunner` の実装。env は `spec.env` だけを渡し、その変数名は許可集合と一致しなければならない。"""
+    """`CommandRunner` の実装。env は `spec.env` だけを渡し、その変数名は許可集合と一致しなければならない。
+
+    子は新しいセッション(プロセスグループ)で起動し、止めるときはグループごと SIGKILL する(ADR-023)。
+    子だけを kill すると、pipe を継承した孫が書き込み側を開いたまま残り、`communicate()` が戻らない。
+    """
 
     def run(self, spec: CommandSpec) -> CommandResult:
         if set(spec.env) != CHILD_ENV_KEYS:
             raise ValueError(f"子プロセスの環境は {sorted(CHILD_ENV_KEYS)} に一致しない: {sorted(spec.env)}")
+        # Popen の内側(fork の後)や、Popen が戻ってから下の try に入るまでに例外が来ると、起動済みの子を
+        # killpg する経路が無い。そこまでは DEFERRED_SIGNALS を遅らせ、届いていた分は下の try の中で処理する。
+        # 子はマスクを継承するので、exec の前に元のマスクへ戻す。マスクはスレッドごとなので、この遅延は
+        # run を呼んだスレッドだけがシグナルを受けられる構成(CLI の主スレッド)で効く。
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
         try:
             proc = subprocess.Popen(
                 spec.argv,
@@ -52,21 +69,72 @@ class SubprocessRunner:
                 stderr=subprocess.PIPE,
                 cwd=spec.cwd,
                 env=dict(spec.env),
+                start_new_session=True,
+                preexec_fn=functools.partial(signal.pthread_sigmask, signal.SIG_SETMASK, mask),
             )
         except OSError as exc:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             return CommandResult(Outcome.SPAWN, None, b"", str(exc).encode())
+        except BaseException:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            raise
         try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             stdout, stderr = proc.communicate(spec.stdin.encode(), timeout=spec.timeout_sec)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
+        except subprocess.TimeoutExpired as expired:
+            # 後始末の最初の操作として、Python の関数を挟まずに killpg する(下の節の注記と同じ理由)。
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # グループの全員がもう終わっている。止める相手がいないだけ
+            stdout, stderr = _stop_group(proc, expired)
             return CommandResult(Outcome.TIMEOUT, None, stdout, stderr)
         except BaseException:
-            # signal.alarm のハンドラが送出する SystemExit の派生などは、子を残さずにそのまま通す(AR-149)。
-            proc.kill()
+            # signal.alarm や親の SIGHUP/SIGTERM のハンドラが送出する SystemExit の派生などは、子のグループを
+            # 残さずにそのまま通す(AR-149、D-221)。後始末に入った直後に次のシグナルが届くと、そのハンドラは
+            # 次に呼ばれる Python の関数の入口で走り、例外が差し替わって後始末が飛ぶ。そのため最初の操作は
+            # 組み込み関数の os.killpg を直接呼ぶ(組み込み関数は、保留中のハンドラを呼び出しの後でしか走らせない)。
+            # SIGTERM は挟まない(D-209)。子は wait されるまでゾンビとして残るので、グループ ID(= 子の pid)が
+            # 他へ再利用されることはない。
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # グループの全員がもう終わっている。止める相手がいないだけ
+            _close_pipes(proc)
             proc.wait()
             raise
         return CommandResult(Outcome.EXITED, proc.returncode, stdout, stderr)
+
+
+def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        if pipe is not None:
+            pipe.close()
+
+
+def _stop_group(proc: subprocess.Popen[bytes], expired: subprocess.TimeoutExpired) -> tuple[bytes, bytes]:
+    """SIGKILL を送ったタイムアウトした子のグループの終わりを待ち、それまでの出力を返す。
+
+    `communicate` は読んだ分を内部に溜めていて、続けて呼ぶとそこから先を読み足した全体を返す。
+    新しいセッションに抜けた孫が pipe を持ち続けると `KILL_GRACE_SEC` でも終端が来ないので、そのときは
+    溜まっていた分だけを持って自分で pipe を閉じる(孫の終了は待たない)。
+    """
+    try:
+        return proc.communicate(timeout=KILL_GRACE_SEC)
+    except subprocess.TimeoutExpired as late:
+        stdout = late.stdout if late.stdout is not None else expired.stdout
+        stderr = late.stderr if late.stderr is not None else expired.stderr
+        _close_pipes(proc)
+        proc.wait()
+        return _as_bytes(stdout), _as_bytes(stderr)
+
+
+def _as_bytes(data: str | bytes | None) -> bytes:
+    if data is None:
+        return b""
+    if isinstance(data, str):
+        raise TypeError("pipe はバイト列で開いているので、部分出力が str になることはない")
+    return data
 
 
 class Workspace:

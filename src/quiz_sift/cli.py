@@ -143,6 +143,10 @@ class ExecutionLimitExceeded(SystemExit):
     """1回の実行が `EXECUTION_LIMIT_SEC` を超えた。`signal.alarm` のハンドラが上げる(D-138)。"""
 
 
+class TerminatedBySignal(SystemExit):
+    """実行中に親が SIGHUP / SIGTERM を受けた。終了コードは 128 + シグナル番号(D-221)。"""
+
+
 class ResumeRefused(SystemExit):
     """`--resume` の列が `resumable` でない(開始行の無い run_id を含む。D-145)。"""
 
@@ -603,7 +607,7 @@ def _on_alarm(signum: int, frame: FrameType | None) -> None:
 
 @contextlib.contextmanager
 def _execution_limit() -> Iterator[None]:
-    """`EXECUTION_LIMIT_SEC` 後に `ExecutionLimitExceeded` を上げる。実行中の子は runner が kill する(AR-149)。"""
+    """`EXECUTION_LIMIT_SEC` 後に `ExecutionLimitExceeded` を上げる。子のグループは runner が killpg する(AR-149)。"""
     previous = signal.signal(signal.SIGALRM, _on_alarm)
     signal.alarm(EXECUTION_LIMIT_SEC)
     try:
@@ -611,6 +615,28 @@ def _execution_limit() -> Iterator[None]:
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
+
+
+TERMINATION_SIGNALS = (signal.SIGHUP, signal.SIGTERM)
+
+
+def _on_termination(signum: int, frame: FrameType | None) -> None:
+    raise TerminatedBySignal(128 + signum)
+
+
+@contextlib.contextmanager
+def _terminate_children_on_signal() -> Iterator[None]:
+    """SIGHUP / SIGTERM で `TerminatedBySignal` を上げる。実行中の子のグループは runner が killpg する(D-221)。
+
+    子は別セッションで起動するので、端末を閉じても子には SIGHUP が届かない。親だけが死ぬと子が残り、
+    すぐの `--resume` で2本の `claude` が同じ最小ホームを使う。
+    """
+    previous = {signum: signal.signal(signum, _on_termination) for signum in TERMINATION_SIGNALS}
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def _check_resumable(log: Path, run_id: str) -> None:
@@ -665,7 +691,10 @@ def _run(
     exit_code: int = 0
     exit_reason: str | None = None
     try:
-        with _execution_limit() if llm_stage else contextlib.nullcontext():
+        with contextlib.ExitStack() as guards:
+            if llm_stage:
+                guards.enter_context(_terminate_children_on_signal())
+                guards.enter_context(_execution_limit())
             result = _stage(args, pipeline, tts_factory)
     except BaseException as error:
         exit_code, exit_reason = _exit_code(error), type(error).__name__
