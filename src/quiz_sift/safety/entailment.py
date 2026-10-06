@@ -7,6 +7,7 @@
 - 書き出しは `emit` として受け取り、判定が `consistent` のときにだけ呼ぶ。書いてから消す経路が
   そもそも無い。
 - ミューテーション検出率は数値として記録するが、合格ラインは置かない(D-044)。
+- 問題の正解・解説から reference を作るのは `reference_for` だけ(想起素材・台本・クラスタ要約が共有する)。
 """
 
 import logging
@@ -14,6 +15,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from quiz_sift.domain.ids import OptionId
+from quiz_sift.domain.question import Question
 from quiz_sift.ports.llm import Entailment
 
 logger = logging.getLogger(__name__)
@@ -23,6 +26,34 @@ class EntailmentChecker(Protocol):
     """`ports.llm.Llm` のうち含意判定だけを使う。`Llm` の実装はそのまま渡せる。"""
 
     def check_entailment(self, reference: str, statement: str) -> Entailment: ...
+
+
+DISTRACTOR_SECTION = "誤答選択肢(この問題では正しくない記述)"
+"""識別ポイントの reference で、参照先の誤答の本文を置く節の名前。`ENTAILMENT_SYSTEM` がこの節の意味を説明する。"""
+FOCUS_SECTION = "この文が説明する正解"
+"""答えの要素の reference で、その要素が説明する正解を置く節の名前。"""
+
+
+def reference_for(question: Question, focus: OptionId | None = None, distractors: Sequence[OptionId] = ()) -> str:
+    """`question` の含意判定の reference。正解 N 件すべてと解説を含む(NFR-1)。
+
+    `focus` を渡すと、その正解を「この文が説明する正解」の節に明示する(D-210)。`distractors` を渡すと、
+    その誤答の本文を「誤答選択肢(この問題では正しくない記述)」の節に置く(D-192)。誤答を正しい情報として
+    渡すと、誤答を正しくないと述べる正しい識別ポイントが矛盾と判定される(AR-D4)。
+    """
+    texts = {option.option_id: option.text for option in question.options}
+    if focus is not None and focus not in question.correct_option_ids:
+        raise ValueError("focus はこの問題の正解の選択肢でなければならない")
+    if any(d not in texts or d in question.correct_option_ids for d in distractors):
+        raise ValueError("distractors はこの問題の誤答の選択肢でなければならない")
+    sections = [f"問題: {question.stem}", f"正解: {'、'.join(texts[o] for o in question.correct_option_ids)}"]
+    if focus is not None:
+        sections.append(f"{FOCUS_SECTION}: {texts[focus]}")
+    if distractors:
+        sections.append(f"{DISTRACTOR_SECTION}: {'、'.join(texts[d] for d in distractors)}")
+    if question.explanation is not None:
+        sections.append(f"解説: {question.explanation}")
+    return " ".join(sections)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

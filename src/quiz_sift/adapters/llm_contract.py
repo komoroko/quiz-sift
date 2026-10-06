@@ -8,8 +8,9 @@ unassigned` が渡したキーと多重集合として一致しなければ `INC
 from collections import Counter
 from collections.abc import Mapping
 
+from quiz_sift.domain.ids import OptionId
 from quiz_sift.domain.question import Question
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.ports.llm import Entailment, GroupProposal, LlmCallError, RecallDraft
 from quiz_sift.ports.metering import FailureKind
 
@@ -74,14 +75,40 @@ def parse_proposals(data: Mapping[str, object], keyed: Mapping[str, Question]) -
     ]
 
 
-def parse_recall(data: Mapping[str, object]) -> RecallDraft:
+def _object(value: object, name: str) -> Mapping[str, object]:
+    if not isinstance(value, dict):
+        raise ContractError(FailureKind.SCHEMA, f"{name} がオブジェクトでない")
+    return value
+
+
+def parse_recall(data: Mapping[str, object], keyed: Mapping[str, OptionId]) -> RecallDraft:
+    """想起素材の応答を読む。`keyed` は呼び出しで渡した選択肢のキーと ID の対応(D-206)。
+
+    渡していないキーは `SCHEMA` で落とし、例外文には件数だけを載せる(NFR-2)。キーの集合が正解と
+    一致するかは、ここではなく `recall/verify` の検査が判定する(再生成の対象にするため)。
+    """
     terms = _strings(data.get("terms"), "terms")
     try:
         key = RecallKey(terms=tuple(terms))
     except ValueError:
         raise ContractError(FailureKind.SCHEMA, "terms が想起キーにならない") from None
+    answers = data.get("answers")
+    if not isinstance(answers, list):
+        raise ContractError(FailureKind.SCHEMA, "answers が配列でない")
+    elements = [_object(element, "answers の要素") for element in answers]
+    discrimination = _object(data.get("discrimination"), "discrimination")
+    distractors = _strings(discrimination.get("distractors"), "discrimination の distractors")
+    options = [parse_string(element, "option") for element in elements]
+    unknown = sum(k not in keyed for k in (*options, *distractors))
+    if unknown:
+        raise ContractError(FailureKind.SCHEMA, f"未知の選択肢キー {unknown} 件")
     return RecallDraft(
-        key=key, answer=parse_string(data, "answer"), discrimination=parse_string(data, "discrimination")
+        key=key,
+        answers=tuple(
+            AnswerElement(keyed[option], parse_string(element, "text"))
+            for option, element in zip(options, elements, strict=True)
+        ),
+        discrimination=DiscriminationPoint(parse_string(discrimination, "text"), tuple(keyed[k] for k in distractors)),
     )
 
 

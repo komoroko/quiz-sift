@@ -16,7 +16,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 
 
 class LlmCallError(Exception):
@@ -87,12 +87,14 @@ class ClassificationResult:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class RecallDraft:
-    """1問分の想起素材の生成結果(R-4)。検証は `recall/` が行う。"""
+    """1問分の想起素材の生成結果(R-4)。検証は `recall/` が行う。
+
+    `answers` は正解 N 件に1要素ずつ対応する配列で、順序に意味を持たせない。
+    """
 
     key: RecallKey
-    answer: str
-    discrimination: str
-    """似た選択肢との切り分け(識別ポイント)。"""
+    answers: tuple[AnswerElement, ...]
+    discrimination: DiscriminationPoint
 
 
 class Entailment(Enum):

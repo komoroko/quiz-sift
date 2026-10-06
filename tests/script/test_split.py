@@ -3,7 +3,6 @@
 日本語は 7.0 文字/秒なので、`"あ" * 7 * n` がちょうど n 秒になる。
 """
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,7 @@ from quiz_sift.script.generate import ScriptTooLong, generate_scripts
 from quiz_sift.script.segments import QuestionScript, Track, parse_questions
 from quiz_sift.script.split import TRACK_LIMIT_SECONDS, TrackPlan, plan_tracks
 
-from .conftest import DECK, GOOD, StubChecker, Writer, qscript, recall_set
+from .conftest import DECK, GOOD, StubChecker, Writer, answered, discriminated, qscript, recall_set
 
 
 def _text(seconds: int) -> str:
@@ -89,8 +88,8 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
     huge = "拒否される" * 300
     drafts = {
         **GOOD,
-        "q01": replace(GOOD["q01"], discrimination=GOOD["q01"].discrimination * 40),
-        "q03": replace(GOOD["q03"], answer=huge),
+        "q01": discriminated(GOOD["q01"], GOOD["q01"].discrimination.text * 40),
+        "q03": answered(GOOD["q03"], huge),
     }
     checker = StubChecker()
     out = tmp_path / "script.tsv"
@@ -104,8 +103,8 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
     # 割れば収まるクラスタは、割ったうえで成果物に列挙される。
     drafts = {
         **GOOD,
-        "q01": replace(GOOD["q01"], discrimination=GOOD["q01"].discrimination * 15),
-        "q02": replace(GOOD["q02"], discrimination=GOOD["q02"].discrimination * 15),
+        "q01": discriminated(GOOD["q01"], GOOD["q01"].discrimination.text * 15),
+        "q02": discriminated(GOOD["q02"], GOOD["q02"].discrimination.text * 15),
     }
     writer = Writer(tmp_path / "split.tsv")
     generate_scripts(StubChecker(), deck, clusters, recall_set(drafts), writer)

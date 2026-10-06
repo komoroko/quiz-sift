@@ -1,43 +1,45 @@
-"""想起素材の検査(R-4 / ADR-010)。すべて純粋関数で、LLM を呼ばない。
+"""想起素材の検査(R-4 / ADR-010 / ADR-022)。すべて純粋関数で、LLM を呼ばない。
 
-- **語句の実在性**: 想起キーの全 term が元の問題の本文(問題文・選択肢・解説)に実在すること。
-- **参照する誤答選択肢の実在性**: 識別ポイントが鉤括弧・引用符で括って参照した語句が、元の問題の
-  選択肢のどれかに実在すること。正解と誤答の対比で正解側を括ることはあるので、正解の選択肢も
-  照合先に含める。どの選択肢にも無い語句を括っていれば、存在しない選択肢を参照している。
-- **重複禁止**: キーは `frozenset(terms)` で比べる(AR-25)。tuple で比べると並べ替えただけのキーが
-  別物になる。
-- **汎用語だけのキーの禁止**: 各 term の他クラスタ出現率(自クラスタ以外で出現するクラスタ数 /
-  全クラスタ数)を記録し、全 term が他クラスタにも出現するキーを数える。
-- **丸写しの禁止**(AR-12): 識別ポイントのうち、**全**誤答選択肢との一致区間の和を除いた残りが
+検査は1問単位で、落ちた問題だけを `recall/generate` が作り直す。照合先は `grounding/targets` の定数からしか
+作らない。
+
+- **空要素**(`empty`): 想起キーの term・答えの要素・識別ポイントのどれかが空白だけ。
+- **語句の実在性**(`ungrounded_key`): 想起キーの全 term が、その問題の問題文に実在すること(`RECALL_KEY_FIELDS`)。
+- **答えの対応**(`answer_mismatch`): 答えの要素が持つ選択肢 ID が重複なく、その集合が正解の集合と一致すること。
+- **参照する誤答選択肢**(`missing_options`): 識別ポイントの `distractor_ids` が1件以上で、すべてその問題の
+  誤答選択肢であること。本文の括弧は参照とみなさない(D-177)。
+- **汎用語だけのキーの禁止**(`generic`): 各 term の他クラスタ出現率(自クラスタ以外で出現するクラスタ数 /
+  全クラスタ数、照合先は `OTHER_CLUSTER_FIELDS`)を記録し、全 term が他クラスタにも出現するキーを落とす。
+- **丸写しの禁止**(`verbatim`、AR-12): 識別ポイントのうち、**全**誤答選択肢との一致区間の和を除いた残りが
   全体の 30% 以上あること。1件ずつ比べると、2件を貼り合わせた識別ポイントがどちらとも半分しか
   一致せずに通ってしまう。
+- **重複禁止**(`duplicate_key`): 問題をまたぐ唯一の検査。キーは `frozenset(terms)` で比べ(AR-25)、
+  **異なるクラスタ**の素材の間だけで数える(D-200)。クラスタ順で後に来た問題を落ちとする。
 """
 
-import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from typing import Final
 
 from quiz_sift.domain.ids import ClusterId, QuestionId
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import RecallKey
 from quiz_sift.grounding.presence import is_present
+from quiz_sift.grounding.targets import OTHER_CLUSTER_FIELDS, RECALL_KEY_FIELDS, QuestionField, texts_for
 from quiz_sift.ports.llm import RecallDraft
 
 MIN_ORIGINAL_RATIO = 0.30
 """識別ポイントのうち、誤答選択肢のどれとも一致しない部分が占めるべき最低割合。"""
 
-# 識別ポイントが選択肢を参照するときの括り。日本語の鉤括弧と英語の引用符。
-_QUOTED = re.compile(r"『([^』]+)』|「([^」]+)」|“([^”]+)”|\"([^\"]+)\"")
-
-
-def question_texts(question: Question) -> list[str]:
-    """問題の本文 — 問題文・選択肢・解説。"""
-    texts = [question.stem, *(option.text for option in question.options)]
-    if question.explanation is not None:
-        texts.append(question.explanation)
-    return texts
+EMPTY: Final = "empty"
+UNGROUNDED_KEY: Final = "ungrounded_key"
+ANSWER_MISMATCH: Final = "answer_mismatch"
+MISSING_OPTIONS: Final = "missing_options"
+GENERIC: Final = "generic"
+VERBATIM: Final = "verbatim"
+DUPLICATE_KEY: Final = "duplicate_key"
 
 
 def distractors(question: Question) -> tuple[str, ...]:
@@ -45,26 +47,41 @@ def distractors(question: Question) -> tuple[str, ...]:
     return tuple(o.text for o in question.options if o.option_id not in question.correct_option_ids)
 
 
-def missing_key_terms(key: RecallKey, question: Question) -> tuple[str, ...]:
-    """`key` の term のうち、元の問題の本文に実在しないもの。"""
-    texts = question_texts(question)
+def missing_key_terms(
+    key: RecallKey, question: Question, fields: tuple[QuestionField, ...] = RECALL_KEY_FIELDS
+) -> tuple[str, ...]:
+    """`key` の term のうち、`question` の `fields` の部分に実在しないもの。"""
+    texts = texts_for(question, fields)
     return tuple(term for term in key.terms if not is_present(term, texts))
 
 
-def referenced_options(discrimination: str) -> tuple[str, ...]:
-    """識別ポイントが括って参照している語句を出現順に返す。"""
-    return tuple(next(g for g in m.groups() if g is not None) for m in _QUOTED.finditer(discrimination))
+def has_empty_element(draft: RecallDraft) -> bool:
+    """想起キーの term・答えの要素・識別ポイントのどれかが空白だけか。"""
+    texts = (*draft.key.terms, *(element.text for element in draft.answers), draft.discrimination.text)
+    return any(not text.strip() for text in texts)
 
 
-def missing_options(discrimination: str, question: Question) -> tuple[str, ...]:
-    """識別ポイントが参照する語句のうち、元の問題の選択肢のどれにも実在しないもの。"""
-    options = [option.text for option in question.options]
-    return tuple(ref for ref in referenced_options(discrimination) if not is_present(ref, options))
+def answer_mismatch(draft: RecallDraft, question: Question) -> bool:
+    """答えの要素の選択肢 ID が、正解の集合と重複なく一致しないか(不足・超過・重複・正解でない ID)。"""
+    ids = [element.option_id for element in draft.answers]
+    return len(ids) != len(set(ids)) or set(ids) != set(question.correct_option_ids)
 
 
-def duplicate_count(keys: Sequence[RecallKey]) -> int:
-    """重複するキーの数(`frozenset(terms)` が既出のもの)。0 なら重複は無い。"""
-    return len(keys) - len({key.term_set for key in keys})
+def missing_options(draft: RecallDraft, question: Question) -> bool:
+    """識別ポイントが誤答選択肢を1件も参照しないか、誤答選択肢でない ID を参照しているか。"""
+    wrong = {o.option_id for o in question.options} - set(question.correct_option_ids)
+    referenced = draft.discrimination.distractor_ids
+    return not referenced or any(option_id not in wrong for option_id in referenced)
+
+
+def cluster_texts(
+    clusters: Mapping[ClusterId, Sequence[QuestionId]], questions: Mapping[QuestionId, Question]
+) -> dict[ClusterId, list[str]]:
+    """各クラスタに属する問題の本文(`OTHER_CLUSTER_FIELDS`)。他クラスタ出現率の照合先。"""
+    return {
+        cluster_id: [text for qid in qids for text in texts_for(questions[qid], OTHER_CLUSTER_FIELDS)]
+        for cluster_id, qids in clusters.items()
+    }
 
 
 def other_cluster_rates(
@@ -111,6 +128,12 @@ class RecallMaterial:
     draft: RecallDraft
 
 
+def is_duplicate(material: RecallMaterial, earlier: Sequence[RecallMaterial]) -> bool:
+    """`material` のキーが、`earlier`(クラスタ順で前の素材)のうち**別クラスタ**のものと同じ組か(D-200)。"""
+    terms = material.draft.key.term_set
+    return any(m.cluster_id != material.cluster_id and m.draft.key.term_set == terms for m in earlier)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class TermRate:
     """想起キーの1 term の他クラスタ出現率。"""
@@ -120,46 +143,83 @@ class TermRate:
     rate: float
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class QuestionCheck:
+    """1問分の検査の結果。`failures` は落ちた検査の名前(空なら合格)。`rates` は合否に関わらず記録する。"""
+
+    failures: tuple[str, ...]
+    rates: tuple[TermRate, ...]
+
+
+def check_question(
+    material: RecallMaterial,
+    question: Question,
+    cluster_texts: Mapping[ClusterId, Sequence[str]],
+    earlier: Sequence[RecallMaterial],
+) -> QuestionCheck:
+    """1問分の素材を検査する。`earlier` はクラスタ順で前の問題の素材(重複の判定にだけ使う)。"""
+    draft = material.draft
+    key_rates = other_cluster_rates(draft.key, material.cluster_id, cluster_texts)
+    checks = (
+        (EMPTY, has_empty_element(draft)),
+        (UNGROUNDED_KEY, bool(missing_key_terms(draft.key, question))),
+        (ANSWER_MISMATCH, answer_mismatch(draft, question)),
+        (MISSING_OPTIONS, missing_options(draft, question)),
+        (GENERIC, is_generic(key_rates)),
+        (VERBATIM, is_verbatim(draft.discrimination.text, question)),
+        (DUPLICATE_KEY, is_duplicate(material, earlier)),
+    )
+    return QuestionCheck(
+        failures=tuple(name for name, failed in checks if failed),
+        rates=tuple(TermRate(material.question_id, term, rate) for term, rate in key_rates.items()),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RecallReport:
-    """検査の結果。件数はすべて 0 でなければならない。`term_rates` は合否に関わらず記録する。"""
+    """成果物に載せる検査の結果。件数は最終の素材についての数で、書き出された成果物ではすべて 0。
 
+    `term_rates` は合否に関わらず記録する。`regenerations` は問題ごとの作り直しの回数(D-219)。
+    """
+
+    empty: int
     ungrounded_keys: int
     """元の問題文に実在しない term を含むキーの数。"""
+    answer_mismatch: int
     missing_options: int
-    """実在しない選択肢を参照する識別ポイントの数。"""
+    """誤答選択肢を正しく参照しない識別ポイントの数。"""
     duplicate_keys: int
     generic_keys: int
     """全 term が他クラスタにも出現するキーの数。"""
     verbatim: int
     """誤答選択肢の丸写しである識別ポイントの数。"""
     term_rates: tuple[TermRate, ...] = ()
+    regenerations: tuple[tuple[QuestionId, int], ...] = ()
 
     @property
     def passed(self) -> bool:
         return not (
-            self.ungrounded_keys or self.missing_options or self.duplicate_keys or self.generic_keys or self.verbatim
+            self.empty
+            or self.ungrounded_keys
+            or self.answer_mismatch
+            or self.missing_options
+            or self.duplicate_keys
+            or self.generic_keys
+            or self.verbatim
         )
 
 
-def verify(
-    materials: Sequence[RecallMaterial],
-    questions: Mapping[QuestionId, Question],
-    cluster_texts: Mapping[ClusterId, Sequence[str]],
-) -> RecallReport:
-    """全素材を検査する。`cluster_texts` は各クラスタに属する問題の本文。"""
-    rates: list[TermRate] = []
-    generic = 0
-    for material in materials:
-        key_rates = other_cluster_rates(material.draft.key, material.cluster_id, cluster_texts)
-        rates.extend(TermRate(material.question_id, term, rate) for term, rate in key_rates.items())
-        generic += is_generic(key_rates)
-    pairs = [(m.draft, questions[m.question_id]) for m in materials]
+def report(checks: Sequence[QuestionCheck], regenerations: Mapping[QuestionId, int]) -> RecallReport:
+    """1問ごとの検査の結果と、問題ごとの作り直しの回数を集める。"""
+    failures = [name for check in checks for name in check.failures]
     return RecallReport(
-        ungrounded_keys=sum(bool(missing_key_terms(d.key, q)) for d, q in pairs),
-        missing_options=sum(bool(missing_options(d.discrimination, q)) for d, q in pairs),
-        duplicate_keys=duplicate_count([m.draft.key for m in materials]),
-        generic_keys=generic,
-        verbatim=sum(is_verbatim(d.discrimination, q) for d, q in pairs),
-        term_rates=tuple(rates),
+        empty=failures.count(EMPTY),
+        ungrounded_keys=failures.count(UNGROUNDED_KEY),
+        answer_mismatch=failures.count(ANSWER_MISMATCH),
+        missing_options=failures.count(MISSING_OPTIONS),
+        duplicate_keys=failures.count(DUPLICATE_KEY),
+        generic_keys=failures.count(GENERIC),
+        verbatim=failures.count(VERBATIM),
+        term_rates=tuple(rate for check in checks for rate in check.rates),
+        regenerations=tuple(regenerations.items()),
     )

@@ -23,8 +23,8 @@ import pytest
 import yaml
 
 from quiz_sift.domain.deck import Deck
-from quiz_sift.domain.ids import DeckId
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.ports.llm import ClassificationResult, RecallDraft
 from quiz_sift.safety.gitignore_guard import IgnoreRule, is_ignored, parse_gitignore
 from quiz_sift.safety.secret_mask import SECRET_MASK
@@ -55,10 +55,22 @@ ROWS = [_row(n) for n in range(1, QUESTIONS + 1)]
 MATERIAL = tuple(
     text for row in ROWS for text in (row["stem"], row["explanation"], *(o["text"] for o in row["options"]))
 )
-DRAFTS = {
-    _qid(n): RecallDraft(RecallKey((f"ゾーン{n}",)), f"合成選択肢{n}A番", f"ゾーン{n}には先頭が結びつく")
-    for n in range(1, QUESTIONS + 1)
-}
+
+
+def _drafts(deck_id: DeckId) -> dict[str, RecallDraft]:
+    """選択肢 ID はデッキに属するので、下書きはデッキごとに作る。"""
+
+    def option(n: int, label: str) -> OptionId:
+        return OptionId(QuestionId(deck_id, _qid(n)), label)
+
+    return {
+        _qid(n): RecallDraft(
+            RecallKey((f"ゾーン{n}",)),
+            (AnswerElement(option(n, "A"), f"合成選択肢{n}A番"),),
+            DiscriminationPoint(f"ゾーン{n}には先頭が結びつく", (option(n, "B"),)),
+        )
+        for n in range(1, QUESTIONS + 1)
+    }
 
 
 def _write_deck(workspace: Path, name: str) -> DeckId:
@@ -112,7 +124,7 @@ def test_c014_material_text_never_reaches_tracked_files_or_logs(
     # 相対パスへの書き出しも作業ルートに落ちるようにして、走査から漏れないようにする。
     monkeypatch.chdir(workspace)
     deck_id = _write_deck(workspace, "deck-c014")
-    llm = MaterialLoggingLlm(drafts=DRAFTS)
+    llm = MaterialLoggingLlm(drafts=_drafts(deck_id))
     run = CliRunner(workspace, capsys, llm, StubTts())
     for stage in ("ingest", "cluster", "script"):
         run(stage, deck_id)
@@ -265,7 +277,7 @@ def test_c015_credentials_never_reach_logs_or_errors(
     stderr = _capture_stderr(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", API_KEY)
     deck_id = _write_deck(workspace, "deck-c015")
-    run = CliRunner(workspace, capsys, CredentialLoggingLlm(drafts=DRAFTS), StubTts())
+    run = CliRunner(workspace, capsys, CredentialLoggingLlm(drafts=_drafts(deck_id)), StubTts())
     run("cluster", deck_id)
 
     log = stderr.getvalue()
@@ -278,7 +290,7 @@ def test_c015_credentials_never_reach_logs_or_errors(
     # ログを通らずに `cli.main` の外へ抜けた例外は、プロセスの終わりにインタプリタが
     # `sys.excepthook` で stderr へ書く。そのトレースバックにも平文で出ない。
     stderr = _capture_stderr(monkeypatch)
-    raising = CliRunner(workspace, capsys, CredentialRaisingLlm(drafts=DRAFTS), StubTts())
+    raising = CliRunner(workspace, capsys, CredentialRaisingLlm(drafts=_drafts(deck_id)), StubTts())
     with pytest.raises(ConnectionError) as raised:
         raising("cluster", _write_deck(workspace, "deck-c015-raise"))
     sys.excepthook(raised.type, raised.value, raised.tb)
@@ -327,7 +339,7 @@ def test_c016_rerun_from_a_middle_stage_calls_nothing_upstream(
     workspace: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     deck_id = _write_deck(workspace, "deck-c016")
-    llm, tts = StubLlm(drafts=DRAFTS), StubTts()
+    llm, tts = StubLlm(drafts=_drafts(deck_id)), StubTts()
     run = CliRunner(workspace, capsys, llm, tts)
     out_dir = workspace / "out" / deck_id
 

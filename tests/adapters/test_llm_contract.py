@@ -31,6 +31,16 @@ def make_question(n: int) -> Question:
 
 
 KEYED = {str(n): make_question(n) for n in range(3)}
+RECALL_KEYED = {f"o{i}": option.option_id for i, option in enumerate(make_question(0).options, start=1)}
+"""想起素材の呼び出しで渡す選択肢のキー(`llm_prompts.recall_payload` と同じ形)。"""
+
+
+def recall_reply(terms: list[str], option: str, distractor: str, text: str = "合成の文") -> dict[str, object]:
+    return {
+        "terms": terms,
+        "answers": [{"option": option, "text": text}],
+        "discrimination": {"text": text, "distractors": [distractor]},
+    }
 
 
 def reply(groups: list[list[str]], unassigned: list[str]) -> dict[str, object]:
@@ -155,7 +165,15 @@ PARSERS: dict[str, tuple[FailureKind, Callable[[str], str]]] = {
     ),
     "empty_terms": (
         FailureKind.SCHEMA,
-        lambda v: str(_contract_error(lambda: parse_recall({"terms": [], "answer": v, "discrimination": v}))),
+        lambda v: str(_contract_error(lambda: parse_recall(recall_reply([], "o1", "o2", v), RECALL_KEYED))),
+    ),
+    "unknown_answer_option": (
+        FailureKind.SCHEMA,
+        lambda v: str(_contract_error(lambda: parse_recall(recall_reply(["語"], v, "o2"), RECALL_KEYED))),
+    ),
+    "unknown_distractor": (
+        FailureKind.SCHEMA,
+        lambda v: str(_contract_error(lambda: parse_recall(recall_reply(["語"], "o1", v), RECALL_KEYED))),
     ),
     "init_tools": (FailureKind.PROVIDER_ERROR, lambda v: repr(_judged(tools=["StructuredOutput", v]))),
     "tool_use_name": (FailureKind.PROVIDER_ERROR, lambda v: repr(_judged(tool_use_name=v))),
@@ -188,7 +206,8 @@ def test_parse_errors_carry_kind_and_count_only(name: str) -> None:
     "parse",
     [
         pytest.param(lambda: parse_entailment({"verdict": SENTINEL}), id="verdict"),
-        pytest.param(lambda: parse_recall({"terms": [], "answer": SENTINEL, "discrimination": SENTINEL}), id="terms"),
+        pytest.param(lambda: parse_recall(recall_reply([], "o1", "o2", SENTINEL), RECALL_KEYED), id="terms"),
+        pytest.param(lambda: parse_recall(recall_reply(["語"], SENTINEL, "o2"), RECALL_KEYED), id="recall_key"),
     ],
 )
 def test_parse_errors_do_not_chain_the_value(parse: Callable[[], object]) -> None:
@@ -196,3 +215,25 @@ def test_parse_errors_do_not_chain_the_value(parse: Callable[[], object]) -> Non
     shown = "".join(traceback.format_exception(_contract_error(parse)))
     for fragment in sentinel_fragments():
         assert fragment not in shown, fragment
+
+
+def test_recall_keys_map_back_to_option_ids() -> None:
+    """想起素材の応答は、渡した不透明なキーを選択肢 ID に写し戻す(D-206)。"""
+    question = make_question(0)
+    payload, keyed = llm_prompts.recall_payload(question)
+    assert keyed == RECALL_KEYED
+    # 元のラベル(A/B…)ではなく通し番号のキーで渡す。
+    assert payload["options"] == [{"key": key, "text": o.text} for key, o in zip(keyed, question.options, strict=True)]
+    assert payload["correct"] == ["o1"]
+
+    draft = parse_recall(recall_reply(["語"], "o1", "o3"), keyed)
+    assert [(e.option_id, e.text) for e in draft.answers] == [(question.options[0].option_id, "合成の文")]
+    assert draft.discrimination.distractor_ids == (question.options[2].option_id,)
+    # 未知のキーは件数だけを載せた SCHEMA。答えと識別ポイントの両方を数える。
+    data = recall_reply(["語"], "x", "y")
+    error = _contract_error(lambda: parse_recall(data, keyed))
+    assert error.kind is FailureKind.SCHEMA and "2 件" in str(error)
+    for broken in ({**data, "answers": "x"}, {**data, "answers": ["x"]}, {**data, "discrimination": []}):
+        with pytest.raises(ContractError) as caught:
+            parse_recall(broken, keyed)
+        assert caught.value.kind is FailureKind.SCHEMA

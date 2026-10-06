@@ -210,3 +210,23 @@ def test_alphanumeric_words_starting_with_a_digit_are_checked_whole(language: La
     if language is Language.JA:
         # 日本語デッキは英数字の語全体で照合するので、本文に無い 48U は止まる。
         assert ungrounded_terms(summary.replace("42U", "48U"), _members(deck, "rack")) == ("48U",)
+
+
+def test_summary_reference_lists_every_correct_option(tmp_path: Path) -> None:
+    """A-7: クラスタ要約の reference は、クラスタ内の各問題の正解をすべて含む(先頭の1件だけにしない)。"""
+    deck_id = DeckId("multi")
+    questions = []
+    for local_id, corrects in (("m1", "AC"), ("m2", "BD")):
+        qid = QuestionId(deck_id, local_id)
+        options = tuple(Option(OptionId(qid, x), f"{local_id} の選択肢 {x}") for x in "ABCD")
+        correct = tuple(o.option_id for o in options if o.option_id.local_id in corrects)
+        questions.append(Question(qid, f"{local_id} の問題文", options, correct, None, StudiedFlag.UNKNOWN))
+    deck = Deck(deck_id, Language.JA, None, tuple(questions))
+    groups: Groups = {"multi": tuple(q.question_id for q in questions)}
+    llm = StubLlm(groups, {"multi": "m1 の問題文"})
+    cluster_deck(llm, deck, Writer(tmp_path / "clusters.txt"))
+
+    ((reference, _),) = llm.checked
+    for local_id, corrects, wrong in (("m1", "AC", "BD"), ("m2", "BD", "AC")):
+        assert f"正解: {local_id} の選択肢 {corrects[0]}、{local_id} の選択肢 {corrects[1]}" in reference
+        assert not any(f"{local_id} の選択肢 {x}" in reference for x in wrong)

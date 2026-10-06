@@ -1,6 +1,6 @@
 """2クラスタ・3問の合成フィクスチャと、含意判定だけを返すスタブ(R-6 / NFR-1)。合成なので NFR-2 の対象外。"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -10,7 +10,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.ports.llm import Entailment, RecallDraft
@@ -47,21 +47,45 @@ ROWS = [
 ]
 CLUSTERS = {"c001": ("q01", "q02"), "c002": ("q03",)}
 
+
+def draft(qid: str, terms: tuple[str, ...], answer: str, discrimination: str) -> RecallDraft:
+    """答えは正解の選択肢、識別ポイントは先頭の誤答選択肢を参照する1問分の想起素材。"""
+    (_, _, texts, correct, _) = next(row for row in ROWS if row[0] == qid)
+    labels = "ABCD"
+    wrong = next(label for i, label in enumerate(labels) if i != correct)
+    question_id = QuestionId(DECK, qid)
+    return RecallDraft(
+        RecallKey(terms),
+        (AnswerElement(OptionId(question_id, labels[correct]), answer),),
+        DiscriminationPoint(discrimination, (OptionId(question_id, wrong),)),
+    )
+
+
+def answered(recall: RecallDraft, *texts: str) -> RecallDraft:
+    """答えの要素の本文を差し替える。要素の数は変えない。"""
+    elements = tuple(AnswerElement(e.option_id, text) for e, text in zip(recall.answers, texts, strict=True))
+    return replace(recall, answers=elements)
+
+
+def discriminated(recall: RecallDraft, text: str) -> RecallDraft:
+    return replace(recall, discrimination=DiscriminationPoint(text, recall.discrimination.distractor_ids))
+
+
 GOOD = {
-    "q01": RecallDraft(
-        RecallKey(("アクセス頻度", "即座", "ストレージクラス")),
+    "q01": draft(
+        "q01",
+        ("アクセス頻度", "即座", "ストレージクラス"),
         "S3 標準-IA",
         "標準-IA は低頻度向けでもミリ秒で取り出せるが、「S3 Glacier Deep Archive」は取り出しに数時間かかる",
     ),
-    "q02": RecallDraft(
-        RecallKey(("90 日後", "Glacier", "ライフサイクルルール")),
+    "q02": draft(
+        "q02",
+        ("90 日後", "Glacier", "ライフサイクルルール"),
         "ライフサイクルルール",
         "移行を自動で行うのはライフサイクルルールで、「バケットポリシー」はアクセス制御しかしない",
     ),
-    "q03": RecallDraft(
-        RecallKey(("明示的な拒否", "許可")),
-        "拒否される",
-        "明示的な拒否は常に許可より優先され、書いた順序は関係しない",
+    "q03": draft(
+        "q03", ("明示的な拒否", "許可"), "拒否される", "明示的な拒否は常に許可より優先され、書いた順序は関係しない"
     ),
 }
 
@@ -91,7 +115,7 @@ def recall_set(drafts: dict[str, RecallDraft]) -> RecallSet:
         for cid, qids in CLUSTERS.items()
         for qid in qids
     )
-    return RecallSet(materials, RecallReport(0, 0, 0, 0, 0))
+    return RecallSet(materials, RecallReport(0, 0, 0, 0, 0, 0, 0))
 
 
 def qscript(local_id: str, prompt: str, answer: str, discrimination: str | None = None) -> QuestionScript:
