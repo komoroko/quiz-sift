@@ -13,3 +13,22 @@ plan:
 execution:
   status: idle
 tasks: {}
+dependency_audit:
+  ran_at: '2026-10-06T01:56:43+00:00'
+  commit: 1dd2436025aeedca26af5ff6932d5e0687a16d2e
+  dependencies: sha256:d20cb0388f2c6c2ba5d2c4b4f2208b7be2982f4322894a2faca995d661037639
+  passed: false
+  summary: "Downloading virtualenv (5.2MiB)\n Downloaded virtualenv\nUninstalled 2 packages in 1.00s\n\
+    warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.\n\
+    \         If the cache and target directories are on different filesystems, hardlinking may not be\
+    \ supported.\n         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy`\
+    \ to suppress this warning.\nInstalled 2 packages in 2.03s\nFound 1 known vulnerability in 1 package\n\
+    Name      Version ID              Fix Versions\n--------- ------- --------------- ------------\nmultidict\
+    \ 6.8.0   CVE-2026-104874 6.9.1\n\nName       Skip Reason\n---------- --------------------------------------------------------------------------------\n\
+    torch      Dependency not found on PyPI and could not be audited: torch (2.10.0+cu128)\ntorchaudio\
+    \ Dependency not found on PyPI and could not be audited: torchaudio (2.10.0+cu128)\n"
+baseline:
+  measured_at: '2026-10-06T02:00:57+00:00'
+  tree_digest: sha256:692e843c1c521429d4b9d197fd31eb4dd3f3d5ba2b00d2eb2fbfeac4ad5db8d0
+  red_steps: []
+  frozen: false
