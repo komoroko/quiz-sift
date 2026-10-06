@@ -6,17 +6,23 @@
 """
 
 from collections.abc import Collection, Sequence
+from typing import Literal
 
 _ICON_SELECTED_CORRECT = "#icon-success"
 _ICON_SELECTED_WRONG = "#icon-cancel"
-_ICON_UNSELECTED = "#icon-radio-empty"
+_ICON_UNSELECTED = {"radio": "#icon-radio-empty", "checkbox": "#icon-checkbox-empty", "none": "#icon-blank"}
+_ICON_SELECTED_MULTI = "#icon-checkbox-filled"
+
+type Form = Literal["radio", "checkbox", "none"]
+"""選択アイコンの形。`none` は単一選択とも複数選択とも判別できない印。"""
 
 
 def question_html(
     number: int,
     *,
     correct: int | Collection[int] | None = None,
-    selected: int | None = None,
+    selected: int | Collection[int] | None = None,
+    form: Form = "radio",
     explanation: str | None = None,
     stem: str | None = None,
     option_texts: Sequence[str] | None = None,
@@ -24,13 +30,17 @@ def question_html(
     """問題1問分のブロック。`correct` / `selected` は正解マーク / 受験者の選択を付ける選択肢の位置。
 
     正解マークは実物どおり選択肢の `answer-correct` クラスで表し、受験者の選択は選択アイコンで表す
-    (選んで誤答した選択肢は `answer-incorrect` になる)。
+    (選んで誤答した選択肢は `answer-incorrect` になる)。`form` は選択アイコンの形(単一選択は radio、
+    複数選択は checkbox)。
     """
     stem = f"問題 {number} の問題文" if stem is None else stem
     texts = option_texts if option_texts is not None else [f"問題 {number} の選択肢 {i}" for i in range(4)]
     correct_positions = {correct} if isinstance(correct, int) else set(correct or ())
+    selected_positions = {selected} if isinstance(selected, int) else set(selected or ())
     options = "".join(
-        _option_html(text, is_correct=position in correct_positions, is_selected=position == selected)
+        _option_html(
+            text, is_correct=position in correct_positions, is_selected=position in selected_positions, form=form
+        )
         for position, text in enumerate(texts)
     )
     explanation_html = (
@@ -57,14 +67,19 @@ def question_html(
     )
 
 
-def _option_html(text: str, *, is_correct: bool, is_selected: bool) -> str:
+def _option_html(text: str, *, is_correct: bool, is_selected: bool, form: Form) -> str:
     if is_correct:
         state, label = "answer-correct--PLOEU", "回答は正解です" if is_selected else "正解"
     elif is_selected:
         state, label = "answer-incorrect--vFyOv", "回答は不正解です"
     else:
         state, label = "answer-skipped--1NDPn", None
-    icon = (_ICON_SELECTED_CORRECT if is_correct else _ICON_SELECTED_WRONG) if is_selected else _ICON_UNSELECTED
+    if not is_selected:
+        icon = _ICON_UNSELECTED[form]
+    elif form == "checkbox":
+        icon = _ICON_SELECTED_MULTI
+    else:
+        icon = _ICON_SELECTED_CORRECT if is_correct else _ICON_SELECTED_WRONG
     label_html = (
         ""
         if label is None

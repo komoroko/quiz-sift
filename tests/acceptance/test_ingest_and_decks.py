@@ -22,6 +22,7 @@ from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.extract.evidence import SelectorKind, selector_kind_is_uniform
 from quiz_sift.extract.failures import ExtractField, FetchFailure, FetchFailureReason
 from quiz_sift.extract.udemy import FetchedPage, extract
+from quiz_sift.extract.writer import write_questions
 from quiz_sift.ingest.deck import ingest_deck
 from quiz_sift.ingest.reader import IngestFormatError
 from quiz_sift.ports.llm import ClassificationResult, GroupProposal, RecallDraft
@@ -176,9 +177,12 @@ def test_c001_single_answer_input_is_refused(workspace: Path) -> None:
 # ---- C-002 ----
 
 
-def _option(text: str, *, correct: bool, selected: bool) -> str:
+def _option(text: str, *, correct: bool, selected: bool, multi: bool) -> str:
     state = "answer-correct--PLOEU" if correct else "answer-incorrect--vFyOv" if selected else "answer-skipped--1NDPn"
-    icon = ("#icon-success" if correct else "#icon-cancel") if selected else "#icon-radio-empty"
+    if multi:
+        icon = "#icon-checkbox-filled" if selected else "#icon-checkbox-empty"
+    else:
+        icon = ("#icon-success" if correct else "#icon-cancel") if selected else "#icon-radio-empty"
     return (
         f'<div class="answer-result-pane--{state}" data-purpose="answer">'
         '<div class="answer-result-pane--answer-body--cDGY6" data-purpose="answer-body">'
@@ -191,15 +195,20 @@ def _option(text: str, *, correct: bool, selected: bool) -> str:
 def _block(
     number: int,
     *,
-    correct: int | None,
-    selected: int | None = None,
+    correct: int | tuple[int, ...] | None,
+    selected: int | tuple[int, ...] | None = None,
     options: int = 4,
     stem: str | None = None,
     explanation: str | None = None,
+    multi: bool = False,
 ) -> str:
+    """`multi` は選択アイコンを複数選択の形(`#icon-checkbox-*`)にする。既定は単一選択の形(`#icon-radio-*`)。"""
     stem = f"合成問題 {number} の問題文" if stem is None else stem
+    corrects = {correct} if isinstance(correct, int) else set(correct or ())
+    selecteds = {selected} if isinstance(selected, int) else set(selected or ())
     body = "".join(
-        _option(f"合成問題 {number} の選択肢 {i}", correct=i == correct, selected=i == selected) for i in range(options)
+        _option(f"合成問題 {number} の選択肢 {i}", correct=i in corrects, selected=i in selecteds, multi=multi)
+        for i in range(options)
     )
     explained = "" if explanation is None else f'<div id="overall-explanation"><p>{explanation}</p></div>'
     return (
@@ -232,7 +241,7 @@ def test_c002_extraction_reports_counts_and_uniform_evidence() -> None:
     report = result.report
 
     # 成功件数と失敗箇所。要素の失敗は位置とフィールドで、取得の失敗は URL と理由で別に列挙される。
-    assert [q.answer_label for q in result.questions] == ["B", "C", "D", "A"]
+    assert [q.answer_labels for q in result.questions] == [("B",), ("C",), ("D",), ("A",)]
     assert (report.question_blocks, report.extracted) == (6, 4)
     assert [(f.question_index, f.missing_field) for f in report.extraction_failures] == [
         (3, ExtractField.OPTIONS),
@@ -251,6 +260,60 @@ def test_c002_extraction_reports_counts_and_uniform_evidence() -> None:
     mixed = extract([*pages, _page("https://example.test/result/4", _block(7, correct=None, selected=2))])
     assert {e.selector_kind for e in mixed.evidences} == {SelectorKind.CORRECT_MARK, SelectorKind.USER_SELECTED}
     assert not selector_kind_is_uniform(mixed.evidences)
+
+
+def test_c002_marked_answers_become_the_answer_set(workspace: Path) -> None:
+    """A-2: 正解マークが N 件ある問題は N 件の正解として抽出され、writer は answers を書く。"""
+    page = _page(
+        "https://example.test/result/1",
+        _block(1, correct=(1, 3), selected=(1,), options=5, multi=True),
+        _block(2, correct=(0, 2, 5), selected=(0, 2, 5), options=6, multi=True),
+        _block(3, correct=(0, 1), options=4, multi=True),
+        _block(4, correct=2, selected=0),
+        _block(5, correct=(0, 1, 2, 3, 4), options=6, multi=True),
+    )
+    result = extract([page])
+
+    assert [(q.local_id, q.answer_labels) for q in result.questions] == [
+        ("p001-q001", ("B", "D")),
+        ("p001-q002", ("A", "C", "F")),
+        ("p001-q003", ("A", "B")),
+        ("p001-q004", ("C",)),
+        ("p001-q005", ("A", "B", "C", "D", "E")),
+    ]
+    assert [len(q.options) for q in result.questions] == [5, 6, 4, 4, 6]
+    assert {e.selector_kind for e in result.evidences} == {SelectorKind.CORRECT_MARK}
+
+    target = write_deck(workspace, DeckId("extracted"), []) / "questions.jsonl"
+    write_questions(target, result.questions, workspace)
+    rows = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    expected = [["B", "D"], ["A", "C", "F"], ["A", "B"], ["C"], ["A", "B", "C", "D", "E"]]
+    assert [row["answers"] for row in rows] == expected
+    ingested = ingest_deck(workspace / "data", DeckId("extracted"))
+    assert ingested.report.rejected == ()
+    assert [q.answer_count for q in ingested.deck.questions] == [2, 3, 2, 1, 5]
+
+
+def test_c002_user_selected_only_for_single_select() -> None:
+    """A-3: マークが無いときの受験者の選択は、単一選択の形の問題でだけ正解にする。"""
+    page = _page(
+        "https://example.test/result/1",
+        _block(1, correct=None, selected=2),  # 単一選択の形: 受験者の選択を正解とする
+        _block(2, correct=None, selected=1, multi=True),  # 4択2正解・マーク無し・受験者は1件だけ選んだ
+        _block(3, correct=None, selected=(0, 3), options=5, multi=True),
+        _block(4, correct=None, selected=1).replace("#icon-radio-empty", "#icon-unknown"),  # 判別できない形
+        _block(5, correct=None, selected=1).replace("#icon-radio-empty", "#icon-checkbox-empty", 1),  # 印が混在
+    )
+    result = extract([page])
+
+    assert [(q.local_id, q.answer_labels) for q in result.questions] == [("p001-q001", ("C",))]
+    assert [e.selector_kind for e in result.evidences] == [SelectorKind.USER_SELECTED]
+    assert [(f.question_index, f.missing_field) for f in result.report.extraction_failures] == [
+        (1, ExtractField.ANSWER),
+        (2, ExtractField.ANSWER),
+        (3, ExtractField.ANSWER),
+        (4, ExtractField.ANSWER),
+    ]
 
 
 # ---- C-011 ----
