@@ -27,6 +27,8 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import OptionId, QuestionId, SessionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
+from quiz_sift.ingest.reader import IngestFormatError
+from quiz_sift.pipeline.stage import Stage, inputs_digest
 from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft
 from quiz_sift.ports.metering import FailureKind, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
@@ -423,6 +425,31 @@ def test_stage_digest_carries_the_models_it_uses(root: Path, capsys: pytest.Capt
     assert llm.calls.count("recall") == 2 * recalled
     assert len(list((out / "recall").iterdir())) == 2
     assert len(list((out / "cluster").iterdir())) == 1
+
+
+def test_ingest_cache_from_the_single_answer_format_is_not_reused(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """正解を単一の値で持つ形の成果物がキャッシュに残っていても、旧キーの入力は取り込みで止まる(C-001)。
+
+    ingest の digest は入力のバイト列と段の設定だけで決まる。成果物の形を変えた版を段の設定に入れないと、
+    旧コードが作った成果物にヒットして `IngestFormatError` が出ない。
+    """
+    old_key = "answ" + "er"
+    questions = root / "data" / DECK / "questions.jsonl"
+    rows = [json.loads(line) for line in questions.read_text(encoding="utf-8").splitlines()]
+    legacy = [{**{k: v for k, v in row.items() if k != "answers"}, old_key: row["answers"][0]} for row in rows]
+    questions.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in legacy) + "\n", encoding="utf-8")
+
+    # 旧コード(段の設定に形の版が無い)が、同じ入力から作った成果物を置く。
+    sources = [questions, root / "data" / DECK / "deck.yaml"]
+    upstream = b"".join(path.name.encode() + b"\0" + path.read_bytes() + b"\0" for path in sources)
+    stale = root / "out" / DECK / "ingest" / inputs_digest(Stage("ingest"), upstream)
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps({"questions": [{**row, "options": []} for row in legacy]}), encoding="utf-8")
+
+    with pytest.raises(IngestFormatError, match="未知のキー"):
+        Runner(root, capsys, StubLlm(), StubTts())("ingest", DECK)
 
 
 def test_resume_makes_no_llm_calls_or_invocations_upstream(

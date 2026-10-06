@@ -109,7 +109,10 @@ def _models(*methods: str) -> str:
     return ",".join(f"{m}={llm_prompts.MODELS[m]}" for m in (*methods, "check_entailment"))
 
 
-INGEST = Stage("ingest")
+# ingest の digest は入力のバイト列だけで決まり、実装コードは入らない。成果物(deck JSON)の形を変えたら
+# `deck_format` を上げて digest を変える。上げないと旧形式の成果物にキャッシュヒットし、旧形式の入力が
+# 取り込みの検査(`IngestFormatError`)を通らずに素通りする。2 = 正解を `answers` 配列で持つ形(ADR-020)。
+INGEST = Stage("ingest", params={"deck_format": 2})
 CLUSTER = Stage(
     "cluster",
     prompt_template="\n".join((llm_prompts.CLASSIFY_SYSTEM, llm_prompts.SUMMARIZE_SYSTEM, _ENTAILMENT)),
