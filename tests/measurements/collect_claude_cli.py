@@ -4,6 +4,7 @@
 
     python tests/measurements/collect_claude_cli.py --repo <リポジトリ> contract
     python tests/measurements/collect_claude_cli.py --repo <リポジトリ> home-probe
+    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> flags
 
 前提(ADR-014 / ADR-017): 人が最小ホームを用意済みであること(`HOME=~/.quiz-sift-claude-home claude /login`)。
 
@@ -24,6 +25,13 @@
 見えた合言葉をスキーマで返させる(NFR-8 (e)5。なしの側は positive control)。後始末を確かめ、
 `docs/test/measurements/claude-cli-home-probe.md` の「## 記録」を書き直す。作業ディレクトリの親は
 このスクリプトが作る専用のディレクトリで、`/tmp` 直下には置かない(D-151)。
+
+`flags`: NFR-8 のフラグの実測の第1段(T-054 / C-023・C-024)。`claude --version` と `--help` を採り、`--help` に
+現れるフラグのうちユーザ設定の読み込み元とツールの有効化に関わるものを列挙する。有効ツールの許可リストの
+候補フラグごとに、空の許可リストと `StructuredOutput` を明示したものの2通りで、拒否リスト(`--settings` の
+`permissions.deny`)を外した argv から合成プロンプトを1回ずつ送り、`init.tools` と構造化出力の有無を記録する。
+権限の自動承認のフラグ(`--allowedTools` など)は許可リストの候補に数えない。
+出力は `docs/test/measurements/claude-cli-flags.md`。
 """
 
 import argparse
@@ -421,10 +429,153 @@ def home_probe(repo: Path, metered: list[str]) -> int:
     return 0
 
 
+# `--help` から拾う、ユーザ設定の読み込み元に関わるフラグとツールの有効化に関わるフラグ。記録するのは
+# このうち `--help` に現れたものだけ。
+SETTINGS_FLAGS = ("--setting-sources", "--settings", "--safe-mode", "--bare", "--restricted")
+TOOL_FLAGS = (
+    "--tools",
+    "--allowedTools",
+    "--disallowedTools",
+    "--restricted",
+    "--bare",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "--disable-slash-commands",
+)
+# ユーザ設定を読まない指定の候補(設計 NFR-8)。
+SETTINGS_BLOCK_FLAG = "--setting-sources"
+# 有効ツールの許可リストの候補フラグと、それぞれに渡す値(空の許可リストと StructuredOutput の明示)。
+ALLOWLIST_FLAGS = ("--tools",)
+ALLOWLIST_VALUES = ("", "StructuredOutput")
+
+FLAGS_PROMPT = "SYNTHETIC FLAG PROBE (quiz-sift T-054). No study material is included. What is 2 + 3?\n"
+
+
+def help_flags(help_text: str) -> set[str]:
+    """`--help` の Options 節にある長いフラグ名(`--allowedTools, --allowed-tools` のような別名を含む)。"""
+    return {
+        name
+        for names in re.findall(r"^\s+(?:-\w, )?(--[\w-]+(?:, --[\w-]+)*)", help_text, re.M)
+        for name in names.split(", ")
+    }
+
+
+def without_deny_list(argv: list[str]) -> list[str]:
+    """設計 argv から拒否リスト(`--settings` とその値)を外す。"""
+    i = argv.index("--settings")
+    return argv[:i] + argv[i + 2 :]
+
+
+def is_json(line: str) -> bool:
+    try:
+        json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
+def allowlist_run(flag: str, value: str, env: dict[str, str]) -> dict[str, object]:
+    argv = [*without_deny_list(design_argv(compact(SCHEMA), HAIKU)), flag, value]
+    with tempfile.TemporaryDirectory() as cwd:
+        proc = subprocess.run(argv, input=FLAGS_PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
+    # 読めない行を「init 無し」と記録すると、パーサの失敗が「許可リストの手段が無い」という実測にすり替わる。
+    bad = [line for line in proc.stdout.decode(errors="replace").splitlines() if not is_json(line)]
+    if bad:
+        raise SystemExit(f"{flag} {value!r}: 標準出力に JSON でない行が {len(bad)} 行ある。先頭: {bad[0][:120]!r}")
+    events = parse_events(proc.stdout)
+    inits = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+    results = [e for e in events if e.get("type") == "result"]
+    structured = results[-1].get("structured_output") if results else None
+    return {
+        "flag": flag,
+        "value": value,
+        "argv": argv,
+        "exit_code": proc.returncode,
+        "stderr": proc.stderr.decode(errors="replace"),
+        "init_tools": inits[0]["tools"] if inits else None,
+        "result_is_error": results[-1].get("is_error") if results else None,
+        "structured_output": structured,
+        "structured_output_returned": isinstance(structured, dict) and not results[-1].get("is_error"),
+        "stdout_sha256": hashlib.sha256(proc.stdout).hexdigest(),
+    }
+
+
+def flags(repo: Path, metered: list[str]) -> int:
+    env = child_env()
+    version = claude_version(env)
+    with tempfile.TemporaryDirectory() as cwd:
+        help_text = subprocess.run(
+            ["claude", "--help"], env=env, cwd=cwd, capture_output=True, text=True, check=True
+        ).stdout
+    present = help_flags(help_text)
+    collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    runs = [
+        allowlist_run(flag, value, env) for flag in ALLOWLIST_FLAGS if flag in present for value in ALLOWLIST_VALUES
+    ]
+    record: dict[str, object] = {
+        "collector": "tests/measurements/collect_claude_cli.py",
+        "collected_at": collected_at,
+        "claude_version": version,
+        "model": HAIKU,
+        "home": str(MINIMAL_HOME),
+        "env_keys": sorted(env),
+        "metered_vars_checked": len(METERED_VARS),
+        "metered_vars_in_parent_env": metered,
+        "prompt": FLAGS_PROMPT,
+        "help_sha256": hashlib.sha256(help_text.encode()).hexdigest(),
+        "settings_flags": [f for f in SETTINGS_FLAGS if f in present],
+        "tool_flags": [f for f in TOOL_FLAGS if f in present],
+        "allowlist_runs": runs,
+    }
+    chosen = next(
+        (r for r in runs if r["init_tools"] == ["StructuredOutput"] and r["structured_output_returned"]), None
+    )
+    settings_line = (
+        f"ユーザ設定の遮断: あり({SETTINGS_BLOCK_FLAG})" if SETTINGS_BLOCK_FLAG in present else "ユーザ設定の遮断: なし"
+    )
+    allowlist_line = (
+        f"許可リスト: 一致あり({chosen['flag']} {json.dumps(chosen['value'])})" if chosen else "許可リスト: 一致なし"
+    )
+    path = repo / "docs" / "test" / "measurements" / "claude-cli-flags.md"
+    path.write_text(render_flags(record, settings_line, allowlist_line))
+    print(f"{settings_line}\n{allowlist_line}")
+    return 0
+
+
+def render_flags(record: dict[str, object], settings_line: str, allowlist_line: str) -> str:
+    return f"""# 実測ログ: claude CLI のフラグ(第1段)
+
+NFR-8 のフラグの実測の第1段(T-054 / C-023・C-024)。製品の argv を変える前に、ホストの `claude` の
+`--help` に現れるフラグのうち、ユーザ設定の読み込み元とツールの有効化に関わるものを列挙し、有効ツールの
+許可リストの候補フラグごとに、拒否リスト(`--settings` の `permissions.deny`)を外した argv での
+`init.tools` と、`--json-schema` の構造化出力が返ったかを記録する。権限の自動承認のフラグ
+(`--allowedTools` など)は許可リストの候補に数えない。
+`tests/measurements/collect_claude_cli.py flags` が書き、`tests/measurements/test_claude_cli_flags_logs.py` が
+機械判定する。
+
+採取は最小ホーム(ADR-014)を `HOME` に向け、子プロセスへ渡す環境は `HOME` / `PATH` / `LANG` / `TZ` の
+4つだけ。送ったのは合成プロンプトだけ。`--help` の本文は載せず、sha256 だけを残す。
+
+ユーザ設定の遮断は、ここでは `--help` にフラグがあるかだけを見る。効いているかの番兵の実測は第2段
+(製品の argv を変えた後)で行う。
+
+## 記録
+
+```yaml
+{yaml.safe_dump(record, allow_unicode=True, sort_keys=False).rstrip()}
+```
+
+## 結論
+
+{settings_line}
+{allowlist_line}
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("what", choices=("contract", "home-probe"))
+    parser.add_argument("what", choices=("contract", "home-probe", "flags"))
     args = parser.parse_args()
 
     metered = sorted(v for v in METERED_VARS if v in os.environ)
@@ -434,7 +585,8 @@ def main() -> int:
     if not (MINIMAL_HOME / ".claude" / ".credentials.json").is_file():
         print(f"最小ホームが用意されていない: HOME={MINIMAL_HOME} claude /login", file=sys.stderr)
         return 2
-    return contract(args.repo, metered) if args.what == "contract" else home_probe(args.repo, metered)
+    commands = {"contract": contract, "home-probe": home_probe, "flags": flags}
+    return commands[args.what](args.repo, metered)
 
 
 if __name__ == "__main__":
