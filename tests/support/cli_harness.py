@@ -14,8 +14,8 @@ from typing import Any
 
 from quiz_sift.adapters.claude_process import Workspace
 from quiz_sift.adapters.llm_claude_cli import ClaudeCliLlm
-from quiz_sift.domain.ids import DeckId
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.ports.llm import Entailment, Llm, RecallDraft, TokenUsage
 from quiz_sift.ports.metering import FailureKind, InvocationScope, RateLimitInfo, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
@@ -49,23 +49,65 @@ ROWS = [
         "マルチ AZ 配置はスタンバイへ自動でフェイルオーバーする。",
     ),
 ]
+
+
+def _draft(qid: str, terms: tuple[str, ...], answer: str, discrimination: str, distractor: str) -> RecallDraft:
+    """`answer` と `distractor` は選択肢のラベル。答えの要素は正解の選択肢の本文。"""
+    (_, _, texts, _, _) = next(row for row in ROWS if row[0] == qid)
+
+    def oid(label: str) -> OptionId:
+        return OptionId(QuestionId(DECK, qid), label)
+
+    return RecallDraft(
+        RecallKey(terms),
+        (AnswerElement(oid(answer), texts["ABCD".index(answer)]),),
+        DiscriminationPoint(discrimination, (oid(distractor),)),
+    )
+
+
 DRAFTS = {
-    "q01": RecallDraft(
-        RecallKey(("アクセス頻度", "即座", "ストレージクラス")),
-        "S3 標準-IA",
-        "標準-IA は低頻度向けでもミリ秒で取り出せるが、「S3 Glacier Deep Archive」は取り出しに数時間かかる",
+    "q01": _draft(
+        "q01",
+        ("アクセス頻度", "即座", "ストレージクラス"),
+        "B",
+        "標準-IA は低頻度向けでもミリ秒で取り出せるが、S3 Glacier Deep Archive は取り出しに数時間かかる",
+        "C",
     ),
-    "q03": RecallDraft(
-        RecallKey(("明示的な拒否", "許可")),
-        "拒否される",
-        "明示的な拒否は常に許可より優先され、書いた順序は関係しない",
+    "q03": _draft(
+        "q03", ("明示的な拒否", "許可"), "B", "明示的な拒否は常に許可より優先され、書いた順序は関係しない", "C"
     ),
-    "q05": RecallDraft(
-        RecallKey(("フェイルオーバー", "マルチ AZ")),
-        "マルチ AZ 配置",
-        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、「リードレプリカ」は読み取りの負荷分散のためのもの",
+    "q05": _draft(
+        "q05",
+        ("プライマリ障害", "フェイルオーバー"),
+        "A",
+        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、リードレプリカは読み取りの負荷分散のためのもの",
+        "B",
     ),
 }
+
+
+def recall_output(prompt: dict[str, Any]) -> dict[str, object]:
+    """想起素材の呼び出し(`prompt` は子へ渡した payload)への、`DRAFTS` に沿った応答。
+
+    選択肢は payload の不透明なキーで返す(D-206)。キーは選択肢の本文で引く。
+    """
+    question = prompt["question"]
+    (qid,) = [qid for qid, stem, *_ in ROWS if stem == question["stem"]]
+    (_, _, texts, _, _) = next(row for row in ROWS if row[0] == qid)
+    keys = {option["text"]: option["key"] for option in question["options"]}
+
+    def key(option_id: OptionId) -> str:
+        return str(keys[texts["ABCD".index(option_id.local_id)]])
+
+    draft = DRAFTS[qid]
+    return {
+        "terms": list(draft.key.terms),
+        "answers": [{"option": key(e.option_id), "text": e.text} for e in draft.answers],
+        "discrimination": {
+            "text": draft.discrimination.text,
+            "distractors": [key(o) for o in draft.discrimination.distractor_ids],
+        },
+    }
 
 
 class CountingMeter:
@@ -121,9 +163,7 @@ def respond(spec: CommandSpec, **stdout: Any) -> CommandResult:
     elif "summary" in properties:
         output = {"summary": prompt["questions"][0]["stem"]}
     elif "terms" in properties:
-        (qid,) = [qid for qid, stem, *_ in ROWS if stem == prompt["question"]["stem"]]
-        draft = DRAFTS[qid]
-        output = {"terms": list(draft.key.terms), "answer": draft.answer, "discrimination": draft.discrimination}
+        output = recall_output(prompt)
     elif "description" in properties:
         output = {"description": f"{prompt['term']}の説明"}
     else:

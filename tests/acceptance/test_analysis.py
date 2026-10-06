@@ -8,29 +8,37 @@
 キャッシュは前段の成果物で引かれるので、stub の振る舞いを変えた実行はデッキ ID を分けて走らせる。
 """
 
+import io
 import json
 import logging
 import re
+import sys
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import pytest
+from support.claude_fake import FakeRunner, exited, fake_stdout
+from support.cli_harness import DECK, CliLlms, flag, no_preflight, recall_output, respond, write_root
+from support.cli_harness import ROWS as DECK_ROWS
 
+from quiz_sift import cli
 from quiz_sift.cluster.metrics import ClusterMetrics, degeneracy_violations
 from quiz_sift.cluster.run import ClassificationFailed
 from quiz_sift.cluster.summary import UngroundedSummary
 from quiz_sift.domain.deck import Deck
-from quiz_sift.domain.ids import DeckId, QuestionId
+from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.question import Question
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.terms import extract_terms
-from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, GroupProposal, RecallDraft
-from quiz_sift.recall.generate import RecallRejected
-from quiz_sift.safety.entailment import EntailmentRejected
+from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, GroupProposal, LlmCallError, RecallDraft
+from quiz_sift.ports.process import CommandResult, CommandSpec
+from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
+from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION, EntailmentRejected
 from quiz_sift.script.generate import LabelEnumerationFound, ScriptTooLong
 
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
@@ -44,12 +52,17 @@ def _fixture() -> list[dict[str, Any]]:
     return [json.loads(line) for line in KNOWN5.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _correct(row: Mapping[str, Any]) -> list[int]:
+    """正解の選択肢の位置。フィクスチャは単一正解(`correct`)、この試験で足す複数正解の問題は `corrects`。"""
+    return list(row["corrects"]) if "corrects" in row else [row["correct"]]
+
+
 def _deck_row(row: Mapping[str, Any], *, explained: bool = True) -> dict[str, Any]:
     return {
         "id": row["id"],
         "stem": row["stem"],
         "options": [{"id": label, "text": text} for label, text in zip("ABCD", row["options"], strict=True)],
-        "answers": ["ABCD"[row["correct"]]],
+        "answers": ["ABCD"[i] for i in _correct(row)],
         "explanation": row["explanation"] if explained else None,
     }
 
@@ -74,52 +87,110 @@ SUMMARIES = {
     "eventbridge": "EventBridge のルールで Lambda を起動する",
 }
 
-# すべての検査を通る想起素材。識別ポイントが鉤括弧で括るのは、その問題の誤答選択肢。
+_DRAFT_DECK = DeckId("drafts")
+"""下書きの選択肢 ID を置くデッキ。`AnalysisLlm` が呼ばれた問題のデッキへ写し替える(デッキ ID は試験ごとに違う)。"""
+
+
+def _oid(qid: str, label: str) -> OptionId:
+    return OptionId(QuestionId(_DRAFT_DECK, qid), label)
+
+
+def _draft(
+    qid: str, terms: tuple[str, ...], answers: Mapping[str, str], discrimination: str, distractors: str
+) -> RecallDraft:
+    """`answers` は選択肢ラベル → 答えの要素、`distractors` は識別ポイントが参照する誤答のラベルの列。"""
+    return RecallDraft(
+        RecallKey(terms),
+        tuple(AnswerElement(_oid(qid, label), text) for label, text in answers.items()),
+        DiscriminationPoint(discrimination, tuple(_oid(qid, label) for label in distractors)),
+    )
+
+
+def _rebind(draft: RecallDraft, question: Question) -> RecallDraft:
+    def move(option_id: OptionId) -> OptionId:
+        return OptionId(question.question_id, option_id.local_id)
+
+    return RecallDraft(
+        draft.key,
+        tuple(AnswerElement(move(e.option_id), e.text) for e in draft.answers),
+        DiscriminationPoint(draft.discrimination.text, tuple(move(o) for o in draft.discrimination.distractor_ids)),
+    )
+
+
+def _answered(draft: RecallDraft, text: str) -> RecallDraft:
+    """単一正解の下書きの答えを `text` に差し替える。"""
+    (element,) = draft.answers
+    return replace(draft, answers=(AnswerElement(element.option_id, text),))
+
+
+def _discriminated(draft: RecallDraft, text: str) -> RecallDraft:
+    return replace(draft, discrimination=DiscriminationPoint(text, draft.discrimination.distractor_ids))
+
+
+# すべての検査を通る想起素材。キーの語句は問題文に実在し、識別ポイントは誤答選択肢を ID で参照する。
 DRAFTS = {
-    "q05": RecallDraft(
-        RecallKey(("中断", "バッチ処理")),
-        "スポットインスタンス",
-        "中断を許せるなら最安はスポットで、「リザーブドインスタンス」は長期の確約で割り引く仕組み",
+    "q05": _draft(
+        "q05",
+        ("中断", "バッチ処理"),
+        {"B": "スポットインスタンス"},
+        "中断を許せるなら最安はスポットで、リザーブドインスタンスは長期の確約で割り引く仕組み",
+        "C",
     ),
-    "q06": RecallDraft(
-        RecallKey(("常時稼働", "本番サーバー")),
-        "リザーブドインスタンス",
-        "1年以上動かし続けるなら期間を確約して割引を受け、「スポットインスタンス」は中断され得るので本番に向かない",
+    "q06": _draft(
+        "q06",
+        ("常時稼働", "本番サーバー"),
+        {"C": "リザーブドインスタンス"},
+        "1年以上動かし続けるなら期間を確約して割引を受け、スポットインスタンスは中断され得るので本番に向かない",
+        "A",
     ),
-    "q07": RecallDraft(
-        RecallKey(("ソフトウェアライセンス", "物理サーバー")),
-        "Dedicated Hosts",
-        "サーバー単位のライセンスは物理サーバーを専有して持ち込み、「Savings Plans」は料金を割り引くだけ",
+    "q07": _draft(
+        "q07",
+        ("ソフトウェアライセンス", "物理サーバー"),
+        {"A": "Dedicated Hosts"},
+        "サーバー単位のライセンスは物理サーバーを専有して持ち込み、Savings Plans は料金を割り引くだけ",
+        "D",
     ),
-    "q08": RecallDraft(
-        RecallKey(("アプリケーション", "推奨方法")),
-        "IAM ロールをインスタンスに割り当てる",
-        "一時的な認証情報が自動で更新されるロールを使い、「アクセスキーをコードに埋め込む」ような固定の認証情報は避ける",
+    "q08": _draft(
+        "q08",
+        ("アプリケーション", "推奨方法"),
+        {"B": "IAM ロールをインスタンスに割り当てる"},
+        "一時的な認証情報が自動で更新されるロールを使い、アクセスキーをコードに埋め込むような固定の認証情報は避ける",
+        "A",
     ),
-    "q09": RecallDraft(
-        RecallKey(("明示的な拒否", "許可")),
-        "拒否",
-        "明示的な拒否は常に優先され、「先に書かれた方」のように書いた順では決まらない",
+    "q09": _draft(
+        "q09",
+        ("明示的な拒否", "許可"),
+        {"B": "拒否"},
+        "明示的な拒否は常に優先され、先に書かれた方のように書いた順では決まらない",
+        "CD",
     ),
-    "q10": RecallDraft(
-        RecallKey(("必要最小限", "権限")),
-        "最小権限の原則",
-        "必要な操作だけを許すのが最小権限で、「多層防御」は防御を何重にも重ねる別の考え方",
+    "q10": _draft(
+        "q10",
+        ("必要最小限", "権限"),
+        {"A": "最小権限の原則"},
+        "必要な操作だけを許すのが最小権限で、多層防御は防御を何重にも重ねる別の考え方",
+        "B",
     ),
-    "q11": RecallDraft(
-        RecallKey(("フェイルオーバー", "別のアベイラビリティーゾーン")),
-        "マルチ AZ 配置",
-        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、「リードレプリカ」は読み取りの負荷分散のためのもの",
+    "q11": _draft(
+        "q11",
+        ("フェイルオーバー", "別のアベイラビリティーゾーン"),
+        {"B": "マルチ AZ 配置"},
+        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、リードレプリカは読み取りの負荷分散のためのもの",
+        "A",
     ),
-    "q12": RecallDraft(
-        RecallKey(("読み取り負荷", "分散")),
-        "リードレプリカ",
-        "読み取り専用のコピーを非同期で作るのがリードレプリカで、「マルチ AZ 配置」は可用性のための待機系",
+    "q12": _draft(
+        "q12",
+        ("読み取り負荷", "分散"),
+        {"B": "リードレプリカ"},
+        "読み取り専用のコピーを非同期で作るのがリードレプリカで、マルチ AZ 配置は可用性のための待機系",
+        "A",
     ),
-    "q13": RecallDraft(
-        RecallKey(("スタンバイ", "レプリケーション方式")),
-        "同期",
-        "マルチ AZ のスタンバイは同期で複製され、「非同期」で複製するのはリードレプリカ",
+    "q13": _draft(
+        "q13",
+        ("スタンバイ", "レプリケーション方式"),
+        {"B": "同期"},
+        "マルチ AZ のスタンバイは同期で複製され、非同期で複製するのはリードレプリカ",
+        "A",
     ),
 }
 
@@ -129,7 +200,13 @@ class AnalysisLlm(StubLlm):
     """`groups`(ラベル → 問題の local_id)どおりに分類し、要約は `summaries` を返す。
 
     `failing` のグループは分割呼び出しの失敗として返す。含意判定は `contradicted` / `uncertain` に
-    入っている主張にだけその判定を返し、ほかは `consistent`。判定にかけた主張は `checked` に残る。
+    入っている主張にだけその判定を返し、ほかは `consistent`。`contradicts` を渡すと、それが真を返す
+    (reference, statement) にも `contradicted` を返す。判定にかけた主張は `checked`、reference と組で
+    `judged` に残る。
+
+    想起素材は、`sequences` にある問題なら呼ばれるたびにその列を順に返し(尽きたら最後を返し続ける)、
+    無ければ `drafts` を返す。どちらも呼ばれた問題のデッキへ選択肢 ID を写し替える。`call_failures` の
+    問題は `LlmCallError` を上げる。呼ばれた問題は `recalled` に残る。
     """
 
     groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
@@ -138,6 +215,20 @@ class AnalysisLlm(StubLlm):
     contradicted: frozenset[str] = frozenset()
     uncertain: frozenset[str] = frozenset()
     checked: list[str] = field(default_factory=list)
+    contradicts: Callable[[str, str], bool] = lambda reference, statement: False
+    judged: list[tuple[str, str]] = field(default_factory=list)
+    sequences: Mapping[str, Sequence[RecallDraft]] = field(default_factory=dict)
+    call_failures: frozenset[str] = frozenset()
+    recalled: list[str] = field(default_factory=list)
+
+    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+        self.calls.append("recall")
+        qid = question.question_id.local_id
+        self.recalled.append(qid)
+        if qid in self.call_failures:
+            raise LlmCallError("合成の呼び出しの失敗")
+        sequence = self.sequences.get(qid, (self.drafts[qid],))
+        return _rebind(sequence[min(self.recalled.count(qid), len(sequence)) - 1], question)
 
     def _proposals(self, deck: Deck) -> list[GroupProposal]:
         present = {q.question_id.local_id for q in deck.questions}
@@ -166,7 +257,8 @@ class AnalysisLlm(StubLlm):
     def check_entailment(self, reference: str, statement: str) -> Entailment:
         super().check_entailment(reference, statement)
         self.checked.append(statement)
-        if statement in self.contradicted:
+        self.judged.append((reference, statement))
+        if statement in self.contradicted or self.contradicts(reference, statement):
             return Entailment.CONTRADICTED
         if statement in self.uncertain:
             return Entailment.UNCERTAIN
@@ -295,15 +387,26 @@ def test_c003_clusters_are_exclusive_and_summaries_grounded(
 
 # ---- C-004 ----
 
-_QUOTED = re.compile(r"「([^」]+)」")
-
 
 def _nfkc(text: str) -> str:
     return unicodedata.normalize("NFKC", text).casefold()
 
 
 def _distractors(row: Mapping[str, Any]) -> list[str]:
-    return [text for i, text in enumerate(row["options"]) if i != row["correct"]]
+    return [text for i, text in enumerate(row["options"]) if i not in _correct(row)]
+
+
+def _exhausted(workspace: Path, capsys: pytest.CaptureFixture[str], name: str, **changes: Any) -> RegenerationExhausted:
+    """`changes` の stub で recall を走らせ、作り直しの上限超過で止まって何も書かないことを確かめる。"""
+    deck_id = _deck(workspace, name, changes.pop("rows", SUBSET_ROWS))
+    error = _fails(CliRunner(workspace, capsys, _subset_llm(**changes), StubTts()), "recall", deck_id)
+    assert isinstance(error, RegenerationExhausted), error
+    assert _artifacts(workspace, deck_id, "recall") == []
+    return error
+
+
+def _failed_checks(error: RegenerationExhausted) -> dict[str, tuple[str, ...]]:
+    return {e.question_id.local_id: e.failures for e in error.exhausted}
 
 
 def test_c004_recall_keys_are_unique_and_grounded(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -320,21 +423,17 @@ def test_c004_recall_keys_are_unique_and_grounded(workspace: Path, capsys: pytes
     assert sorted(m["question"] for m in materials) == sorted(rows)
     for m in materials:
         assert m["terms"] and all(t.strip() for t in m["terms"])
-        assert m["answer"].strip() and m["discrimination"].strip()
+        assert all(e["text"].strip() for e in m["answers"]) and m["discrimination"]["text"].strip()
 
     for m in materials:
         row = rows[m["question"]]
-        # キーの語句は元の問題に実在する。
-        assert all(is_present(term, _texts(row)) for term in m["terms"])
-        # 識別ポイントが参照する誤答選択肢は元データに実在する。
-        referenced = _QUOTED.findall(m["discrimination"])
-        assert referenced
-        assert all(ref in _distractors(row) for ref in referenced)
+        # キーの語句は元の問題の問題文に実在する。
+        assert all(is_present(term, [row["stem"]]) for term in m["terms"])
         # 識別ポイントは誤答選択肢の丸写しではない: 誤答選択肢の本文を除いても 30% 以上が残る。
-        rest = _nfkc(m["discrimination"])
+        rest = _nfkc(m["discrimination"]["text"])
         for option in _distractors(row):
             rest = rest.replace(_nfkc(option), "")
-        assert len(rest) >= 0.3 * len(_nfkc(m["discrimination"]))
+        assert len(rest) >= 0.3 * len(_nfkc(m["discrimination"]["text"]))
         # 汎用語だけのキーではない: 自クラスタ以外のどのクラスタにも出現しない語句が1つ以上ある。
         others = [
             text for cid, qids in clusters.items() if cid != m["cluster"] for qid in qids for text in _texts(rows[qid])
@@ -345,36 +444,226 @@ def test_c004_recall_keys_are_unique_and_grounded(workspace: Path, capsys: pytes
     assert len({frozenset(m["terms"]) for m in materials}) == len(materials)
     report = recall["report"]
     assert (report["ungrounded_keys"], report["missing_options"], report["duplicate_keys"]) == (0, 0, 0)
-    assert (report["generic_keys"], report["verbatim"]) == (0, 0)
-    # 答えと識別ポイントは含意判定にかかっている。
-    assert {m["answer"] for m in materials} | {m["discrimination"] for m in materials} <= set(llm.checked)
+    assert (report["generic_keys"], report["verbatim"], report["answer_mismatch"], report["empty"]) == (0, 0, 0, 0)
+    assert report["regenerations"] == dict.fromkeys(rows, 0)
+    # 答えの各要素と識別ポイントは含意判定にかかっている。
+    statements = {e["text"] for m in materials for e in m["answers"]} | {m["discrimination"]["text"] for m in materials}
+    assert statements <= set(llm.checked)
 
-    # 検査に落ちる素材を1件ずつ仕込むと、非0終了して想起素材は書かれない。
-    variants = {
-        # ec2 の q05 と iam の q08 に、両方に実在する語の組を順序だけ変えて与える。
-        "duplicate_keys": {
-            "q05": replace(DRAFTS["q05"], key=RecallKey(("EC2", "インスタンス"))),
-            "q08": replace(DRAFTS["q08"], key=RecallKey(("インスタンス", "EC2"))),
-        },
+    # 検査に落ちる素材を返し続けると、上限まで作り直した後に非0終了して想起素材は書かれない。
+    duplicate = RecallKey(("EC2",))
+    variants: dict[str, tuple[dict[str, RecallDraft], dict[str, tuple[str, ...]]]] = {
+        # ec2 の q05 と iam の q08 に、両方の問題文にある同じ語の組を与える。重複はクラスタ順で後の q08 にだけ
+        # 数える。両方の問題文にある語はどちらのクラスタにも出現するので、両方が汎用語にもなる。
+        "duplicate_key": (
+            {"q05": replace(DRAFTS["q05"], key=duplicate), "q08": replace(DRAFTS["q08"], key=duplicate)},
+            {"q05": ("generic",), "q08": ("generic", "duplicate_key")},
+        ),
         # iam の q08 に、語句がすべて ec2 クラスタにも出現するキーを与える。
-        "generic_keys": {"q08": replace(DRAFTS["q08"], key=RecallKey(("EC2", "インスタンス")))},
+        "generic": ({"q08": replace(DRAFTS["q08"], key=RecallKey(("EC2",)))}, {"q08": ("generic",)}),
         # 誤答選択肢2件を貼り合わせた識別ポイント。
-        "verbatim": {"q06": replace(DRAFTS["q06"], discrimination="スポットインスタンスとオンデマンドインスタンス")},
-        # 選択肢に無い語句を括って参照する識別ポイント。
-        "missing_options": {
-            "q07": replace(DRAFTS["q07"], discrimination="物理サーバーを専有し、「ハードウェア専有プラン」とは違う")
-        },
+        "verbatim": (
+            {"q06": _discriminated(DRAFTS["q06"], "スポットインスタンスとオンデマンドインスタンス")},
+            {"q06": ("verbatim",)},
+        ),
         # 問題に無い語句を含むキー。
-        "ungrounded_keys": {"q10": replace(DRAFTS["q10"], key=RecallKey(("ゼロ知識証明", "権限")))},
+        "ungrounded_key": (
+            {"q10": replace(DRAFTS["q10"], key=RecallKey(("ゼロ知識証明", "権限")))},
+            {"q10": ("ungrounded_key",)},
+        ),
+        # 空白だけの答え。
+        "empty": ({"q12": _answered(DRAFTS["q12"], "  ")}, {"q12": ("empty",)}),
     }
-    for count, drafts in variants.items():
-        variant = _deck(workspace, f"recall-{count.replace('_', '-')}")
-        error = _fails(
-            CliRunner(workspace, capsys, _subset_llm(drafts={**DRAFTS, **drafts}), StubTts()), "recall", variant
+    for check, (drafts, expected) in variants.items():
+        error = _exhausted(workspace, capsys, f"recall-{check.replace('_', '-')}", drafts={**DRAFTS, **drafts})
+        assert _failed_checks(error) == expected, check
+        assert all(e.attempts == 1 + MAX_REGENERATIONS for e in error.exhausted)
+
+
+def test_c004_recall_keys_are_grounded_in_the_stem_only(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A-1: 想起キーの照合先は問題文だけ。他クラスタ出現率とクラスタ要約は問題文・選択肢・解説(D-198)。"""
+    rows = {row["id"]: row for row in SUBSET_ROWS}
+    # q07 の選択肢にだけある語と、q10 の解説にだけある語。
+    in_options, in_explanation = "Savings Plans", "必要な操作"
+    assert in_options in rows["q07"]["options"] and in_options not in rows["q07"]["stem"]
+    assert in_explanation in rows["q10"]["explanation"] and in_explanation not in rows["q10"]["stem"]
+    keys = {
+        "q07": replace(DRAFTS["q07"], key=RecallKey(("物理サーバー", in_options))),
+        "q10": replace(DRAFTS["q10"], key=RecallKey(("必要最小限", in_explanation))),
+    }
+    error = _exhausted(workspace, capsys, "stem-only", drafts={**DRAFTS, **keys})
+    assert _failed_checks(error) == {"q07": ("ungrounded_key",), "q10": ("ungrounded_key",)}
+
+    # 問題文にある語だけのキーは通る(既定の DRAFTS はすべて問題文の語)。
+    assert _load(CliRunner(workspace, capsys, _subset_llm(), StubTts())("recall", _deck(workspace, "stem-ok")))
+
+    # 他クラスタ出現率は選択肢・解説も見る: 「インスタンス」は iam の q08 の問題文にあり、ec2 クラスタでは
+    # 選択肢と解説にしか無い。問題文だけを照合先にすると汎用語にならない。
+    assert not any("インスタンス" in rows[q]["stem"] for q in GROUPS["ec2"])
+    assert any("インスタンス" in text for q in GROUPS["ec2"] for text in rows[q]["options"])
+    generic = {"q08": replace(DRAFTS["q08"], key=RecallKey(("インスタンス",)))}
+    error = _exhausted(workspace, capsys, "other-cluster-options", drafts={**DRAFTS, **generic})
+    assert _failed_checks(error) == {"q08": ("generic",)}
+
+    # クラスタ要約は選択肢・解説の語も実在とみなす: ec2 の要約に選択肢にだけある語を入れても通る。
+    deck_id = _deck(workspace, "summary-options")
+    summary = f"EC2 の購入オプションと {in_options}"
+    llm = _subset_llm(summaries={**SUMMARIES, "ec2": summary})
+    clusters = _load(CliRunner(workspace, capsys, llm, StubTts())("cluster", deck_id))["clusters"]
+    assert summary in [c["summary"] for c in clusters]
+
+
+# 複数正解(N=2)の問題。iam クラスタの q10 と差し替える。
+MULTI_ROW = {
+    "id": "q10",
+    "group": "iam",
+    "stem": "IAM ユーザーの権限管理で推奨される原則を2つ選べ。",
+    "options": ["最小権限の原則", "ルートユーザーの常用", "職務分掌", "アクセスキーの共有"],
+    "corrects": [0, 2],
+    "explanation": "必要な権限だけを与える最小権限の原則と、職務を分けて相互に牽制する職務分掌が推奨される。",
+}
+MULTI_ROWS = [MULTI_ROW if row["id"] == "q10" else row for row in SUBSET_ROWS]
+MULTI_DRAFT = _draft(
+    "q10",
+    ("権限管理", "推奨"),
+    {"A": "必要な権限だけを与える最小権限の原則", "C": "職務を分けて牽制する職務分掌"},
+    "ルートユーザーを日常の作業に使うのは避ける",
+    "B",
+)
+
+
+def test_c004_answers_and_distractors_are_structured_by_option_id(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A-3: 答えは要素ごとに選択肢 ID を持ち、ID の集合が正解と一致する。識別ポイントは誤答を ID で参照する。"""
+    deck_id = _deck(workspace, "structured", MULTI_ROWS)
+    # 本文の括弧は検査しない: どの選択肢にも無い語句を括っても通る。
+    quoted = _discriminated(DRAFTS["q07"], "物理サーバーを専有し、「ハードウェア専有プラン」とは違う")
+    llm = _subset_llm(drafts={**DRAFTS, "q10": MULTI_DRAFT, "q07": quoted})
+    recall = _load(CliRunner(workspace, capsys, llm, StubTts())("recall", deck_id))
+    rows = {row["id"]: row for row in MULTI_ROWS}
+    for m in recall["materials"]:
+        row = rows[m["question"]]
+        assert sorted(e["option"] for e in m["answers"]) == ["ABCD"[i] for i in _correct(row)]
+        assert m["discrimination"]["distractors"]
+        assert all("ABCD".index(o) not in _correct(row) for o in m["discrimination"]["distractors"])
+    (multi,) = [m for m in recall["materials"] if m["question"] == "q10"]
+    assert multi["answers"] == [{"option": e.option_id.local_id, "text": e.text} for e in MULTI_DRAFT.answers]
+    assert multi["discrimination"] == {"text": MULTI_DRAFT.discrimination.text, "distractors": ["B"]}
+
+    a, c = MULTI_DRAFT.answers
+    wrong = AnswerElement(_oid("q10", "B"), "ルートユーザーを常用する")
+    answer_sets = {
+        "missing": (a,),
+        "extra": (a, c, wrong),
+        "duplicate": (a, a),
+        "not_correct": (a, wrong),
+        "none": (),
+    }
+    for name, answers in answer_sets.items():
+        error = _exhausted(
+            workspace,
+            capsys,
+            f"answers-{name.replace('_', '-')}",
+            rows=MULTI_ROWS,
+            drafts={**DRAFTS, "q10": replace(MULTI_DRAFT, answers=answers)},
         )
-        assert isinstance(error, RecallRejected)
-        assert getattr(error.report, count) >= 1
-        assert _artifacts(workspace, variant, "recall") == []
+        assert _failed_checks(error) == {"q10": ("answer_mismatch",)}, name
+
+    distractor_sets = {"empty": (), "correct": (_oid("q10", "A"),), "mixed": (_oid("q10", "B"), _oid("q10", "C"))}
+    for name, distractors in distractor_sets.items():
+        point = DiscriminationPoint(MULTI_DRAFT.discrimination.text, distractors)
+        error = _exhausted(
+            workspace,
+            capsys,
+            f"distractors-{name}",
+            rows=MULTI_ROWS,
+            drafts={**DRAFTS, "q10": replace(MULTI_DRAFT, discrimination=point)},
+        )
+        assert _failed_checks(error) == {"q10": ("missing_options",)}, name
+
+
+def test_c004_failed_questions_are_regenerated_up_to_twice(
+    workspace: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A-5: 検査に落ちた問題だけを上限2回まで作り直し、回数を report に記録する。"""
+    ungrounded = replace(DRAFTS["q05"], key=RecallKey(("ゼロ知識証明",)))
+    sequences = {
+        "q05": (ungrounded, DRAFTS["q05"]),
+        "q06": (_discriminated(DRAFTS["q06"], "スポットインスタンス"), ungrounded, DRAFTS["q06"]),
+        # ec2 の q07 と同じキーを、iam の q09 が1回目に返す(q09 の問題文に無い語なので実在性にも落ちる)。
+        "q09": (replace(DRAFTS["q09"], key=DRAFTS["q07"].key), DRAFTS["q09"]),
+    }
+    deck_id = _deck(workspace, "regenerate")
+    llm = _subset_llm(sequences=sequences)
+    recall = _load(CliRunner(workspace, capsys, llm, StubTts())("recall", deck_id))
+    assert recall["report"]["regenerations"] == {**dict.fromkeys(DRAFTS, 0), "q05": 1, "q06": 2, "q09": 1}
+    assert sorted(llm.recalled) == sorted([*DRAFTS, "q05", "q06", "q06", "q09"])
+
+    # 上限を超えた問題があっても全問を回し切り、超えた問題をすべて列挙する。
+    caplog.set_level(logging.INFO)
+    always_bad = {"q05": (ungrounded,), "q12": (_answered(DRAFTS["q12"], ""),)}
+    deck_id = _deck(workspace, "regenerate-exhausted")
+    llm = _subset_llm(sequences=always_bad)
+    error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
+    assert isinstance(error, RegenerationExhausted)
+    assert _failed_checks(error) == {"q05": ("ungrounded_key",), "q12": ("empty",)}
+    assert [e.attempts for e in error.exhausted] == [3, 3]
+    assert sorted(llm.recalled) == sorted([*DRAFTS, "q05", "q05", "q12", "q12"])
+    # 含意判定にかかったのはクラスタ要約だけで、想起素材は判定の前に止まっている。
+    assert set(llm.checked) <= set(SUMMARIES.values())
+    assert _artifacts(workspace, deck_id, "recall") == []
+    message = str(error.code)
+    assert "q05(ungrounded_key; 3 回)" in message and "q12(empty; 3 回)" in message
+    assert "ゼロ知識証明" not in message
+
+    # 呼び出しの失敗は作り直さない: 失敗した問題は1回だけ呼ばれ、残りの問題は回し切る。
+    deck_id = _deck(workspace, "regenerate-call-failure")
+    llm = _subset_llm(call_failures=frozenset({"q06"}))
+    error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
+    assert isinstance(error, RecallCallsFailed)
+    assert sorted(llm.recalled) == sorted(DRAFTS)
+
+    # 含意判定の不合格は作り直さない。
+    deck_id = _deck(workspace, "regenerate-entailment")
+    wrong = "リードレプリカを作る"
+    llm = _subset_llm(drafts={**DRAFTS, "q11": _answered(DRAFTS["q11"], wrong)}, contradicted=frozenset({wrong}))
+    error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
+    assert isinstance(error, EntailmentRejected)
+    assert sorted(llm.recalled) == sorted(DRAFTS)
+
+
+def test_c004_regenerations_are_counted_as_calls_and_invocations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-5: 作り直しの呼び出しも llm_calls(`begin_call`)と provider_invocations(子の起動)に数えられる。
+
+    既定 LLM(`ClaudeCliLlm`)を spawn だけ fake にして通し、呼び出しと起動を stub の記録で数える。
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    write_root(root)
+    recalled: list[str] = []
+
+    def run(spec: CommandSpec) -> CommandResult:
+        if "terms" not in json.loads(flag(spec.argv, "--json-schema"))["properties"]:
+            return respond(spec)
+        prompt = json.loads(spec.stdin)
+        recalled.append(prompt["question"]["stem"])
+        output = recall_output(prompt)
+        if len(recalled) == 1:
+            # 最初の呼び出しだけ、問題文に無い語のキーを返す。
+            output = {**output, "terms": ["ゼロ知識証明"]}
+        return exited(fake_stdout(structured_output=output))
+
+    llms = CliLlms(tmp_path, FakeRunner(run))
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    for stage in ("cluster", "recall"):
+        assert cli.main(["--root", str(root), stage, DECK], llm_factory=llms, preflight=no_preflight) == 0
+    issued = [s for s in llms.runner.specs if "terms" in json.loads(flag(s.argv, "--json-schema"))["properties"]]
+    assert len(recalled) == len(issued) == len(DECK_ROWS) + 1
+    assert recalled[0] == recalled[1]
+    assert llms.methods.count("generate_recall") == len(DECK_ROWS) + 1
 
 
 # ---- C-005 ----
@@ -465,7 +754,7 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
         draft = DRAFTS[q["id"]]
         # 問いかけは想起キーから作られ、答えと識別ポイントは想起素材のまま。
         assert all(term in q["prompt"] for term in draft.key.terms)
-        assert (q["answer"], q["discrimination"]) == (draft.answer, draft.discrimination)
+        assert (q["answer"], q["discrimination"]) == (draft.answers[0].text, draft.discrimination.text)
         # 「間」はテキストではなく、秒数を持つ別の要素として表される。
         assert isinstance(q["pause"], float) and q["pause"] >= 3.0
 
@@ -485,8 +774,8 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
         variant = _deck(workspace, f"script-{series}")
         drafts = {
             **DRAFTS,
-            "q05": replace(DRAFTS["q05"], discrimination=f"{DRAFTS['q05'].discrimination}。{first}"),
-            "q06": replace(DRAFTS["q06"], discrimination=f"{DRAFTS['q06'].discrimination}。{second}"),
+            "q05": _discriminated(DRAFTS["q05"], f"{DRAFTS['q05'].discrimination.text}。{first}"),
+            "q06": _discriminated(DRAFTS["q06"], f"{DRAFTS['q06'].discrimination.text}。{second}"),
         }
         error = _fails(CliRunner(workspace, capsys, _subset_llm(drafts=drafts), StubTts()), "script", variant)
         assert isinstance(error, LabelEnumerationFound)
@@ -494,7 +783,7 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
 
     # 推定3分を超える rds クラスタ(1問約80秒 × 3問)は、問の境界で割られ、1問も打ち切られない。
     overlong = _deck(workspace, "script-overlong")
-    drafts = {**DRAFTS, **{q: replace(DRAFTS[q], answer=_long(DRAFTS[q].answer, 70)) for q in GROUPS["rds"]}}
+    drafts = {**DRAFTS, **{q: _answered(DRAFTS[q], _long(DRAFTS[q].answers[0].text, 70)) for q in GROUPS["rds"]}}
     script = _load(CliRunner(workspace, capsys, _subset_llm(drafts=drafts), StubTts())("script", overlong))
     assert script["split"] == ["c003"]
     parts = [track for track in script["tracks"] if track["cluster"] == "c003"]
@@ -505,11 +794,11 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
             _seconds(q["prompt"] + q["answer"] + q["discrimination"]) + q["pause"] for q in track["questions"]
         )
         assert seconds <= 180
-        assert all(q["answer"] == drafts[q["id"]].answer for q in track["questions"])
+        assert all(q["answer"] == drafts[q["id"]].answers[0].text for q in track["questions"])
 
     # 1問だけで3分を超えるなら割れないので、そのクラスタを列挙して非0終了する。
     unsplittable = _deck(workspace, "script-unsplittable")
-    drafts = {**DRAFTS, "q13": replace(DRAFTS["q13"], answer=_long("同期", 200))}
+    drafts = {**DRAFTS, "q13": _answered(DRAFTS["q13"], _long("同期", 200))}
     error = _fails(CliRunner(workspace, capsys, _subset_llm(drafts=drafts), StubTts()), "script", unsplittable)
     assert isinstance(error, ScriptTooLong)
     assert [c.local_id for c in error.cluster_ids] == ["c003"]
@@ -537,7 +826,7 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
         (Entailment.UNCERTAIN, {"uncertain": frozenset({wrong_answer})}),
     ):
         deck_id = _deck(workspace, f"c013-recall-{verdict.value}")
-        drafts = {**DRAFTS, "q11": replace(DRAFTS["q11"], answer=wrong_answer)}
+        drafts = {**DRAFTS, "q11": _answered(DRAFTS["q11"], wrong_answer)}
         llm = _subset_llm(drafts=drafts, **changes)
         error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
         assert isinstance(error, EntailmentRejected) and error.verdict is verdict
@@ -555,12 +844,12 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
     llm = _subset_llm()
     run = CliRunner(workspace, capsys, llm, StubTts())
     run("recall", deck_id)
-    llm.contradicted = frozenset({DRAFTS["q12"].discrimination})
+    llm.contradicted = frozenset({DRAFTS["q12"].discrimination.text})
     llm.checked.clear()
     for stage in ("script", "audio"):
         error = _fails(run, stage, deck_id)
         assert isinstance(error, EntailmentRejected)
-    assert DRAFTS["q12"].discrimination in llm.checked
+    assert DRAFTS["q12"].discrimination.text in llm.checked
     assert _artifacts(workspace, deck_id, "recall") != []
     assert _artifacts(workspace, deck_id, "script") == []
     assert not (workspace / "out" / deck_id / "audio").exists()
@@ -568,8 +857,8 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
     # 言い換え: 正解の選択肢と字面の違う答え・要約でも、判定が consistent なら誤検出せずに全段が書かれる。
     paraphrased_summary = "IAM ポリシーの評価では拒否が許可より優先される"
     paraphrases = {
-        "q11": replace(DRAFTS["q11"], answer="マルチ AZ で待機系を持つ"),
-        "q09": replace(DRAFTS["q09"], answer="明示的な拒否が勝つ"),
+        "q11": _answered(DRAFTS["q11"], "マルチ AZ で待機系を持つ"),
+        "q09": _answered(DRAFTS["q09"], "明示的な拒否が勝つ"),
     }
     deck_id = _deck(workspace, "c013-paraphrase")
     llm = _subset_llm(drafts={**DRAFTS, **paraphrases}, summaries={**SUMMARIES, "iam": paraphrased_summary})
@@ -583,3 +872,47 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
         run(stage, deck_id)
         assert _artifacts(workspace, deck_id, directory) != []
     assert {paraphrased_summary, "マルチ AZ で待機系を持つ", "明示的な拒否が勝つ"} <= set(llm.checked)
+
+    # 想起素材の reference: 答えの要素は対象の正解を明示し、識別ポイントは参照先の誤答だけを誤答の節に置く。
+    # 同じ主張は後の台本の段でも判定されるので、先に判定された想起素材の段の reference を見る。
+    references: dict[str, str] = {}
+    for reference, statement in llm.judged:
+        references.setdefault(statement, reference)
+    q11 = {row["id"]: row for row in SUBSET_ROWS}["q11"]
+    assert f"{FOCUS_SECTION}: マルチ AZ 配置" in references["マルチ AZ で待機系を持つ"]
+    discrimination = references[DRAFTS["q11"].discrimination.text]
+    assert f"{DISTRACTOR_SECTION}: リードレプリカ" in discrimination
+    assert not any(text in discrimination for text in _distractors(q11) if text != "リードレプリカ")
+    # グロッサリの reference は公式解説のままで、正解・誤答の節を持たない。
+    glossary = [reference for reference, statement in llm.judged if statement.endswith("の説明")]
+    assert glossary
+    assert not any(section in r for r in glossary for section in ("正解:", FOCUS_SECTION, DISTRACTOR_SECTION))
+
+
+def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A-6: N 要素のうち1要素だけ、または参照先の誤答とだけ矛盾すると判定されても、成果物は書かれない。"""
+    drafts = {**DRAFTS, "q10": MULTI_DRAFT}
+    texts = dict(zip("ABCD", MULTI_ROW["options"], strict=True))
+
+    # 矛盾しない実行: 各要素の reference は正解 N 件すべてと、その要素の正解を明示した節を持つ。
+    llm = _subset_llm(drafts=drafts)
+    CliRunner(workspace, capsys, llm, StubTts())("recall", _deck(workspace, "c013-multi", MULTI_ROWS))
+    references = {statement: reference for reference, statement in llm.judged}
+    for element, label in zip(MULTI_DRAFT.answers, "AC", strict=True):
+        reference = references[element.text]
+        assert f"正解: {texts['A']}、{texts['C']}" in reference
+        assert f"{FOCUS_SECTION}: {texts[label]}" in reference
+    assert f"{DISTRACTOR_SECTION}: {texts['B']}" in references[MULTI_DRAFT.discrimination.text]
+
+    second = MULTI_DRAFT.answers[1].text
+    for name, contradicts in {
+        # 2つ目の要素(職務分掌)だけを矛盾と返す。
+        "element": lambda reference, statement: statement == second,
+        # 参照先の誤答の節を持つ reference とだけ矛盾と返す。
+        "distractor": lambda reference, statement: f"{DISTRACTOR_SECTION}: {texts['B']}" in reference,
+    }.items():
+        deck_id = _deck(workspace, f"c013-multi-{name}", MULTI_ROWS)
+        llm = _subset_llm(drafts=drafts, contradicts=contradicts)
+        error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
+        assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED, name
+        assert _artifacts(workspace, deck_id, "recall") == []

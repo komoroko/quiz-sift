@@ -219,12 +219,23 @@ def answer(argv: Sequence[str], stdin: str) -> bytes:
     """argv の `--json-schema` に合う応答の stdout。成功フィクスチャの骨格に値だけを入れる。
 
     分類(スキーマに `groups` がある)なら、stdin のプロンプトの `questions[].key` をそのまま1グループに入れて
-    返す(渡したキーと同じ多重集合)。それ以外はスキーマの形を埋めた値を返す(文字列は合成の文、enum は先頭)。
+    返す(渡したキーと同じ多重集合)。想起素材(`terms` がある)なら、渡した選択肢のキーで正解と誤答1件を指し、
+    想起キーは問題文そのものにする(検査を通る形)。それ以外はスキーマの形を埋めた値を返す(文字列は合成の文、
+    enum は先頭)。
     """
     schema = json.loads(argv[list(argv).index("--json-schema") + 1])
     if "groups" in schema["properties"]:
         keys = [question["key"] for question in json.loads(stdin)["questions"]]
         return fake_stdout(structured_output=classification_output([keys]))
+    if "terms" in schema["properties"]:
+        question = json.loads(stdin)["question"]
+        wrong = [o["key"] for o in question["options"] if o["key"] not in question["correct"]]
+        recall = {
+            "terms": [question["stem"]],
+            "answers": [{"option": key, "text": "合成の応答"} for key in question["correct"]],
+            "discrimination": {"text": "合成の応答", "distractors": wrong[:1]},
+        }
+        return fake_stdout(structured_output=recall)
     return fake_stdout(structured_output=_filled(schema))
 
 

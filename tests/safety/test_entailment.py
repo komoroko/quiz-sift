@@ -14,13 +14,20 @@ from typing import Any, cast
 import pytest
 
 from quiz_sift.adapters.llm_contract import parse_entailment
+from quiz_sift.adapters.llm_prompts import ENTAILMENT_SYSTEM
+from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
+from quiz_sift.domain.question import Option, Question
+from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.ports.llm import Entailment, LlmCallError
 from quiz_sift.safety.entailment import (
+    DISTRACTOR_SECTION,
+    FOCUS_SECTION,
     Claim,
     EntailmentRejected,
     emit_if_consistent,
     judge,
     measure_mutations,
+    reference_for,
 )
 
 REFERENCE = (
@@ -184,3 +191,54 @@ def test_mutation_detection_rate_is_recorded(caplog: pytest.LogCaptureFixture, r
 
     with pytest.raises(ValueError):
         measure_mutations(llm, [])
+
+
+def _multi_question(explanation: str | None = "どちらも推奨される原則である。") -> Question:
+    """正解 2 件(A・C)、誤答 2 件(B・D)の問題。"""
+    qid = QuestionId(DeckId("deck"), "q1")
+    texts = {"A": "最小権限の原則", "B": "ルートユーザーの常用", "C": "職務分掌", "D": "アクセスキーの共有"}
+    options = tuple(Option(OptionId(qid, label), text) for label, text in texts.items())
+    correct = (options[0].option_id, options[2].option_id)
+    return Question(qid, "推奨される原則を2つ選べ。", options, correct, explanation, StudiedFlag.UNKNOWN)
+
+
+def test_reference_text_holds_the_right_sections() -> None:
+    """A-8: 判定器に渡る reference の本文そのものに、要るものが入り、要らないものが入らない。"""
+    question = _multi_question()
+    a, b, c, d = (option.option_id for option in question.options)
+
+    # 既定(クラスタ要約・台本)は、正解 N 件すべてと解説。誤答の本文と、焦点・誤答の節は入らない。
+    plain = reference_for(question)
+    assert plain == (
+        "問題: 推奨される原則を2つ選べ。 正解: 最小権限の原則、職務分掌 解説: どちらも推奨される原則である。"
+    )
+
+    # 答えの要素: 対象の正解の本文を明示し、正解 N 件の本文も併記する(D-210)。
+    focused = reference_for(question, focus=c)
+    assert "正解: 最小権限の原則、職務分掌" in focused
+    assert f"{FOCUS_SECTION}: 職務分掌" in focused
+    assert DISTRACTOR_SECTION not in focused
+    assert not any(text in focused for text in ("ルートユーザーの常用", "アクセスキーの共有"))
+
+    # 識別ポイント: 誤答の節に、参照先の誤答の本文だけが入る。参照していない誤答の本文は入らない。
+    distracted = reference_for(question, distractors=(b,))
+    assert "正解: 最小権限の原則、職務分掌" in distracted
+    assert f"{DISTRACTOR_SECTION}: ルートユーザーの常用" in distracted
+    assert "アクセスキーの共有" not in distracted
+    assert FOCUS_SECTION not in distracted
+    assert f"{DISTRACTOR_SECTION}: ルートユーザーの常用、アクセスキーの共有" in reference_for(
+        question, distractors=(b, d)
+    )
+    # 解説の無い問題では解説の節を作らない。
+    assert "解説" not in reference_for(_multi_question(None))
+
+    # 判定器への指示は、誤答の節を「正しくない記述の一覧」として読ませる(AR-D4)。
+    assert DISTRACTOR_SECTION in ENTAILMENT_SYSTEM and FOCUS_SECTION in ENTAILMENT_SYSTEM
+    assert "誤答選択肢を正しくないと述べることは矛盾ではない" in ENTAILMENT_SYSTEM
+
+    # 焦点は正解、誤答の参照は誤答でなければならない。取り違えは黙って通さない。
+    with pytest.raises(ValueError):
+        reference_for(question, focus=b)
+    for distractors in ((a,), (OptionId(QuestionId(DeckId("deck"), "q2"), "B"),)):
+        with pytest.raises(ValueError):
+            reference_for(question, distractors=distractors)

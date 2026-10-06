@@ -7,13 +7,11 @@ import pytest
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.recall import RecallKey
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt, ScriptSegment
-from quiz_sift.ports.llm import RecallDraft
 from quiz_sift.script.generate import LabelEnumerationFound, generate_scripts
 from quiz_sift.script.label_guard import find_enumerations
 
-from .conftest import GOOD, StubChecker, Writer, recall_set
+from .conftest import GOOD, StubChecker, Writer, draft, recall_set
 
 
 def _track(prompt: str, answer: str, discrimination: str) -> list[ScriptSegment]:
@@ -75,7 +73,7 @@ def test_cross_segment_enumeration_goes_red(deck: Deck, clusters: tuple[Cluster,
     # 生成器も同じ単位で判定し、列挙を含むトラックがあれば含意判定より前に、何も書かずに非0で止める。
     enumerating = {
         **GOOD,
-        "q03": RecallDraft(RecallKey(("アの場合", "イの場合")), "ウが正解", "エは別の結果になる"),
+        "q03": draft("q03", ("アの場合", "イの場合"), "ウが正解", "エは別の結果になる"),
     }
     checker = StubChecker()
     out = tmp_path / "script.tsv"

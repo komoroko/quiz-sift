@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from quiz_sift.domain.ids import DeckId, SessionId
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.ids import DeckId, OptionId, QuestionId, SessionId
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.ports.llm import RecallDraft
 from quiz_sift.server.handler import make_server
 from quiz_sift.store.deck_scope import DeckScopedStore
@@ -241,14 +241,21 @@ def _store_row(n: int) -> dict[str, Any]:
     }
 
 
-DRAFTS = {
-    _qid(n): RecallDraft(
+STORE_DECK = DeckId("store")
+
+
+def _store_draft(n: int) -> RecallDraft:
+    question_id = QuestionId(STORE_DECK, _qid(n))
+    return RecallDraft(
         RecallKey((f"語{n:02d}番",)),
-        f"値{n:02d}A",
-        f"この語には先頭の値が結びつき、「値{n:02d}B」は別の語に結びつく",
+        (AnswerElement(OptionId(question_id, "A"), f"値{n:02d}A"),),
+        DiscriminationPoint(
+            f"この語には先頭の値が結びつき、「値{n:02d}B」は別の語に結びつく", (OptionId(question_id, "B"),)
+        ),
     )
-    for n in range(1, QUESTIONS + 1)
-}
+
+
+DRAFTS = {_qid(n): _store_draft(n) for n in range(1, QUESTIONS + 1)}
 
 
 def _m3u_entries(m3u: Path) -> list[str]:
@@ -259,7 +266,7 @@ def _m3u_entries(m3u: Path) -> list[str]:
 def test_c012_answers_persist_server_side_and_cli_reads_them(
     workspace: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    deck_id = DeckId("store")
+    deck_id = STORE_DECK
     write_deck(workspace, deck_id, [_store_row(n) for n in range(1, QUESTIONS + 1)])
 
     # 誤答率: q02 = 2/2、q03 = 1/2、q01 と q04 = 0/2。

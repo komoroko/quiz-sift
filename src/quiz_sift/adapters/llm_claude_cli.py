@@ -333,8 +333,15 @@ class ClaudeCliLlm:
 
     def generate_recall(self, question: Question, language: Language) -> RecallDraft:
         self._material.register_question(question)
-        payload = {"language": prompts.LANGUAGE_NAMES[language], "question": prompts.render_question(question)}
-        return self._call("generate_recall", prompts.RECALL_SYSTEM, payload, prompts.RECALL_SCHEMA, parse_recall)
+        question_payload, keyed = prompts.recall_payload(question)
+        payload = {"language": prompts.LANGUAGE_NAMES[language], "question": question_payload}
+        return self._call(
+            "generate_recall",
+            prompts.RECALL_SYSTEM,
+            payload,
+            prompts.RECALL_SCHEMA,
+            functools.partial(parse_recall, keyed=keyed),
+        )
 
     def describe_term(self, term: str, language: Language) -> str:
         payload = {"language": prompts.LANGUAGE_NAMES[language], "term": term}

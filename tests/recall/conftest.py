@@ -3,6 +3,7 @@
 「S3」と「データ」は s3 クラスタと iam クラスタ(q04)の両方に出現する。汎用語だけのキーを作るのに使う。
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,10 +14,10 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, RecallDraft
-from quiz_sift.recall.generate import RecallSet
+from quiz_sift.ports.llm import Entailment, LlmCallError, RecallDraft
+from quiz_sift.recall.generate import RecallSet, generate_recall_set
 
 DECK = DeckId("aws-saa")
 
@@ -65,32 +66,53 @@ ROWS = [
 ]
 CLUSTERS = {"c001": ("q01", "q02"), "c002": ("q03", "q04"), "c003": ("q05",)}
 
-# すべての検査を通る想起素材。
+
+def option(qid: str, label: str) -> OptionId:
+    return OptionId(QuestionId(DECK, qid), label)
+
+
+def draft(qid: str, terms: tuple[str, ...], answer: str, discrimination: str, distractors: str) -> RecallDraft:
+    """`answer` は正解のラベル(答えの要素は正解の選択肢の本文)、`distractors` は参照する誤答のラベルの列。"""
+    (_, _, texts, _, _) = next(row for row in ROWS if row[0] == qid)
+    return RecallDraft(
+        RecallKey(terms),
+        (AnswerElement(option(qid, answer), texts["ABCD".index(answer)]),),
+        DiscriminationPoint(discrimination, tuple(option(qid, label) for label in distractors)),
+    )
+
+
+# すべての検査を通る想起素材。キーの語句は問題文に実在し、識別ポイントは誤答選択肢を ID で参照する。
 GOOD = {
-    "q01": RecallDraft(
-        RecallKey(("アクセス頻度", "即座", "ストレージクラス")),
-        "S3 標準-IA",
-        "標準-IA は低頻度向けでもミリ秒で取り出せるが、「S3 Glacier Deep Archive」は取り出しに数時間かかる",
+    "q01": draft(
+        "q01",
+        ("アクセス頻度", "即座", "ストレージクラス"),
+        "B",
+        "標準-IA は低頻度向けでもミリ秒で取り出せるが、S3 Glacier Deep Archive は取り出しに数時間かかる",
+        "C",
     ),
-    "q02": RecallDraft(
-        RecallKey(("90 日後", "Glacier", "ライフサイクルルール")),
-        "ライフサイクルルール",
-        "移行を自動で行うのはライフサイクルルールで、「バケットポリシー」はアクセス制御しかしない",
+    "q02": draft(
+        "q02",
+        ("90 日後", "Glacier"),
+        "A",
+        "移行を自動で行うのはライフサイクルルールで、バケットポリシーはアクセス制御しかしない",
+        "B",
     ),
-    "q03": RecallDraft(
-        RecallKey(("明示的な拒否", "許可")),
-        "拒否される",
-        "明示的な拒否は常に許可より優先され、書いた順序は関係しない",
+    "q03": draft(
+        "q03", ("明示的な拒否", "許可"), "B", "明示的な拒否は常に許可より優先され、書いた順序は関係しない", "C"
     ),
-    "q04": RecallDraft(
-        RecallKey(("EC2 インスタンス", "IAM ロール")),
-        "IAM ロールをインスタンスに付与する",
-        "一時的な認証情報が自動で配られるロールを使い、「アクセスキーを AMI に埋め込む」ような固定の認証情報は避ける",
+    "q04": draft(
+        "q04",
+        ("EC2 インスタンス", "安全にアクセス"),
+        "A",
+        "一時的な認証情報が自動で配られるロールを使い、アクセスキーを AMI に埋め込むような固定の認証情報は避ける",
+        "B",
     ),
-    "q05": RecallDraft(
-        RecallKey(("フェイルオーバー", "マルチ AZ")),
-        "マルチ AZ 配置",
-        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、「リードレプリカ」は読み取りの負荷分散のためのもの",
+    "q05": draft(
+        "q05",
+        ("プライマリ障害", "フェイルオーバー"),
+        "A",
+        "スタンバイへ自動で切り替わるのはマルチ AZ 配置で、リードレプリカは読み取りの負荷分散のためのもの",
+        "B",
     ),
 }
 
@@ -119,15 +141,27 @@ def question(deck: Deck, local_id: str) -> Question:
 
 @dataclass
 class StubLlm:
-    """`drafts` の想起素材を返し、`contradicted` / `uncertain` に含まれる主張にその判定を返す。"""
+    """`drafts` の想起素材を返し、`contradicted` / `uncertain` に含まれる主張にその判定を返す。
+
+    `sequences` にある問題は、呼ばれるたびにその列を順に返す(尽きたら最後を返し続ける)。`failing` の問題は
+    `LlmCallError` を上げる。呼ばれた問題は `recalled` に残る。
+    """
 
     drafts: dict[str, RecallDraft]
     contradicted: frozenset[str] = frozenset()
     uncertain: frozenset[str] = frozenset()
+    sequences: dict[str, tuple[RecallDraft, ...]] = field(default_factory=dict)
+    failing: frozenset[str] = frozenset()
     checked: list[tuple[str, str]] = field(default_factory=list)
+    recalled: list[str] = field(default_factory=list)
 
     def generate_recall(self, question: Question, language: Language) -> RecallDraft:
-        return self.drafts[question.question_id.local_id]
+        qid = question.question_id.local_id
+        self.recalled.append(qid)
+        if qid in self.failing:
+            raise LlmCallError("合成の呼び出しの失敗")
+        sequence = self.sequences.get(qid, (self.drafts[qid],))
+        return sequence[min(self.recalled.count(qid), len(sequence)) - 1]
 
     def check_entailment(self, reference: str, statement: str) -> Entailment:
         self.checked.append((reference, statement))
@@ -148,8 +182,28 @@ class Writer:
     def __call__(self, result: RecallSet) -> Path:
         self.result = result
         lines = [
-            f"{m.question_id.local_id}\t{'/'.join(m.draft.key.terms)}\t{m.draft.answer}\t{m.draft.discrimination}"
+            "\t".join(
+                (
+                    m.question_id.local_id,
+                    "/".join(m.draft.key.terms),
+                    "/".join(e.text for e in m.draft.answers),
+                    m.draft.discrimination.text,
+                )
+            )
             for m in result.materials
         ]
         self.path.write_text("\n".join(lines), encoding="utf-8")
         return self.path
+
+
+def generate(
+    llm: StubLlm,
+    deck: Deck,
+    clusters: tuple[Cluster, ...],
+    writer: Writer,
+    stop_seen: Callable[[], bool] = lambda: False,
+) -> Path:
+    """`generate_recall_set` を、残りを止めない計測と型名だけの失敗種別で呼ぶ。"""
+    return generate_recall_set(
+        llm, deck, clusters, writer, stop_seen=stop_seen, failure_kind=lambda error: type(error).__name__
+    )

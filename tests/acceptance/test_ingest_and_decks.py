@@ -16,7 +16,7 @@ import pytest
 from quiz_sift.domain.attempt import AttemptRecord
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId, SessionId
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.report import IngestRejected, RejectionReason
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.extract.evidence import SelectorKind, selector_kind_is_uniform
@@ -379,26 +379,52 @@ ROWS_B = [
         None,
     ),
 ]
+
+
+def _draft(
+    deck_id: DeckId, qid: str, terms: tuple[str, ...], answer: str, discrimination: str, wrong: str
+) -> RecallDraft:
+    """正解 A の本文 `answer` と、誤答 `wrong` を参照する識別ポイントの下書き。"""
+    question_id = QuestionId(deck_id, qid)
+    return RecallDraft(
+        RecallKey(terms),
+        (AnswerElement(OptionId(question_id, "A"), answer),),
+        DiscriminationPoint(discrimination, (OptionId(question_id, wrong),)),
+    )
+
+
 DRAFTS = {
-    "a01": RecallDraft(
-        RecallKey(("Lifecycle ルール", "アーカイブ")),
+    "a01": _draft(
+        DECK_A,
+        "a01",
+        ("Lifecycle ルール", "アーカイブ"),
         "S3 Glacier Flexible Retrieval へ移行する",
         "Lifecycle ルールの移行先はアーカイブ向けのストレージクラスで、「EBS スナップショット」はボリュームの控え",
+        "B",
     ),
-    "a02": RecallDraft(
-        RecallKey(("明示的な Deny", "Allow")),
+    "a02": _draft(
+        DECK_A,
+        "a02",
+        ("明示的な Deny", "Allow"),
         "Deny が優先され拒否される",
         "明示的な Deny は常に優先され、「先に書かれた方が優先される」のように書いた順では決まらない",
+        "C",
     ),
-    "b01": RecallDraft(
-        RecallKey(("edge locations", "latency")),
+    "b01": _draft(
+        DECK_B,
+        "b01",
+        ("edge locations", "latency"),
         "Amazon CloudFront",
         'CloudFront serves cached content near users, while "Amazon Redshift" is a data warehouse',
+        "B",
     ),
-    "b02": RecallDraft(
-        RecallKey(("fail over", "standby")),
+    "b02": _draft(
+        DECK_B,
+        "b02",
+        ("fail over", "standby"),
         "Multi-AZ deployment",
         'Only Multi-AZ keeps a synchronous standby for automatic failover; a "Read replica" serves reads',
+        "B",
     ),
 }
 MIXED_ANSWER = "S3 Glacier Flexible Retrieval へ移行する"

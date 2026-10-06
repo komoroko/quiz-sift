@@ -22,10 +22,10 @@ from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.question import Question
 from quiz_sift.grounding.presence import is_present
+from quiz_sift.grounding.targets import SUMMARY_FIELDS, texts_for
 from quiz_sift.ports.llm import GroupProposal
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent
+from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent, reference_for
 
 OTHER_LOCAL_ID = "other"
 """「その他」クラスタの `ClusterId.local_id`。"""
@@ -48,13 +48,6 @@ class UngroundedSummary(SystemExit):
     def __init__(self, cluster_id: ClusterId, missing: int) -> None:
         super().__init__(f"クラスタ {cluster_id.local_id} の要約に、問題文に実在しない語句が {missing} 件ある")
         self.cluster_id = cluster_id
-
-
-def _texts(question: Question) -> list[str]:
-    texts = [question.stem, *(option.text for option in question.options)]
-    if question.explanation is not None:
-        texts.append(question.explanation)
-    return texts
 
 
 _ALNUM_WORD = r"[0-9]*[A-Za-z][A-Za-z0-9]*"
@@ -81,19 +74,13 @@ def _technical_terms(summary: str, language: Language) -> list[str]:
 
 def ungrounded_terms(summary: str, members: Deck) -> tuple[str, ...]:
     """`summary` の専門用語の断片のうち、`members` のどの問題の本文にも実在しないもの。"""
-    texts = [text for question in members.questions for text in _texts(question)]
+    texts = [text for question in members.questions for text in texts_for(question, SUMMARY_FIELDS)]
     return tuple(term for term in _technical_terms(summary, members.language) if not is_present(term, texts))
 
 
 def _reference(members: Deck) -> str:
-    lines = []
-    for question in members.questions:
-        correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
-        line = f"問題: {question.stem} 正解: {correct}"
-        if question.explanation is not None:
-            line += f" 解説: {question.explanation}"
-        lines.append(line)
-    return "\n".join(lines)
+    """クラスタ内の各問題の reference を並べる。各問題の正解 N 件をすべて含む(NFR-1)。"""
+    return "\n".join(reference_for(question) for question in members.questions)
 
 
 def _members(deck: Deck, group: GroupProposal) -> Deck:

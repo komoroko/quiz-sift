@@ -19,13 +19,14 @@ from typing import Any
 import pytest
 from support import grandchild_fake
 from support.claude_fake import FakeRunner, exited, fake_stdout, success_events
-from support.cli_harness import DECK, CliLlms, StubTts, flag, no_preflight, respond, write_root
+from support.cli_harness import DECK, ROWS, CliLlms, StubTts, flag, no_preflight, recall_output, respond, write_root
 
 from quiz_sift import cli, composition
 from quiz_sift.adapters import claude_process, llm_prompts
 from quiz_sift.adapters.claude_process import PreflightError, SubprocessRunner
 from quiz_sift.pipeline.stage import inputs_digest
 from quiz_sift.ports.process import CommandResult, CommandSpec, Outcome
+from quiz_sift.recall.generate import RecallCallsFailed
 
 METERED_ENV = (
     "ANTHROPIC_API_KEY",
@@ -366,13 +367,36 @@ def test_overage_or_rejected_stops_the_rest_of_the_stage(
     before = harness.spawned()
     harness.responder.fail_next_recall = SHAPES[shape]
 
-    assert isinstance(harness.fails("recall", DECK), cli.RecallCallsFailed)
+    assert isinstance(harness.fails("recall", DECK), RecallCallsFailed)
     assert harness.systems(before) == [llm_prompts.RECALL_SYSTEM] * spawned
     (summary,) = [line for line in harness.err.splitlines() if "recall summary" in line]
     assert "failure_count=1" in summary
     end = harness.last_end()
     assert end["failed_invocations"] == 1
     assert end["provider_invocations"] == spawned
+
+
+def ungrounded(spec: CommandSpec) -> CommandResult:
+    """検査(想起キーの実在性)に落ちる、呼び出しとしては成功した想起素材の応答。"""
+    output = {**recall_output(json.loads(spec.stdin)), "terms": ["ゼロ知識証明"]}
+    return exited(fake_stdout(structured_output=output))
+
+
+def test_regenerations_reach_llm_calls_and_provider_invocations(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """C-004 A-5: 検査に落ちて作り直した呼び出しも、終了行の llm_calls と provider_invocations に入る。"""
+    harness = Harness(tmp_path, capsys)
+    assert harness.main("cluster", DECK) == 0
+    before = harness.spawned()
+    harness.responder.fail_next_recall = ungrounded
+
+    assert harness.main("recall", DECK) == 0
+    recalls = len(ROWS) + 1
+    assert harness.systems(before).count(llm_prompts.RECALL_SYSTEM) == recalls
+    # 想起素材の呼び出し(作り直しを含む)と、各問の答え1件・識別ポイント1件の含意判定。
+    end = harness.last_end()
+    assert end["llm_calls"] == end["provider_invocations"] == harness.spawned() - before == recalls + 2 * len(ROWS)
 
 
 def sequence_ends(harness: Harness, run_id: str) -> list[dict[str, Any]]:

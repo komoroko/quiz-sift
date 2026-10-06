@@ -31,8 +31,8 @@ import tarfile
 import tempfile
 import traceback
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from types import FrameType, TracebackType
 from typing import Any, BinaryIO
@@ -49,7 +49,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.glossary.audio_series import GLOSSARY_DIRNAME, write_glossary_audio
@@ -60,7 +60,7 @@ from quiz_sift.pipeline.meter import Meter
 from quiz_sift.pipeline.run_sequence import UnknownRunError, aggregate, read_log
 from quiz_sift.pipeline.stage import Stage, StageCache
 from quiz_sift.ports.clock import SystemClock
-from quiz_sift.ports.llm import Entailment, Llm, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Llm, LlmCallError, RecallDraft
 from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import Tts
 from quiz_sift.recall.generate import RecallSet, generate_recall_set
@@ -152,10 +152,6 @@ class ResumeRefused(SystemExit):
     """`--resume` の列が `resumable` でない(開始行の無い run_id を含む。D-145)。"""
 
 
-class RecallCallsFailed(SystemExit):
-    """想起素材の段で LLM 呼び出しが1件以上失敗した。下流へ進まず非0で終了する(R-3)。"""
-
-
 class NoRunMeter(SystemExit):
     """LLM を呼ばない段(ingest / review)が、キャッシュに無い前段のために LLM を要した。"""
 
@@ -239,8 +235,11 @@ def _recall_json(recall: RecallSet) -> dict[str, Any]:
                 "cluster": m.cluster_id.local_id,
                 "question": m.question_id.local_id,
                 "terms": list(m.draft.key.terms),
-                "answer": m.draft.answer,
-                "discrimination": m.draft.discrimination,
+                "answers": [{"option": e.option_id.local_id, "text": e.text} for e in m.draft.answers],
+                "discrimination": {
+                    "text": m.draft.discrimination.text,
+                    "distractors": [o.local_id for o in m.draft.discrimination.distractor_ids],
+                },
             }
             for m in recall.materials
         ],
@@ -250,9 +249,23 @@ def _recall_json(recall: RecallSet) -> dict[str, Any]:
             "duplicate_keys": report.duplicate_keys,
             "generic_keys": report.generic_keys,
             "verbatim": report.verbatim,
+            "empty": report.empty,
+            "answer_mismatch": report.answer_mismatch,
             "term_rates": [[r.question_id.local_id, r.term, r.rate] for r in report.term_rates],
+            "regenerations": {q.local_id: n for q, n in report.regenerations},
         },
     }
+
+
+def _recall_draft(row: dict[str, Any], question_id: QuestionId) -> RecallDraft:
+    discrimination = row["discrimination"]
+    return RecallDraft(
+        RecallKey(tuple(row["terms"])),
+        tuple(AnswerElement(OptionId(question_id, e["option"]), e["text"]) for e in row["answers"]),
+        DiscriminationPoint(
+            discrimination["text"], tuple(OptionId(question_id, o) for o in discrimination["distractors"])
+        ),
+    )
 
 
 def _recall_from(data: dict[str, Any], deck_id: DeckId) -> RecallSet:
@@ -260,13 +273,14 @@ def _recall_from(data: dict[str, Any], deck_id: DeckId) -> RecallSet:
         RecallMaterial(
             ClusterId(deck_id, row["cluster"]),
             QuestionId(deck_id, row["question"]),
-            RecallDraft(RecallKey(tuple(row["terms"])), row["answer"], row["discrimination"]),
+            _recall_draft(row, QuestionId(deck_id, row["question"])),
         )
         for row in data["materials"]
     )
     report = data["report"]
     rates = tuple(TermRate(QuestionId(deck_id, q), term, rate) for q, term, rate in report.pop("term_rates"))
-    return RecallSet(materials, RecallReport(**report, term_rates=rates))
+    regenerations = tuple((QuestionId(deck_id, q), n) for q, n in report.pop("regenerations").items())
+    return RecallSet(materials, RecallReport(**report, term_rates=rates, regenerations=regenerations))
 
 
 def _script_json(scripts: ScriptSet) -> dict[str, Any]:
@@ -339,20 +353,6 @@ def _deliver(archive: Path, target: Path) -> Path:
     with tarfile.open(archive) as tar:
         tar.extractall(target, filter="data")
     return target
-
-
-@dataclass(frozen=True, slots=True)
-class _Drafted:
-    """段ループで先に作った想起素材の下書きを返し、含意判定だけを LLM へ渡す。"""
-
-    llm: Llm
-    drafts: Mapping[QuestionId, RecallDraft]
-
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
-        return self.drafts[question.question_id]
-
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        return self.llm.check_entailment(reference, statement)
 
 
 class Pipeline:
@@ -431,39 +431,18 @@ class Pipeline:
     def _recall_upstream(self) -> bytes:
         return self._ingest_path().read_bytes() + b"\0" + self.cluster().read_bytes()
 
-    def _recall_drafts(self, deck: Deck, clusters: Sequence[Cluster]) -> dict[QuestionId, RecallDraft]:
-        """想起素材の段の呼び出しループ(クラスタ順)。
-
-        失敗しても残りの呼び出しを発行し、段を終えてから非0で止める。overage か枠切れを meter が見たら、
-        残りを発行しない(D-144、D-153)。失敗件数は発行した呼び出しについてだけ数える。
-        """
-        llm, meter = self.llm, self._run_meter()
-        questions = {q.question_id: q for q in deck.questions}
-        order = [qid for cluster in clusters for qid in cluster.question_ids]
-        drafts: dict[QuestionId, RecallDraft] = {}
-        failures = 0
-        for qid in order:
-            if meter.stop_seen():
-                break
-            try:
-                drafts[qid] = llm.generate_recall(questions[qid], deck.language)
-            except LlmCallError as error:
-                failures += 1
-                logger.warning("recall: 問題 %s の呼び出しが失敗: %s", qid.local_id, _failure_kind(error))
-        issued = len(drafts) + failures
-        logger.info("recall summary: questions=%d issued=%d failure_count=%d", len(order), issued, failures)
-        if failures:
-            raise RecallCallsFailed(
-                f"想起素材の外部 API 呼び出しが {failures} 回失敗したため下流へ進まない(発行 {issued} / {len(order)})"
-            )
-        return drafts
-
     def recall(self) -> Path:
         deck, clusters = self.deck(), self.clusters()
 
         def produce(out: BinaryIO) -> None:
-            drafted = _Drafted(self.llm, self._recall_drafts(deck, clusters))
-            generate_recall_set(drafted, deck, clusters, lambda result: _dump(_recall_json(result), out))
+            generate_recall_set(
+                self.llm,
+                deck,
+                clusters,
+                lambda result: _dump(_recall_json(result), out),
+                stop_seen=self._run_meter().stop_seen,
+                failure_kind=_failure_kind,
+            )
 
         return self._cache.run(RECALL, self._recall_upstream(), produce)
 

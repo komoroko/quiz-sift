@@ -22,7 +22,7 @@ from quiz_sift.domain.attempt import AttemptRecord
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId, SessionId
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.recall import RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.ports.llm import RecallDraft
 from quiz_sift.ports.tts import PcmAudio
 from quiz_sift.schedule.playlist import record_and_rank, write_review_series
@@ -51,15 +51,24 @@ def _row(n: int) -> dict[str, Any]:
     }
 
 
-def _draft(n: int) -> RecallDraft:
+def _draft(deck_id: DeckId, n: int) -> RecallDraft:
+    question_id = QuestionId(deck_id, _qid(n))
     return RecallDraft(
         RecallKey((f"語{n:02d}番",)),
-        f"値{n:02d}A",
-        f"この語には先頭の値が結びつき、「値{n:02d}B」は別の語に結びつく",
+        (AnswerElement(OptionId(question_id, "A"), ANSWERS[_qid(n)]),),
+        DiscriminationPoint(
+            f"この語には先頭の値が結びつき、「値{n:02d}B」は別の語に結びつく", (OptionId(question_id, "B"),)
+        ),
     )
 
 
-DRAFTS = {_qid(n): _draft(n) for n in range(1, QUESTIONS + 1)}
+ANSWERS = {_qid(n): f"値{n:02d}A" for n in range(1, QUESTIONS + 1)}
+"""各問の答えの本文。"""
+
+
+def _drafts(deck_id: DeckId) -> dict[str, RecallDraft]:
+    """選択肢 ID はデッキに属するので、下書きはデッキごとに作る。"""
+    return {_qid(n): _draft(deck_id, n) for n in range(1, QUESTIONS + 1)}
 
 
 def _deck(workspace: Path, name: str) -> DeckId:
@@ -133,7 +142,7 @@ class FailingTts(StubTts):
 def test_c007_tracks_are_ordered_with_inner_silence(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
     deck_id = _deck(workspace, "audio")
     tts = StubTts()
-    run = CliRunner(workspace, capsys, StubLlm(drafts=DRAFTS), tts)
+    run = CliRunner(workspace, capsys, StubLlm(drafts=_drafts(deck_id)), tts)
 
     clusters = _load(run("cluster", deck_id))["clusters"]
     assert len(clusters) == QUESTIONS
@@ -147,8 +156,8 @@ def test_c007_tracks_are_ordered_with_inner_silence(workspace: Path, capsys: pyt
     # ファイル名の昇順も m3u の順も、クラスタ順(台本の順)に一致する。
     assert _m3u_entries(audio_dir / "playlist.m3u") == expected
     # 台本のトラックが先に読まれ、後ろにグロッサリ系列(選択肢の語も読む)が続く。
-    spoken_order = [text for text, _ in tts.inputs if text in {d.answer for d in DRAFTS.values()}][:QUESTIONS]
-    assert spoken_order == [DRAFTS[q].answer for c in clusters for q in c["questions"]]
+    spoken_order = [text for text, _ in tts.inputs if text in set(ANSWERS.values())][:QUESTIONS]
+    assert spoken_order == [ANSWERS[q] for c in clusters for q in c["questions"]]
 
     # 各トラックに、先頭と末尾を除く位置の3秒以上の無音区間が機械判定で見つかる。
     for track in tracks:
@@ -167,14 +176,16 @@ def test_c007_tracks_are_ordered_with_inner_silence(workspace: Path, capsys: pyt
     mismatch = _deck(workspace, "audio-mismatch")
     en_voice = next(v for v, spec in VOICE_TABLE.items() if spec.language == Language.EN)
     with pytest.raises(VoiceLanguageMismatch):
-        CliRunner(workspace, capsys, StubLlm(drafts=DRAFTS), StubTts())("audio", mismatch, "--voice", en_voice)
+        CliRunner(workspace, capsys, StubLlm(drafts=_drafts(mismatch)), StubTts())(
+            "audio", mismatch, "--voice", en_voice
+        )
     assert not (workspace / "out" / mismatch / "audio").exists()
 
     # 合成に失敗したクラスタは列挙されて非0終了し、欠けた再生リストは書かれない。
     partial = _deck(workspace, "audio-partial")
-    failing = FailingTts((DRAFTS["q03"].answer, DRAFTS["q10"].answer))
+    failing = FailingTts((ANSWERS["q03"], ANSWERS["q10"]))
     with pytest.raises(SynthesisFailed) as exc:
-        CliRunner(workspace, capsys, StubLlm(drafts=DRAFTS), failing)("audio", partial)
+        CliRunner(workspace, capsys, StubLlm(drafts=_drafts(partial)), failing)("audio", partial)
     assert exc.value.code not in (None, 0)
     owner = {q: c["id"] for c in clusters for q in c["questions"]}
     assert [f.cluster_id.local_id for f in exc.value.report.failed] == [owner["q03"], owner["q10"]]
@@ -199,7 +210,7 @@ def _attempt(deck_id: DeckId, question: str, correct: bool, minutes: int) -> Att
 
 def test_c010_review_list_orders_by_error_rate(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
     deck_id = _deck(workspace, "review")
-    run = CliRunner(workspace, capsys, StubLlm(drafts=DRAFTS), StubTts())
+    run = CliRunner(workspace, capsys, StubLlm(drafts=_drafts(deck_id)), StubTts())
     clusters = _load(run("cluster", deck_id))["clusters"]
     owner = {q: c["id"] for c in clusters for q in c["questions"]}
     seq_of = {c["id"]: seq for seq, c in enumerate(clusters, start=1)}

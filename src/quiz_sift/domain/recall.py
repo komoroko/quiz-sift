@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from quiz_sift.domain.ids import OptionId
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class RecallKey:
@@ -23,3 +25,22 @@ class RecallKey:
     def term_set(self) -> frozenset[str]:
         """重複判定に使う、順序を落とした表現。"""
         return frozenset(self.terms)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AnswerElement:
+    """答えの1要素。どの正解の選択肢を述べたものかを `option_id` で持つ(ADR-022)。"""
+
+    option_id: OptionId
+    text: str
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DiscriminationPoint:
+    """識別ポイント — 正解と紛らわしい誤答との切り分け。参照する誤答選択肢を `distractor_ids` で持つ(D-177)。
+
+    本文中の括弧を参照とみなさない。参照先は ID だけで決まる。
+    """
+
+    text: str
+    distractor_ids: tuple[OptionId, ...]

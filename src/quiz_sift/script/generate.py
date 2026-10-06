@@ -1,7 +1,8 @@
 """台本の生成(R-6 / NFR-1)。想起素材から台本を組み立て、すべての検査を通ったときだけ成果物を書く。
 
 1問分は `Prompt`(想起キーを問いかけにしたもの)→ `Pause` → `Answer` → `Discrimination` で、
-テキストは想起素材の答え・識別ポイントをそのまま使う。台本のために LLM へ文章を書かせる呼び出しは無い。
+テキストは想起素材の答え(N 要素を空白で連結)・識別ポイントをそのまま使う。台本のために LLM へ文章を
+書かせる呼び出しは無い。
 
 1. **分割**(`split`): 3分を超えたクラスタは問の境界でトラックに割る。1問分だけで超える
    クラスタがあれば、それを列挙して止める(再生成が要る)。
@@ -24,7 +25,7 @@ from quiz_sift.domain.question import Question
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.recall.generate import RecallSet
 from quiz_sift.recall.verify import RecallMaterial
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent
+from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent, reference_for
 from quiz_sift.script.label_guard import find_enumerations
 from quiz_sift.script.segments import QuestionScript, Track
 from quiz_sift.script.split import TRACK_LIMIT_SECONDS, plan_tracks
@@ -78,23 +79,15 @@ def question_script(material: RecallMaterial, language: Language) -> QuestionScr
         material.question_id,
         Prompt(template.format(terms=separator.join(draft.key.terms))),
         Pause(PAUSE_SECONDS),
-        Answer(draft.answer),
-        Discrimination(draft.discrimination),
+        Answer(" ".join(element.text for element in draft.answers)),
+        Discrimination(draft.discrimination.text),
     )
-
-
-def _reference(question: Question) -> str:
-    correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
-    reference = f"問題: {question.stem} 正解: {correct}"
-    if question.explanation is not None:
-        reference += f" 解説: {question.explanation}"
-    return reference
 
 
 def _claims(track: Track, questions: dict[str, Question]) -> list[Claim]:
     claims: list[Claim] = []
     for q in track.questions:
-        reference = _reference(questions[q.question_id.local_id])
+        reference = reference_for(questions[q.question_id.local_id])
         statements = [q.answer.text] + ([] if q.discrimination is None else [q.discrimination.text])
         claims.extend(Claim(reference=reference, statement=s) for s in statements)
     return claims
