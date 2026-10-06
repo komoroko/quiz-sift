@@ -4,80 +4,207 @@
 > Finalized once a human approves at **the mandate**. Changes after approval need re-approval.
 
 ## Summary
-<!-- The value this product provides, in 3 lines or fewer -->
 
+前サイクル(`docs/archive/2026-10-06-fisrt/`)からの持ち越しを閉じ、入力を N-of-M の複数選択問題へ広げるデルタサイクル。
+想起素材の段が実データで止まる不具合(DEF-1)とセキュリティの指摘 SEC-001〜SEC-004 を直し、実データ 190 問でフル処理を完走させる。
+製品のバージョンを 0.1.1 にする。
+
+## このサイクルの読み方
+
+- 要件の全文は前サイクルの [10-requirements.md](archive/2026-10-06-fisrt/10-requirements.md) にあり、ID(R-1〜R-12、R-9 は欠番。NFR-1〜NFR-8)をそのまま引き継ぐ。
+- 下に見出しを持つ要件は、このサイクルで基準を**変える・足す**もの。見出しの中には差分だけを書く。書いていない基準は前サイクルのまま有効で、このサイクルの claim の対象ではない。
+- 見出しの無い要件(R-5、R-10、R-11、NFR-3、NFR-4、NFR-6)は変更しない。R-10 の誤答率は R-8 の採点(完全一致)に従うので、文言も変わらない。
+- Priority は着手順序であり、未達を許す指定ではない(前サイクルと同じ)。
+
+## 用語の定義
+
+### G-1: 実在
+
+語句 t がテキスト s に**実在する**とは、次をすべて満たすことをいう。
+
+1. t と s の両方を、NFKC 正規化 → 空白類の連続を1つに畳む → 前後の空白を除く → casefold の順で正規化する。
+2. 正規化した t が、正規化した s の連続した部分文字列として現れる。
+3. その出現の端で、t の端の文字が ASCII 英数字なら、その外側の文字は ASCII 英数字ではない。
+4. 空の t はどこにも実在しない。
+
+語形変化・同義語・語順の入れ替え・助詞の付け替えは実在とみなさない。この規則は現行の `grounding/presence.is_present` と同じであり、このサイクルでは規則そのものは変えず、**照合先と呼び出し元を1つに揃える**。
+
+照合先は検査ごとに次のとおり固定する。
+
+| 検査 | 語句 | 照合先 |
+|---|---|---|
+| 想起キー(R-4) | キーの各語・状況・条件 | **その問題の問題文だけ**(選択肢と解説は含めない) |
+| 他クラスタ出現率(R-4) | キーの各語 | 他クラスタに属する問題の問題文 |
+| クラスタ要約(R-3) | 要約から切り出した専門用語の断片 | そのクラスタに属する問題の問題文(D-161 のまま) |
+
+識別ポイントが参照する誤答選択肢は、テキストの照合ではなく、構造化した選択肢 ID で判定する(R-4)。
 
 ## List of things to achieve
 
-Each item expresses "what the user can do". Priority: Must / Should / Could.
-Write acceptance criteria as **measurable, technology-agnostic** checks (a number, a state, an observable behaviour — not "fast" or "easy").
-<!-- While drafting, mark anything undecided inline as a `[NEEDS CLARIFICATION: <what>]` marker at the
-     exact spot it affects, instead of picking a plausible default. There is no cap on how many:
-     every marker is asked of the human or demoted to Open questions with its assumption written
-     out, and `rein approve mandate` refuses while any is left standing in the prose. -->
-
-### R-1: <title>
-- **Overview**:
-- **Background / why needed**:
+### R-1: 問題データの取り込みと正規化
+- **Overview**: 選択肢 M 件・正解 N 件の多肢選択問題(M ∈ {4, 5, 6}、1 ≤ N < M)を取り込む。4択・正解1件は N = 1、M = 4 の場合として扱う。
+- **Background / why needed**: 実データ 190 問のうち 15 問(7.9%)が N-of-M(5択2正解が13問、6択3正解が2問)で、前サイクルは仕様として除外していた。
 - **Priority**: Must
-- **Acceptance criteria (conditions under which it can be called satisfied)**:
-  - [ ]
-  - [ ]
+- **Acceptance criteria(差分)**:
+  - [ ] 取り込んだすべての問題について、問題文・選択肢 M 件・正解 N 件が欠落なく保持される。
+  - [ ] (N, M) が上の範囲の外にある問題、正解が特定できない問題、ID が重複する問題は、問題ごとに列挙され、除外件数が報告される。
+  - [ ] 正常系のフィクスチャは 4択1正解・5択2正解・6択3正解をそれぞれ含み、それに対する除外件数が 0 になる。
+  - [ ] 入力形式の正解は選択肢 ID の配列1つで表す。正解を単一の値で持つ旧形式は受け付けない(後方互換は持たない)。
+- **How verified**: 受入テスト(合成フィクスチャ)。
 
-### R-2: <title>
-- **Overview**:
-- **Background / why needed**:
-- **Priority**: Should
-- **Acceptance criteria (conditions under which it can be called satisfied)**:
-  - [ ]
+### R-2: Udemy からの問題自動抽出
+- **Overview**: 正解のマークが N 件付いた問題を、N 件の正解として抽出する。
+- **Background / why needed**: N-of-M の15問は取り込みより手前、抽出の段で選択肢の失敗として落ちている(`archive/2026-10-06-fisrt/test/measurements/extraction-run.md`)。抽出を直さないと、実データに N-of-M は現れない。
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] 選択肢が5件・6件の問題ブロックを抽出の失敗にしない。
+  - [ ] 正解のマークが N 件ある問題を、N 件の正解として抽出する。
+  - [ ] 受験者の選択から正解を推定する経路は N-of-M では使わず、そのような問題は抽出の失敗として列挙する。
+  - [ ] ゴールデンセットに、人手で正解を確認した N-of-M の問題を3件以上加え、加えた後のゴールデンセット全体で、抽出した正解の集合の一致率が 100% である。
+  - [ ] **人が** Udemy にログインして実デッキを取り直し、取り直したデッキに N-of-M の問題が含まれることが抽出の報告に件数で現れる。
+- **How verified**: 受入テスト(ゴールデンセット)と、ホストでの取り直しの記録(`artifact`)。
 
-<!-- Add R-3, R-4... as many as needed -->
+### R-3: 類似問題のクラスタリング(圧縮)
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] 呼び出し1回ごとのタイムアウトが、子プロセスの子(孫)が stdout と stderr の pipe を持ち続けても効く。超過したときはプロセスグループごと終了させ、タイムアウトから 10 秒以内に `TIMEOUT` として返る(SEC-004)。
+- **How verified**: pipe を継承した孫を残す fake の子プロセスで、上限時間内に戻ることを確かめる受入テスト。修正前のコードで赤になること。
+- 実データでの M/N・比率・再現性の記録は、フル処理(NFR-7)で取る。
+
+### R-4: 想起素材の生成
+- **Overview**: 各問題について「想起キー」「その手がかりに対する答え」「紛らわしい選択肢との識別ポイント」を生成し、クラスタごとに束ねる(前サイクルの「各クラスタについて」を、実装と照合先に合わせて書き直す)。
+- **Background / why needed**: 実データの列で想起素材の段が全件拒否された(ungrounded_keys 175/175、missing_options 47)。生成プロンプトと検査がそれぞれ別の「実在」を前提にしていたのが原因。
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] 想起キーの各語・状況・条件が、G-1 の意味で、**その問題の問題文**に実在する。
+  - [ ] 想起キーの検査・他クラスタ出現率・クラスタ要約の検査は、G-1 を実装した述語1つを呼ぶ。生成プロンプトが指示する照合先は、検査が使う定数から組み立てる。どちらか片方だけを変えるとテストが赤になる。
+  - [ ] 識別ポイントは、参照する誤答選択肢をテキストの括弧ではなく**構造化した選択肢 ID の列**で示す。各識別ポイントが1件以上を参照し、参照した ID はすべてその問題の誤答選択肢(正解の集合に含まれない選択肢)である。本文中の括弧は検査しない。
+  - [ ] N-of-M の問題では、答えが N 要素の配列であり、各要素がその問題の正解の選択肢1件ずつに対応する(要素数が N でなければ検査で落とす)。
+  - [ ] 検査に落ちた問題は、**その問題だけを**上限 2 回まで再生成する。問題ごとの再生成回数を記録し、上限を超えた問題が1件でもあれば成果物を出さずに非 0 終了する。再生成の呼び出しも `llm_calls` と `provider_invocations` に数える。
+  - [ ] 合成デッキ(日本語と英語を含む)を実 CLI で recall 段まで通すと、`ungrounded_keys = 0`、`missing_options = 0` で、再生成回数が記録される(フル処理の前に置く可逆なリハーサル)。
+- **How verified**: 受入テスト(fake の LLM)と、合成デッキのホスト実測(`artifact`)。実データでの完走はフル処理(NFR-7)。
+- **想起キーの定義**: 問題文に現れ、その問題の正解を一意に指し示す語・状況・条件の組(D-005 を、生成単位に合わせて「クラスタ」から「問題」へ読み替える)。
+
+### R-6: 音声学習用台本の生成
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] ラベル列挙の判定を、その問題の M 件に広げる。記号 A〜F・番号 1〜6・かな ア〜カのいずれであれ、同じ系列のラベルを4件以上並べて選択肢を並列に提示する形を、ラベル列挙とする。
+  - [ ] N-of-M の問題では、台本の「答え」が正解 N 件すべてに言及する。R-4 の N 要素の答えから組み立て、要素の欠けた台本は出さない。
+- **How verified**: 受入テスト。
+
+### R-7: 音声ファイルの生成と書き出し
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] フル処理の列で、実 CosyVoice(torch 2.10)で生成した全クラスタの音声について、前サイクルの無音判定(先頭と末尾を除く位置に、前後を有音区間に挟まれた3秒以上の無音)が真である。
+- **How verified**: フル処理の記録(`artifact`)。
+
+### R-8: 事前/事後テストの出題と学習記録
+- **Overview**: 元の多肢選択問題を出題し、選んだ選択肢の集合・正誤・所要時間を記録する。
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] 問題ごとに、選んだ選択肢の**集合**・正誤・所要時間が永続記録される。
+  - [ ] 選んだ集合が正解の集合と**完全に一致したときだけ**正答とする。部分点は付けない。
+  - [ ] UI と API は、ちょうど N 件を選んだときだけ回答を受け付ける。API は N 件以外の回答を 400 で拒否する。
+  - [ ] シャッフル提示の下での 100% / 0% の基準を、N-of-M を含むフィクスチャで満たす。誤答の入力は、誤答選択肢だけから N 件を選んで作る。
+  - [ ] 学習記録ストアは新しい形で作り直す。旧形式のストアを見つけたら、黙って読み替えずにエラーで止まる。旧形式からの移行は作らない(残す記録が無いことを人が確認済み)。
+- **How verified**: 受入テスト。
+
+### R-12: Web UI
+- **Priority**: Must
+- **Acceptance criteria(差分)**:
+  - [ ] N-of-M の問題は複数選択の UI で出題し、「N 個選択」を表示する。N 件を選ぶまで回答を送れない。
+- **How verified**: UI の e2e(`artifact`、前サイクルの ADR-012 と同じ判定)。
 
 ## Non-functional requirements (criteria)
 
-Non-functional requirements get IDs too (`NFR-1`, `NFR-2`, … in the headings), so `rein dag --trace` can
-follow them into the design, tasks, and the test plan the same way as R-N. A cross-cutting NFR with no
-dedicated design section or task is fine (the trace only WARNs) — but every NFR **must** appear in
-`docs/test/test-plan.md`, which is checked mechanically at `/verify` (`--trace --test-plan`).
+### NFR-1: 誤学習の防止
+- **Criterion (measurable)(差分)**:
+  - 含意判定の reference が、正解 N 件すべてを含む。
+  - N 要素の答え(R-4)は、要素ごとに対応する正解の選択肢と含意判定にかける。
+  - N 件のうち1件とだけ矛盾する生成物で、成果物を出さずにエラー終了する。
+  - 正解を言い換えただけの正しい生成物で誤検出しない((b) を N-of-M にも適用する)。
+- **How verified**: 受入テスト(スタブの判定器と、矛盾・言い換えのフィクスチャ)。
 
-### NFR-1: <title, e.g. Performance>
-- **Criterion (measurable)**: <e.g. main operations complete within 1 second at the expected data volume>
-- **How verified**: <e.g. timed run in the test plan §2 / a task's automated test (set the task's `req: NFR-1`)>
+### NFR-2: 教材データの保護
+- **Criterion (measurable)(差分)**:
+  - 子プロセス(`claude`)の stdout と stderr の**本文**が、ログの流れ(stderr、INFO 以下のすべてのログ)に 0 件である。ログに出すのは構造化した項目(argv、終了コード、所要時間、4値トークン、失敗種別、レート枠、stdin のダイジェスト)だけにする。本文は `.gitignore` の対象であることを確かめたパスにだけ書く(SEC-003)。
+  - 前サイクルの「マスク後に残る言い換えテキストを許容する」(D-097)を**覆す**。DEF-1 の修正で問題文の逐語の断片が想起キーとして子の出力に載るようになり、登録した文字列全体しか伏せないマスクでは漏れるため。
+  - マスク後のログに必須の項目が残ること(AR-42)は変えない。
+- **How verified**: 番兵の本文を返す fake の子プロセスで、ログの流れに番兵が 0 件、必須の項目がすべて残ることを確かめる受入テスト。
 
-### NFR-2: <title, e.g. Security>
-- **Criterion (measurable)**: <e.g. no secrets stored or logged in plaintext>
-- **How verified**: <e.g. /security-review + make audit results recorded in the test plan §2>
+### NFR-5: 開発基盤と CI
+- **Criterion (measurable)(差分)**: 製品のバージョンが 0.1.1 で、`pyproject.toml` の version、`quiz_sift.__version__`、`uv.lock` の quiz-sift の項目、`--version` の出力の4か所で一致する。src・tests・`pyproject.toml`・`uv.lock` に `0.1.0` が残らない。
+- **How verified**: 受入テストと品質ゲートの smoke ステップ。
 
-<!-- Add NFR-3, NFR-4... as many as needed (availability/reliability, operations/maintainability, ...) -->
+### NFR-7: 処理コストと所要時間の可視化(フル処理の完走)
+- **Criterion (measurable)(差分)**:
+  - **固定オーバーヘッドを、このサイクルの argv で取り直す。** NFR-8 の変更で argv が変わると、前サイクルの較正値はそのままでは使えない。前サイクルと同じ方法(既知長の合成プロンプト k = 1, 2, 3 の3点、差と切片の判定)で、ホストで実測する。フル処理の前に置く。
+  - **フル処理を完走させる(不可逆)。** 人が取り直した 190 問のデッキで、`--fresh-run cluster` から `audio` まで同じ列で走らせ、前サイクルの元の T-047 の受入基準 A-1〜A-6 をすべて満たす。
+    - 列が completed になる。
+    - 再現性の列を2本取る(R-3 の割当一致率)。
+    - 全クラスタの無音判定が真(R-7)。
+    - M/N・最大クラスタ比率・「その他」比率の3値がある。
+    - metered 認証変数が無く、overage の呼び出しが 0 件(NFR-8 (f)(h))。
+    - `overage_check` が passed または unknown。
+  - 試行の予算は最大 3 回。
+- **How verified**: ホストでの実測の記録(`artifact`)。
+
+### NFR-8: 外部サービスの利用が従量課金を伴わないこと
+- **Criterion (measurable)(差分)**:
+  - **(b) 子の CLI にユーザ設定を読ませない**(SEC-001)。子の CLI に、ユーザ設定を読まない指定を渡す。最小ホームの `.claude/settings.json` に番兵の `env` を置いても子の環境に現れないことを、ホストの実 CLI で確かめる。起動前の中身検査(前サイクルの (b) の 1〜3)は残す。
+  - **(e)1 有効ツールを許可リストで指定する**(SEC-002)。有効ツールを `{"StructuredOutput"}` の許可リストとして argv で指定し、`init.tools` がそれと一致することをホストの実 CLI で確かめる。現行 CLI に許可リストで指定する手段が無いことをホストで実測した場合は、拒否リストのまま `init.tools` の一致判定を残し、手段が無かったことと実測の記録を残す。
+- **How verified**: argv の形の受入テスト(fake runner)と、ホストでの実 CLI の実測(`artifact`)。
 
 ## Out of scope (non-goals)
--
+
+- 前サイクルの Out of scope をすべて引き継ぐ。
+- 中心仮説(音声学習で正答率が上がるか)の検証(D-002 のまま)。
+- 旧形式の学習記録ストアからの移行。
+- 空の `tests/fixtures/claude_cli/invalid_schema.stdout` の扱い。
 
 ## Clarifications
-<!-- Audit trail of how ambiguities were closed: one bullet per resolved [NEEDS CLARIFICATION] marker / question.
-     One bullet each, shaped: `- Q: <question> → A: <the human's answer> (YYYY-MM-DD)`. The shape lives in
-     this comment rather than as a bullet below it, because a bullet here is a record: `rein decisions`
-     reads this section across every cycle, and an unfilled example is a judgement nobody made. -->
+
+- Q: 次のサイクルで扱う範囲は → A: DEF-1、フル処理の完走、SEC-001〜SEC-004、N-of-M の複数選択問題の4件。製品のバージョンを上げる作業も入れる (2026-10-06)
+- Q: 製品のバージョンをいくつにするか → A: 0.1.1。N-of-M が入力形式と学習記録ストアを壊す変更だと分かった後も、0.1.1 のまま (2026-10-06)
+- Q: `Bash(uv run *:*)` の事前許可をどうするか → A: 外す(44d0f7f で実施) (2026-10-06)
+- Q: 範囲を2サイクルに分割するか → A: 分割しない。1サイクルで全部行う (2026-10-06)
+- Q: 想起キーの実在の照合先は → A: その問題の問題文だけ (2026-10-06)
+- Q: 想起素材の検査に1件落ちたときどうするか → A: 落ちた問題だけを上限回数まで再生成し、回数を記録する (2026-10-06)
+- Q: 子の CLI の出力本文をログに出している件(SEC-003)は → A: 本文をログに出さない。D-097 を覆す (2026-10-06)
+- Q: N-of-M の採点は → A: 正解の集合と完全に一致したときだけ正答 (2026-10-06)
+- Q: 取り込む (N, M) の範囲は → A: M ∈ {4, 5, 6}、1 ≤ N < M (2026-10-06)
+- Q: 既存の学習記録ストアに残す記録はあるか → A: 無い。作り直す (2026-10-06)
+- Q: N-of-M の答えが正解 N 件をすべて含むことの判定は → A: 答えを N 要素の配列にし、要素ごとに含意判定する (2026-10-06)
+- Q: 識別ポイントの誤答選択肢の参照をどう表し、どう検査するか → A: 構造化した選択肢 ID の列で示し、ID で検査する (2026-10-06)
+- Q: SEC-001 の処置は → A: 子の CLI にユーザ設定を読ませない (2026-10-06)
+- Q: SEC-002 の処置は → A: 許可リストで指定する。手段が無ければ拒否リストのまま受容する (2026-10-06)
+- Q: R-2 と実デッキの取り直しをこのサイクルで行うか → A: 行う。ゴールデンセットに N-of-M を3件以上足す (2026-10-06)
+- Q: フル処理の試行予算と再現性の列は → A: 最大 3 回。再現性の2列も取る (2026-10-06)
+- Q: argv が変わったときの overhead の較正は → A: このサイクルで取り直す (2026-10-06)
+- Q: フル処理の前に置く可逆なリハーサルは → A: 合成デッキを実 CLI で recall 段まで通すもの1本 (2026-10-06)
+- Q: 想起素材の生成単位を要件と実装のどちらに揃えるか → A: 要件を「各問題について生成し、クラスタごとに束ねる」に直す (2026-10-06)
 
 ## Open questions
-<!-- Points to confirm with the human. Resolve before the mandate. -->
--
+
+- なし。
 
 ## Adversarial review
-> Findings from the independent `adversarial-reviewer` round before the mandate (procedure: req.md step 6),
+
+> Findings from the independent `adversarial-reviewer` round before the mandate (procedure: req.md step 7),
 > with the lead's disposition per finding. Blockers must be `fixed` or `disputed` (with the reason)
 > before the gate; the human sees this table — and settles any unresolved dispute — at the mandate.
 
 | ID | Severity (blocker/major/minor) | Finding (with counterexample) | Disposition (revise_* / request_expert / run_experiment / reduce_scope / dispute_finding: why) |
 |----|--------------------------------|-------------------------------|-----------------------------------------------------|
-| AR-1 | | | |
 
+未実施。`.rein/reviews.yaml` が 0.13 の形で反映されておらず、`rein reviews show --stage requirements` が読めないため。
 
 ## Self-assessment (assumptions, confidence)
-> Communicated to the human at the mandate as `.rein/prompts/rules/gate-workflow.md` "Gate self-assessment". Leave it here, not just spoken.
-- **Assumptions made**: <assumptions taken as given without confirming; points where, if wrong, the requirements break>
-- **Confidence**: high / medium / low (may be split per requirement/area; **attach a reason for low spots**)
-- **Open questions / points for the human to decide**:
-<!-- Three *kinds* of item and no more — assumptions, confidence, open questions. That is a limit on
-     what this block is about, never on how many open questions it lists: every point the human has to
-     decide belongs here, however many there are. -->
+- **Assumptions made**:
+  - DEF-1 の主因は、照合先の食い違いと、括弧を選択肢の参照とみなす検査にある。コードを読んで推定したもので、実データでは確かめていない。照合先を問題文に絞ると、汎用語キーの検査(全語が他クラスタにも出る)で新たに止まる可能性があり、これも未実測。合成デッキのリハーサルで先に確かめる。
+  - 子の CLI に、ユーザ設定を読まない指定(SEC-001)と許可リストでツールを指定する手段(SEC-002)があるかは未確認。SEC-001 の手段が無ければ `/revise` で人に戻す。
+- **Confidence**:
+  - 前サイクルとの差分の特定: 高(コードで確認した)。
+  - DEF-1 の修正で実データが通るか: 低(上の仮定のため)。
+  - 1サイクルの規模: 中。タスクは 18〜25 本の見込みで、ホストでの人手の操作が複数ある(実デッキの取り直し、ゴールデンセットの確認、CLI の実測、overhead の較正、合成デッキのリハーサル、フル処理)。
+- **Open questions / points for the human to decide**: なし。決めたことは Clarifications にある。

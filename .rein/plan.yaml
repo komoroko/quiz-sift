@@ -21,7 +21,231 @@ cycle:
   branch: build/quiz-sift
 
 # What the implementation is supposed to do. One claim, one checkable statement.
-claims: []
+claims:
+  - id: C-001
+    requirement_ids: [R-1]
+    statement: 選択肢 M 件・正解 N 件(M ∈ {4,5,6}、1 ≤ N < M)の問題を取り込むと、問題文・選択肢 M 件・正解 N 件が欠落なく保持され、範囲外の (N, M)・正解不明・ID 重複は問題ごとに列挙されて除外件数が報告され、4択1正解・5択2正解・6択3正解を含む正常系フィクスチャで除外件数が 0 になり、正解を単一の値で持つ入力は拒否される。
+    risk: high
+  - id: C-002
+    requirement_ids: [R-2]
+    statement: 正解のマークが N 件ある問題が N 件の正解として抽出され、選択肢5件・6件の問題ブロックが抽出の失敗にならず、受験者の選択から正解を推定する経路が N-of-M では使われず、人手で確認した N-of-M を3件以上加えたゴールデンセット全体で正解の集合の一致率が 100% であり、人が取り直した実デッキの抽出報告に N-of-M の件数が現れる。
+    risk: high
+  - id: C-021
+    requirement_ids: [R-3]
+    statement: 子プロセスの子が stdout と stderr の pipe を持ち続けても、呼び出し1回のタイムアウトを超えるとプロセスグループごと終了し、タイムアウトから 10 秒以内に TIMEOUT として返る。修正前のコードではこの受入テストが赤になる。
+    risk: medium
+  - id: C-004
+    requirement_ids: [R-4]
+    statement: 想起素材は問題ごとに生成され、想起キーの各語・状況・条件はその問題の問題文に G-1 の意味で実在し、想起キー・他クラスタ出現率・クラスタ要約の検査は G-1 を実装した単一の述語を呼び、生成プロンプトの照合先は検査と同じ定数から組み立てられ、識別ポイントは構造化した選択肢 ID で1件以上の誤答選択肢だけを参照し、N-of-M の答えは正解に1件ずつ対応する N 要素の配列であり、検査に落ちた問題だけが上限 2 回まで再生成されて回数が記録され、上限を超えた問題があれば成果物を出さずに非 0 終了する。
+    risk: high
+  - id: C-026
+    requirement_ids: [R-4]
+    statement: 日本語と英語を含む合成デッキを実 CLI で recall 段まで通すと、ungrounded_keys = 0、missing_options = 0 で終わり、問題ごとの再生成回数が記録される(ホストでの実測)。
+    risk: high
+  - id: C-006
+    requirement_ids: [R-6]
+    statement: 台本は、記号 A〜F・番号 1〜6・かな ア〜カのいずれでも同じ系列のラベルを4件以上並べる形を含まず、N-of-M の問題では答えの部分が正解 N 件すべてに言及し、要素の欠けた台本は出力されない。
+    risk: medium
+  - id: C-007
+    requirement_ids: [R-7]
+    statement: フル処理の列で実 CosyVoice(torch 2.10)が生成した全クラスタの音声について、先頭と末尾を除く位置に前後を有音区間に挟まれた3秒以上の無音区間があることが機械判定で真になる。
+    risk: high
+  - id: C-008
+    requirement_ids: [R-8]
+    statement: 問題ごとに選んだ選択肢の集合・正誤・所要時間が永続記録され、選んだ集合が正解の集合と完全に一致したときだけ正答となり、API は N 件以外の回答を 400 で拒否し、N-of-M を含むシャッフル提示のフィクスチャで全問正解の入力が 100%、誤答選択肢だけから作った全問誤答の入力が 0% になり、旧形式の学習記録ストアを見つけるとエラーで止まる。
+    risk: high
+  - id: C-012
+    requirement_ids: [R-12]
+    statement: Web UI は N-of-M の問題を複数選択で出題して「N 個選択」を表示し、N 件を選ぶまで回答を送れない。
+    risk: medium
+  - id: C-013
+    requirement_ids: [NFR-1]
+    statement: 含意判定の reference が正解 N 件すべてを含み、N 要素の答えは要素ごとに対応する正解の選択肢と判定され、N 件のうち1件とだけ矛盾する生成物では成果物を出さずにエラー終了し、正解を言い換えただけの生成物では誤検出しない。
+    risk: critical
+  - id: C-014
+    requirement_ids: [NFR-2]
+    statement: 子プロセスの stdout と stderr の本文がログの流れ(stderr と、INFO 以下のすべてのログ)に 0 件であり、argv・終了コード・所要時間・4値トークン・失敗種別・レート枠・stdin のダイジェストはログに残る。
+    risk: critical
+  - id: C-022
+    requirement_ids: [NFR-5]
+    statement: pyproject.toml の version、quiz_sift.__version__、uv.lock の quiz-sift の項目、--version の出力の4か所が 0.1.1 で一致し、src・tests・pyproject.toml・uv.lock に 0.1.0 が残らない。
+    risk: low
+  - id: C-019
+    requirement_ids: [NFR-7]
+    statement: このサイクルの argv で、既知長の合成プロンプト k = 1, 2, 3 の3点から固定オーバーヘッドが取り直され、入力トークンの差が材料の差と一致し、切片が記録した定数と一致する(ホストでの実測)。
+    risk: medium
+  - id: C-025
+    requirement_ids: [NFR-7, R-3, NFR-8]
+    statement: 人が取り直した 190 問のデッキで、cluster から audio までの1列が completed になり、再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は最大 3 回)。
+    risk: high
+  - id: C-023
+    requirement_ids: [NFR-8]
+    statement: 子の CLI にはユーザ設定を読まない指定が渡され、最小ホームの .claude/settings.json に置いた番兵の env が子の環境に現れない(ホストでの実測)。起動前の最小ホームの中身検査は残る。
+    risk: high
+  - id: C-024
+    requirement_ids: [NFR-8]
+    statement: 子の CLI の init.tools が {StructuredOutput} と一致し、その指定は許可リストの形で argv にある。現行 CLI に許可リストで指定する手段が無いことをホストで実測した場合に限り、拒否リストのままで init.tools の一致を満たし、手段が無かったことの実測記録が残る。
+    risk: high
+decisions:
+  - id: D-168
+    subject: このサイクルの範囲
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: DEF-1、フル処理の完走、SEC-001〜SEC-004、N-of-M の複数選択問題を1サイクルで行い、製品のバージョンを 0.1.1 に上げる。分割は推奨したが採らない。
+    requirement_ids: [R-1, R-2, R-3, R-4, R-6, R-7, R-8, R-12, NFR-1, NFR-2, NFR-5, NFR-7, NFR-8]
+  - id: D-169
+    subject: 製品のバージョン
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 0.1.1。N-of-M が入力形式と学習記録ストアを壊す変更だと示したうえで、0.1.1 のまま。
+    requirement_ids: [NFR-5]
+  - id: D-170
+    subject: 想起キーの実在の照合先
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: その問題の問題文だけ。選択肢と解説は含めない。
+    requirement_ids: [R-4]
+  - id: D-171
+    subject: 想起素材の検査に落ちた問題の扱い
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 落ちた問題だけを上限回数まで再生成し、回数を記録する。上限を超えたら成果物を出さずに止まる。
+    requirement_ids: [R-4]
+  - id: D-172
+    subject: 子の CLI の出力本文のログ出力(SEC-003)
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 本文をログに出さない。D-097(言い換えテキストのログへの残存を許容)を覆す。
+    requirement_ids: [NFR-2]
+  - id: D-173
+    subject: N-of-M の採点
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 正解の集合と完全に一致したときだけ正答。部分点は付けない。
+    requirement_ids: [R-8]
+  - id: D-174
+    subject: 取り込む (N, M) の範囲
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: M ∈ {4, 5, 6}、1 ≤ N < M。範囲外は件数付きで除外する。
+    requirement_ids: [R-1]
+  - id: D-175
+    subject: 既存の学習記録ストア
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 残す記録は無い。新しい形で作り直し、移行は作らない。
+    requirement_ids: [R-8]
+  - id: D-176
+    subject: N-of-M の答えが正解 N 件をすべて含むことの判定
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 答えを N 要素の配列にし、要素ごとに含意判定する。
+    requirement_ids: [R-4, NFR-1]
+  - id: D-177
+    subject: 識別ポイントの誤答選択肢の参照
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 構造化した選択肢 ID の列で示し、ID で検査する。本文の括弧は検査しない。
+    requirement_ids: [R-4]
+  - id: D-178
+    subject: SEC-001 の処置
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 子の CLI にユーザ設定を読ませない指定を渡す。手段が無ければ /revise で人に戻す。
+    requirement_ids: [NFR-8]
+  - id: D-179
+    subject: SEC-002 の処置
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 許可リストで指定する。手段が無いことを実測した場合は拒否リストのまま受容し、記録する。
+    requirement_ids: [NFR-8]
+  - id: D-180
+    subject: R-2 と実デッキの取り直し
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: このサイクルで行う。人が実デッキを取り直し、ゴールデンセットに N-of-M を3件以上足す。フル処理は 190 問で行う。
+    requirement_ids: [R-2, NFR-7]
+  - id: D-181
+    subject: フル処理の試行予算と再現性の列
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 最大 3 回。再現性の2列も取る。
+    requirement_ids: [NFR-7]
+  - id: D-182
+    subject: argv が変わったときの overhead の較正
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: このサイクルで取り直す。フル処理の前に置く。
+    requirement_ids: [NFR-7]
+  - id: D-183
+    subject: フル処理の前のリハーサル
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 合成デッキを実 CLI で recall 段まで通すもの1本。実 CosyVoice のリハーサルと実データの小さな列は置かない。
+    requirement_ids: [R-4, NFR-7]
+  - id: D-184
+    subject: 想起素材の生成単位
+    reach: mandate
+    status: settled
+    settled_by: human
+    answer: 要件を実装に合わせ「各問題について生成し、クラスタごとに束ねる」に直す。
+    requirement_ids: [R-4]
+  - id: D-185
+    subject: 再生成の上限回数
+    reach: local
+    status: settled
+    settled_by: loop
+    answer: 2 回。
+    rationale: 定数1つで、変えても recall のタスク1つで済み、claim は「上限を超えたら止まる」の形を変えない。合成デッキのリハーサルで不適合率を見て調整できる。
+    requirement_ids: [R-4]
+  - id: D-186
+    subject: タイムアウト後の猶予(SEC-004)
+    reach: local
+    status: settled
+    settled_by: loop
+    answer: 10 秒。プロセスグループ単位で終了させる。
+    rationale: 定数1つで、変えても子プロセスの起動点のタスク1つで済む。
+    requirement_ids: [R-3]
+  - id: D-187
+    subject: 変える要件の claim の番号
+    reach: local
+    status: settled
+    settled_by: loop
+    answer: 前サイクルの claim を引き継ぐ要件は同じ番号(C-001 など)で文を差分に書き換え、新しい観点は C-021 から採番する。
+    rationale: ID だけの問題で、tests/acceptance の test_cNNN_* の名前と揃う。主張の中身は動かない。
+    requirement_ids: [R-1]
+  - id: D-188
+    subject: 取り込みの除外理由の名前
+    reach: local
+    status: settled
+    settled_by: loop
+    answer: OPTION_COUNT_NOT_4 を OPTION_COUNT_UNSUPPORTED に改名し、呼び出し側をすべて直す。
+    rationale: enum の名前1つの変更で、主張は「列挙される」から変わらず、取り込みのタスク1つで閉じる。
+    requirement_ids: [R-1]
+  - id: D-189
+    subject: N-of-M で受験者の選択から正解を推定する経路
+    reach: local
+    status: settled
+    settled_by: loop
+    answer: 使わず、抽出の失敗にする。
+    rationale: 複数選択では選択と正解の対応が一意にならない。抽出のタスク1つで変えられ、C-002 の一致率の基準は動かない。
+    requirement_ids: [R-2]
 #  - id: C-001
 #    requirement_ids: [R-1]
 #    statement: <one behaviour, stated so that it could be false>
