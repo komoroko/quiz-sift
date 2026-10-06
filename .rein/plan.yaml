@@ -930,6 +930,9 @@ tasks:
     - src/quiz_sift/cli.py
     - tests/script/
     - tests/acceptance/test_analysis.py
+    - tests/audio/conftest.py
+    - tests/domain/test_shared_types.py
+    - tests/glossary/test_audio_series.py
   acceptance:
   - id: A-1
     statement: 記号 A〜F・番号 1〜6(全角と丸数字を含む)・かな ア〜カのいずれでも、同じ系列の先頭から M 件(M はトラック内の問題の M の最小値)が揃う形はラベル列挙として止まり、それより少ないラベルの言及は止まらない。
@@ -986,6 +989,9 @@ tasks:
     - tests/acceptance/test_audio_and_review.py
     - web/lib/api.ts
     - web/app/decks/[deck]/sessions/[session]/page.tsx
+    - tests/domain/test_shared_types.py
+    - tests/test_cli.py
+    - tests/acceptance/test_ingest_and_decks.py
   acceptance:
   - id: A-1
     statement: 選んだ集合が正解の集合と完全に一致したときだけ正答になり、N-of-M を含むシャッフル提示のフィクスチャで全問正解の入力が 100%、正解1件を誤答1件に入れ替えた全問誤答の入力が

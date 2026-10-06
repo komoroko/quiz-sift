@@ -278,6 +278,9 @@ guard:
   # product deliverables). `rein init` writes false for products — that is when the
   # editor-hook guard goes live.
   template_mode: false
+  # 型を変えるタスクが巻き込むテストは、承認し直さずに rein task scope-add で足せる(T-060・T-064・T-065 の scope の漏れを受けた人の判断)。
+  scope_additions:
+    - tests/
   # What a mandate authorizes changes to. Each path guards the file it names and everything beneath
   # it; the trailing "/" is optional punctuation. The prefix is anchored at a separator, so `src`
   # guards src/a.py and never srcfile.py, and the most specific entry wins.
