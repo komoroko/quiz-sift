@@ -230,7 +230,7 @@ def test_cli_entry_point_exits_zero(tmp_path: Path) -> None:
         )
         assert completed.returncode == 0, completed.stderr
         outputs[flag] = completed.stdout
-    assert outputs["--version"].strip() == "quiz-sift 0.1.0"
+    assert outputs["--version"].strip() == "quiz-sift 0.1.1"
     assert all(stage in outputs["--help"] for stage in STAGES)
 
 
