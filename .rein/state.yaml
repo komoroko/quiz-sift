@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-06T11:47:18+09:00'
+updated_at: '2026-10-06T16:38:57+09:00'
 gates:
   mandate:
     status: approved
@@ -70,7 +70,146 @@ plan:
   frozen_at: '2026-10-06T11:47:01+09:00'
 execution:
   status: idle
-tasks: {}
+tasks:
+  T-055:
+    status: done
+    attempts: 9
+    completed_commit: 8228a6cbd957bdec27177815f7721c13ff5705ed
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 7d0de25114d5de136ce33c422d3064718e82dee0
+        step: test
+      tree: sha256:356ec46dbc5769eeac2b7a755037d676d6c1502ad7e928743926cb23d3a70e11
+      updated_at: '2026-10-06T14:47:23+09:00'
+  T-056:
+    status: todo
+    attempts: 1
+    handoff:
+      report:
+        outcome: implemented
+        summary: 'レビュー指摘 L-CODE-CONCURRENCY(claude_process.py:87)は、指摘どおりの再現は起きなかったが、近い窓は実在したので直した。指摘の再現(spawn
+          中に SIGTERM と SIGHUP の2つを保留させる)は CPython 3.13 と 3.14 で試し、テストとしても追加した(test_signal_during_spawn_still_kills_the_child_group
+          の term-and-hup / alrm-and-term)。2本目のハンドラは run が抜けた後で走り、その時点で子は -SIGKILL 済みだったので、修正前のコードでも緑だった。実在した窓は、後始末に入った直後に新しいシグナルが届く場合で、ハンドラは次に呼ばれる
+          Python 関数(_kill_group)の入口で走り、killpg の前に例外が差し替わる。修正: except BaseException と except TimeoutExpired
+          の両方で、最初の操作を Python 関数を挟まない os.killpg(proc.pid, SIGKILL) の直接呼び出しにし、_kill_group は削除した。指摘の方向(後始末の間
+          DEFERRED_SIGNALS をブロックする)は採らなかった。保留済みのハンドラはマスクで止まらず、ブロックする pthread_sigmask 自体が Python のラッパで入口にハンドラの走る点を持つので、窓を閉じないため。テスト
+          test_signal_arriving_during_cleanup_does_not_skip_the_killpg[signal|timeout] を追加した。後始末に入ってから
+          claude_process の Python 関数が最初に呼ばれた瞬間に SIGHUP を送り、子が -SIGKILL で止まることを確かめる。このテストは修正前は赤(returncode
+          None)、修正後は緑。gate.sh の6ステップはすべて exit 0(types の指摘1件は修正後に再実行)、test は 421 passed。'
+        at: '2026-10-06T15:39:43+09:00'
+        touched:
+        - src/quiz_sift/adapters/claude_process.py
+        - tests/adapters/test_claude_process.py
+      updated_at: '2026-10-06T15:48:45+09:00'
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 0eaa437d-ad07-4ed8-8f3b-5788d61d06d8
+        output_tail: 'レビューの再現手順そのものは修正前のコードでも失敗しませんでした。ただ近い穴が実際にあったので塞ぎ、d0c69fb でコミットして `rein report --outcome
+          implemented` を記録しました。
+
+
+          - **指摘の再現**: 子の起動中に2種類のシグナルを溜める手順を、CPython 3.13 と 3.14 で試しました。2本目のハンドラは `run` が抜けたあとで走り、その時点で子はすでに
+          SIGKILL で止まっていました。この手順はテストとして残してあり、修正前から通ります。
+
+          - **実在した穴**: 後始末に入った直後に新しいシグナルが届くと、そのハンドラは次に呼ぶ Python 関数の入口で走ります。そこで例外が差し替わり、子のグループへの SIGKILL
+          が飛ばされていました。
+
+          - **修正**: 例外の後始末とタイムアウトの後始末の両方で、最初の操作を `os.killpg(proc.pid, SIGKILL)` の直接呼び出しにしました。組み込み関数なので、送る前に別のハンドラが割り込む地点がありません。不要になった
+          `_kill_group` は消しました。
+
+          - **指摘の案を採らなかった理由**: 後始末の間シグナルをブロックする案は、すでに処理待ちになっているハンドラを止められません。しかもブロックに使う関数自体が Python の関数で、その入口でハンドラが走るので、窓が閉じません。この理由は
+          report の summary に書いたので、再レビューで確かめられます。
+
+          - **テスト**: `test_signal_arriving_during_cleanup_does_not_skip_the_killpg` を、例外の後始末用とタイムアウトの後始末用の2通り追加しました。後始末で
+          Python 関数が最初に呼ばれた瞬間に SIGHUP を送り、子が SIGKILL で止まることを確かめます。修正前は子が生き残って失敗し、修正後は通ります。
+
+          - **ゲート**: 6ステップすべて通り、テストは 421 件成功です。全件テストのあとに型チェックの指摘1件をテストファイルで直し、lint / format / types とそのファイルのテストだけを流し直しました。'
+        at: '2026-10-06T15:39:53+09:00'
+      review:
+        findings:
+        - severity: must_fix
+          statement: 'D-221 の保証に穴がある(L-CODE-CONCURRENCY)。SIGHUP/SIGTERM(と SIGALRM)のハンドラは LLM 段の全体で有効だが、子のグループを
+            killpg する `except BaseException` は communicate を囲む2つ目の try にしか無い。シグナルが `subprocess.Popen(...)`
+            の内側で fork/exec の後(_execute_child が errpipe を読む間や __init__ の残り)か、Popen が戻ってから2つ目の try に入るまでに届くと、TerminatedBySignal
+            / ExecutionLimitExceeded は1つ目の try(`except OSError` だけ)を素通りし、起動済みの子は killpg されずに残る。子は start_new_session=True
+            で端末のグループの外にいるので、修正前と違って端末を閉じても SIGHUP が届かず、すぐの `--resume` で2本の claude が同じ最小ホームを使うという、D-221
+            が防ぐはずの状態になる。再現条件: `claude` を起動した直後のごく短い間(子の exec が終わるまでの数ミリ秒)に親へ SIGTERM を送る。窓は狭いが、決定論的に閉じられる。たとえば
+            Popen の前から try に入るまでのシグナルを遅らせる(子は親のシグナルマスクを継承するので、マスクを使う場合は子の側で解除する手段も要る)、または spawn 済みの proc
+            を例外経路で必ず killpg できる構造にする。この窓を突くテストは今の変更に無い。'
+          anchor: src/quiz_sift/adapters/claude_process.py:56
+        - severity: must_fix
+          statement: '[L-CODE-CONCURRENCY] 子のグループを止める後始末(except BaseException の _kill_group 以前、および except
+            TimeoutExpired から _stop_group の os.killpg まで)が DEFERRED_SIGNALS の2本目に守られていない。spawn の間に別種のシグナルが2つ届く(例:
+            端末を閉じて SIGHUP、続いてセッション管理側から SIGTERM。または SIGALRM と SIGTERM)と、遅延のせいで両方が pending になり、82行の pthread_sigmask(SIG_SETMASK)
+            の中の PyErr_CheckSignals で1本目のハンドラが TerminatedBySignal を送出する。CPython は失敗したハンドラの後で残りのシグナルを再スケジュールするので、2本目のハンドラは
+            except 節が _kill_group を呼んだ入口(RESUME の eval breaker)で走り、os.killpg の前に例外が差し替わる。結果、親は TerminatedBySignal
+            で終わり、claude の子のグループは別セッションで生き残る(D-221 が防ぐはずの状態)。spawn 中の遅延がシグナルを束ねるので、遅延を入れる前より起きやすい。再現: test_signal_during_spawn_still_kills_the_child_group
+            の SignalledPopen.__init__ で SIGTERM に加えて SIGHUP(例外を送出するハンドラ)も自分に送ると、proc.poll() は None のまま。修正の方向:
+            後始末(_kill_group まで)を DEFERRED_SIGNALS をブロックした状態で行い、その再現テストを付ける。'
+          anchor: src/quiz_sift/adapters/claude_process.py:87
+        - severity: must_fix
+          statement: '_stop_group の後備経路に死んだ分岐が2つある(lens 外・unclassified の簡素化)。(1) `late.stdout if late.stdout
+            is not None else expired.stdout`: 2回の communicate は同じ self._fileobj2output のリストへ読み足し、_check_timeout
+            は TimeoutExpired(output=b''''.join(seq) if seq else None) を作る(CPython 3.13 subprocess.py:1269-1272)。そのため
+            late が None なら expired も必ず None で、expired への後退は値を変えない。_stop_group の expired 引数もこの後退のためだけにある。(2)
+            `_as_bytes` の str 分岐(TypeError): typeshed は TimeoutExpired.stdout/stderr を `bytes | None`
+            と型付けしており(mypy 同梱 subprocess.pyi:1014-1015)、型の絞り込みにも要らない到達不能コード。`return late.stdout or b"",
+            late.stderr or b""` で足り、_as_bytes と expired 引数は消せる。'
+          anchor: src/quiz_sift/adapters/claude_process.py:125
 dependency_audit:
   ran_at: '2026-10-06T02:28:11+00:00'
   commit: 32f90c98392051b34e9068582e9566dd6434fae3
