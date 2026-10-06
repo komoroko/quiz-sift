@@ -1,11 +1,18 @@
-adversarial:
-  requirements: true
-  design: true
-  tasks: true
-steps:
-- name: review
+requirements:
+  adversarial: true
+  reviews: []
+design:
+  adversarial: true
+  reviews: []
+tasks:
+  adversarial: true
+  reviews: []
+build:
   reviews:
   - correctness
   - simplification
-  retries: 1
-  stage: both
+acceptance:
+  actual_extraction: true
+  comparison: true
+  reviews:
+  - security
