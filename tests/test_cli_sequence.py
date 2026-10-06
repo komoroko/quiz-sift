@@ -10,11 +10,14 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from support import grandchild_fake
 from support.claude_fake import FakeRunner, exited, fake_stdout, success_events
 from support.cli_harness import DECK, CliLlms, StubTts, flag, no_preflight, respond, write_root
 
@@ -22,7 +25,7 @@ from quiz_sift import cli, composition
 from quiz_sift.adapters import claude_process, llm_prompts
 from quiz_sift.adapters.claude_process import PreflightError, SubprocessRunner
 from quiz_sift.pipeline.stage import inputs_digest
-from quiz_sift.ports.process import CommandResult, CommandSpec
+from quiz_sift.ports.process import CommandResult, CommandSpec, Outcome
 
 METERED_ENV = (
     "ANTHROPIC_API_KEY",
@@ -444,3 +447,107 @@ def test_metered_env_names_come_from_the_parent_environment(
         assert start["metered_env_names"] == [name]
         assert harness.last_end()["sequence"]["status"] == "not_completable"
     assert "synthetic-value" not in harness.log.read_text(encoding="utf-8")
+
+
+class RecordingPopen(subprocess.Popen[bytes]):
+    """`start_new_session` と、`communicate` に渡った `timeout` を記録する Popen。"""
+
+    sessions: list[bool] = []
+    timeouts: list[float | None] = []
+    spawned: list[subprocess.Popen[bytes]] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        RecordingPopen.sessions.append(kwargs.get("start_new_session", False))
+        RecordingPopen.spawned.append(self)
+
+    def communicate(self, input: bytes | None = None, timeout: float | None = None) -> tuple[bytes, bytes]:
+        RecordingPopen.timeouts.append(timeout)
+        return super().communicate(input, timeout)
+
+
+class GroupHanging:
+    """1本目は応答し、2本目は孫を残して眠る実の子を起動する(孫は子と同じプロセスグループ)。"""
+
+    def __init__(self, pid_file: Path) -> None:
+        self.pid_file = pid_file
+        self.calls = 0
+
+    def __call__(self, spec: CommandSpec) -> CommandResult:
+        self.calls += 1
+        if self.calls == 1:
+            return respond(spec)
+        argv = grandchild_fake.command(self.pid_file)
+        return SubprocessRunner().run(CommandSpec(argv=argv, env=spec.env, cwd=spec.cwd, stdin=spec.stdin))
+
+
+def signal_when_spawned(pid_file: Path, signum: int) -> threading.Thread:
+    """孫が起動したら(= 子のグループができたら)このプロセス自身に `signum` を送る。"""
+
+    def send() -> None:
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.kill(os.getpid(), signum)
+
+    sender = threading.Thread(target=send, daemon=True)
+    sender.start()
+    return sender
+
+
+def test_parent_signal_kills_the_child_group(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-3: 子は新しいセッションで起動し、タイムアウト・SIGHUP/SIGTERM・SIGALRM のどれでもグループに SIGKILL が届く。"""
+    killed: list[tuple[int, int]] = []
+    real_killpg = os.killpg
+
+    def recording_killpg(pgid: int, signum: int) -> None:
+        killed.append((pgid, signum))
+        real_killpg(pgid, signum)
+
+    monkeypatch.setattr(os, "killpg", recording_killpg)
+    monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
+    for recorded in (RecordingPopen.sessions, RecordingPopen.timeouts, RecordingPopen.spawned):
+        recorded.clear()
+
+    # タイムアウト: グループへ SIGKILL、続けて猶予 5 秒で pipe の終端を待つ(D-186)。
+    env = claude_process.Workspace(tmp_path / "home", tmp_path).child_env()
+    pid_file = tmp_path / "timeout.pid"
+    result = SubprocessRunner().run(CommandSpec(grandchild_fake.command(pid_file), env, tmp_path, "", timeout_sec=1))
+    assert result.outcome is Outcome.TIMEOUT
+    (proc,) = RecordingPopen.spawned
+    assert RecordingPopen.sessions == [True]
+    assert killed == [(proc.pid, signal.SIGKILL)]
+    assert claude_process.KILL_GRACE_SEC == 5
+    assert RecordingPopen.timeouts == [1, claude_process.KILL_GRACE_SEC]
+    assert grandchild_fake.wait_until_dead(grandchild_fake.grandchild_pid(pid_file), 5)
+
+    # 親が SIGHUP / SIGTERM を受けた: 走っている子のグループに killpg してから終わる(D-221)。
+    for signum in (signal.SIGHUP, signal.SIGTERM):
+        killed.clear()
+        RecordingPopen.spawned.clear()
+        work = tmp_path / signum.name
+        work.mkdir()
+        pid_file = work / "grandchild.pid"
+        harness = Harness(work, capsys, FakeRunner(GroupHanging(pid_file)))
+        sender = signal_when_spawned(pid_file, signum)
+        error = harness.fails("cluster", DECK, "--fresh-run")
+        sender.join(10)
+        assert isinstance(error, cli.TerminatedBySignal)
+        assert error.code == 128 + signum
+        assert signal.getsignal(signum) is not cli._on_termination  # 元のハンドラに戻す
+        (proc,) = RecordingPopen.spawned
+        assert proc.returncode == -signal.SIGKILL
+        assert killed == [(proc.pid, signal.SIGKILL)]
+        assert grandchild_fake.wait_until_dead(grandchild_fake.grandchild_pid(pid_file), 5)
+        assert harness.last_end()["stop"]["exit_reason"] == "TerminatedBySignal"
+
+    # 既存の SIGALRM の経路(12 時間の上限)も killpg する。
+    killed.clear()
+    hanging = Hanging()
+    (tmp_path / "alarm").mkdir()
+    harness = Harness(tmp_path / "alarm", capsys, FakeRunner(hanging))
+    assert isinstance(stop_by_limit(harness, monkeypatch, hanging), cli.ExecutionLimitExceeded)
+    (proc,) = hanging.popens
+    assert killed == [(proc.pid, signal.SIGKILL)]

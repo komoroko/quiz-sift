@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from quiz_sift.adapters import claude_process
 from quiz_sift.adapters.claude_process import PreflightError, SubprocessRunner, Workspace, default_preflight
 from quiz_sift.ports.process import CommandSpec, Outcome
 
@@ -416,6 +417,136 @@ def test_timeout_keeps_partial_stdout_and_prompt_travels_only_on_stdin(
     missing = runner.run(CommandSpec((str(tmp_path / "no-such-binary"),), env, tmp_path, prompt))
     assert missing.outcome is Outcome.SPAWN
     assert missing.returncode is None
+
+
+def _blocked_in(pid: int) -> set[int]:
+    """`/proc/<pid>/status` の SigBlk(ブロック中のシグナルのビット列)を番号の集合にする。"""
+    (line,) = [line for line in Path(f"/proc/{pid}/status").read_text().splitlines() if line.startswith("SigBlk:")]
+    bits = int(line.split()[1], 16)
+    return {signum for signum in range(1, 65) if bits >> (signum - 1) & 1}
+
+
+@pytest.mark.parametrize(
+    "signums",
+    [(signal.SIGTERM,), (signal.SIGTERM, signal.SIGHUP), (signal.SIGALRM, signal.SIGTERM)],
+    ids=["one", "term-and-hup", "alrm-and-term"],
+)
+def test_signal_during_spawn_still_kills_the_child_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signums: tuple[signal.Signals, ...]
+) -> None:
+    """fork/exec の後・Popen が戻る前に届いたシグナルの例外でも、起動済みの子のグループを止めてから通す(D-221)。
+
+    遅らせたシグナルが2種類たまると、1本目のハンドラの例外の後始末の途中で2本目のハンドラが例外を送出する。
+    それでも子のグループには SIGKILL が届く。子は親のシグナルマスクを継承するので、子の側では遅らせた
+    シグナルがブロックされていないことも確かめる。
+    """
+    env = Workspace(tmp_path / "home", tmp_path).child_env()
+    slow = (sys.executable, "-c", "import time; time.sleep(60)")
+    spawned: list[subprocess.Popen[bytes]] = []
+    real_popen = subprocess.Popen
+
+    class SignalledPopen(real_popen):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            spawned.append(self)
+            blocked_in_child.append(_blocked_in(self.pid))
+            for signum in signums:
+                os.kill(os.getpid(), signum)
+
+    blocked_in_child: list[set[int]] = []
+
+    def on_signal(signum: int, frame: FrameType | None) -> None:
+        # runner の中で割り込んだときだけ例外にする。run が返った後(pytest.raises の出口など)で残りが
+        # 走ってもテストの道具を壊さない。
+        while frame is not None:
+            if frame.f_globals.get("__name__") == claude_process.__name__:
+                raise _Alarm(signal.Signals(signum).name)
+            frame = frame.f_back
+
+    monkeypatch.setattr(subprocess, "Popen", SignalledPopen)
+    mask_before = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    previous = {signum: signal.signal(signum, on_signal) for signum in signums}
+    try:
+        with pytest.raises(_Alarm):
+            SubprocessRunner().run(CommandSpec(slow, env, tmp_path, ""))
+        (proc,) = spawned
+        time.sleep(0.5)  # 後始末が wait まで届かなかった場合でも、SIGKILL を受けた子が終わるのを待つ
+        returncode = proc.poll()  # 片付けで kill する前に、runner が止めたかを読む
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        for leftover in spawned:
+            if leftover.poll() is None:
+                leftover.kill()
+                leftover.wait()
+    assert returncode == -signal.SIGKILL
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == mask_before
+    assert blocked_in_child[0] & set(claude_process.DEFERRED_SIGNALS) == set()
+
+
+@pytest.mark.parametrize("path", ["signal", "timeout"])
+def test_signal_arriving_during_cleanup_does_not_skip_the_killpg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """後始末に入った直後に次のシグナルが届いても、子のグループへの SIGKILL は飛ばされない(D-221)。
+
+    次のシグナルは、後始末に入ってから claude_process の Python 関数が最初に呼ばれた瞬間に送る。そこで
+    ハンドラの例外が出ても、killpg がそれより前に済んでいなければならない。`signal` は1本目のシグナルの
+    例外の後始末、`timeout` はタイムアウトの後始末。
+    """
+    env = Workspace(tmp_path / "home", tmp_path).child_env()
+    slow = (sys.executable, "-c", "import time; time.sleep(60)")
+    spawned: list[subprocess.Popen[bytes]] = []
+    real_popen = subprocess.Popen
+    cleaning = False
+
+    class RecordingPopen(real_popen):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            spawned.append(self)
+            if path == "signal":
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        def communicate(self, input: bytes | None = None, timeout: float | None = None) -> tuple[bytes, bytes]:
+            nonlocal cleaning
+            if path == "timeout" and not cleaning:
+                cleaning = True
+                raise subprocess.TimeoutExpired(self.args, timeout or 0)
+            out: tuple[bytes, bytes] = super().communicate(input, timeout)
+            return out
+
+    def on_signal(signum: int, frame: FrameType | None) -> None:
+        nonlocal cleaning
+        cleaning = True
+        raise _Alarm(signal.Signals(signum).name)
+
+    sent: list[str] = []
+
+    def profile(frame: FrameType, event: str, arg: object) -> None:
+        if cleaning and not sent and event == "call" and frame.f_globals.get("__name__") == claude_process.__name__:
+            sent.append(frame.f_code.co_name)
+            os.kill(os.getpid(), signal.SIGHUP)
+
+    monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
+    previous = {signum: signal.signal(signum, on_signal) for signum in (signal.SIGTERM, signal.SIGHUP)}
+    sys.setprofile(profile)
+    try:
+        with pytest.raises(_Alarm):
+            SubprocessRunner().run(CommandSpec(slow, env, tmp_path, ""))
+        sys.setprofile(None)
+        (proc,) = spawned
+        time.sleep(0.5)  # 後始末が wait まで届かなかった場合でも、SIGKILL を受けた子が終わるのを待つ
+        returncode = proc.poll()  # 片付けで kill する前に、runner が止めたかを読む
+    finally:
+        sys.setprofile(None)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        for leftover in spawned:
+            if leftover.poll() is None:
+                leftover.kill()
+                leftover.wait()
+    assert sent  # 後始末の途中で次のシグナルを送った
+    assert returncode == -signal.SIGKILL
 
 
 def test_construction_and_import_have_no_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
