@@ -7,15 +7,19 @@
 実測して決めた。Udemy のクラス名は CSS Modules の `<ファイル>--<ローカル名>--<ハッシュ>` 形式で、
 ハッシュはデプロイごとに変わりうるので、ハッシュを除いた接頭辞で照合する。
 
+選択肢の件数 M は `OPTION_COUNTS`(4・5・6)を受け、ID は `OPTION_LABELS` からページ順に振る。
+それ以外の件数は `OPTIONS` の失敗として報告する。
+
 正解は2段で同定し、マッチした段を `SelectorKind` として全問の根拠に残す(AR-4):
 
-1. 正解マーク(`CORRECT_CLASS_PREFIX`)の付いた選択肢がちょうど1つ → `CORRECT_MARK`
-2. 正解マークが1つも無く、受験者の選択(選択アイコンが `SELECTED_ICONS` のどれか)がちょうど1つ
-   → `USER_SELECTED`
+1. 正解マーク(`CORRECT_CLASS_PREFIX`)の付いた選択肢が1つ以上 → その全件を正解にする `CORRECT_MARK`
+2. 正解マークが1つも無く、選択アイコンの印で単一選択と判別でき(`_is_single_select`)、受験者の選択
+   (選択アイコンが `SELECTED_ICONS` のどれか)がちょうど1つ → `USER_SELECTED`
 
 2段目は受験者が誤答していれば誤るので、「根拠の要素種別が全問で同一」の判定で見つかるように
-別の値を返す。それ以外(マークが複数、どちらも無い)は `ExtractionFailure` にする。
-複数選択問題(選択肢5件以上・正解マーク複数)は `OPTIONS` の失敗として報告する。
+別の値を返す。複数選択の問題では受験者の選択の件数が正解の件数 N と一致する保証が無いので、2段目を
+使わない(D-189)。複数選択と判別した問題・判別できない問題・正解マークが全選択肢に付いた問題
+(N < M を満たさない)は `ANSWER` の失敗にする。
 
 問題文・選択肢・解説の本文は `NonEmptyText` で受ける。空文字で穴を埋めた問題は構築できない。
 本文を持つ dataclass は `repr=False` にする(AR-17)。
@@ -24,6 +28,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from quiz_sift.domain.question import OPTION_COUNTS
 from quiz_sift.extract.evidence import AnswerEvidence, SelectorKind
 from quiz_sift.extract.failures import ExtractField, ExtractionFailure, FetchFailure, FetchFailureReason
 from quiz_sift.extract.html_tree import Element, parse_html
@@ -44,9 +49,14 @@ SELECTION_ICON = ("data-purpose", "answer-result-body-selection-icon")
 SELECTED_ICONS = frozenset({"#icon-success", "#icon-cancel", "#icon-checkbox-filled", "#icon-wrong-selection"})
 """受験者が選んだ選択肢の選択アイコン(`<use xlink:href>`)。選ばなかった選択肢は `#icon-radio-empty` /
 `#icon-checkbox-empty`。"""
+SINGLE_SELECT_ICON_PREFIX = "#icon-radio-"
+"""単一選択の問題の選択アイコン(`#icon-radio-empty` など)。"""
+MULTI_SELECT_ICON_PREFIX = "#icon-checkbox-"
+"""複数選択の問題の選択アイコン(`#icon-checkbox-empty` / `#icon-checkbox-filled`)。"""
 
-OPTION_LABELS = "ABCD"
-"""選択肢 ID。ページ上の並び順に振る。"""
+OPTION_LABELS = "ABCDEF"
+"""選択肢 ID。ページ上の並び順に先頭から振る。"""
+assert len(OPTION_LABELS) == max(OPTION_COUNTS)
 
 
 class NonEmptyText(str):
@@ -80,7 +90,8 @@ class ExtractedQuestion:
     local_id: str
     stem: NonEmptyText
     options: tuple[ExtractedOption, ...]
-    answer_label: str
+    answer_labels: tuple[str, ...]
+    """正解の選択肢 ID。選択肢の並び順で、重複なし。"""
     explanation: NonEmptyText | None
     evidence: AnswerEvidence
 
@@ -90,10 +101,13 @@ class ExtractedQuestion:
             texts.append(self.explanation)
         if not all(isinstance(text, NonEmptyText) for text in texts):
             raise TypeError("本文は NonEmptyText でなければならない")
-        if len(self.options) != len(OPTION_LABELS):
-            raise ValueError(f"選択肢は {len(OPTION_LABELS)} 件でなければならない: {len(self.options)} 件")
-        if self.answer_label not in {option.label for option in self.options}:
-            raise ValueError("answer_label がこの問題の選択肢に無い")
+        if len(self.options) not in OPTION_COUNTS:
+            raise ValueError(f"選択肢は {sorted(OPTION_COUNTS)} 件のいずれかでなければならない: {len(self.options)} 件")
+        labels = [option.label for option in self.options]
+        if not 1 <= len(self.answer_labels) < len(labels):
+            raise ValueError(f"正解は 1 件以上 {len(labels)} 件未満でなければならない: {len(self.answer_labels)} 件")
+        if self.answer_labels != tuple(label for label in labels if label in self.answer_labels):
+            raise ValueError("answer_labels はこの問題の選択肢 ID を選択肢順に重複なく並べたものでなければならない")
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,10 +197,10 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
         return fail(ExtractField.STEM, stems[0] if stems else block)
 
     option_elements = block.find_all(*OPTION)
-    if len(option_elements) != len(OPTION_LABELS):
+    if len(option_elements) not in OPTION_COUNTS:
         return fail(ExtractField.OPTIONS, block)
     options = []
-    for label, element in zip(OPTION_LABELS, option_elements, strict=True):
+    for label, element in zip(OPTION_LABELS, option_elements, strict=False):
         bodies = element.find_all(*OPTION_BODY)
         text = _text_of(bodies[0]) if bodies else None
         if text is None:
@@ -196,43 +210,66 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
     answer = _identify_answer(option_elements)
     if answer is None:
         return fail(ExtractField.ANSWER, block)
-    position, evidence = answer
+    positions, evidence = answer
 
     explanations = block.find_all("id", EXPLANATION_ID)
     return ExtractedQuestion(
         local_id=local_id,
         stem=stem,
         options=tuple(options),
-        answer_label=OPTION_LABELS[position],
+        answer_labels=tuple(OPTION_LABELS[position] for position in positions),
         explanation=_text_of(explanations[0]) if explanations else None,
         evidence=evidence,
     )
 
 
-def _identify_answer(option_elements: Sequence[Element]) -> tuple[int, AnswerEvidence] | None:
-    """正解の選択肢の位置と根拠。どの規則でも一意に決まらなければ `None`。"""
-    for is_marked, kind in (
-        (_is_correct_mark, SelectorKind.CORRECT_MARK),
-        (_is_user_selected, SelectorKind.USER_SELECTED),
-    ):
-        marked = [position for position, element in enumerate(option_elements) if is_marked(element)]
-        if len(marked) == 1:
-            return marked[0], AnswerEvidence(kind, option_elements[marked[0]].path)
-        if marked:
+def _identify_answer(option_elements: Sequence[Element]) -> tuple[tuple[int, ...], AnswerEvidence] | None:
+    """正解の選択肢の位置(ページ順)と根拠。どの規則でも決まらなければ `None`。
+
+    根拠の要素パスは、マッチした選択肢のうち先頭のもの。
+    """
+    marked = [position for position, element in enumerate(option_elements) if _is_correct_mark(element)]
+    if marked:
+        if len(marked) == len(option_elements):
             return None
-    return None
+        return tuple(marked), AnswerEvidence(SelectorKind.CORRECT_MARK, option_elements[marked[0]].path)
+    if not _is_single_select(option_elements):
+        return None
+    selected = [position for position, element in enumerate(option_elements) if is_user_selected(element)]
+    if len(selected) != 1:
+        return None
+    return (selected[0],), AnswerEvidence(SelectorKind.USER_SELECTED, option_elements[selected[0]].path)
+
+
+def _is_single_select(option_elements: Sequence[Element]) -> bool:
+    """選択アイコンの印から、問題が単一選択と判別できるか。
+
+    複数選択の印がある問題、印が無い問題、両方の印が混ざった問題は単一選択と判別しない。
+
+    単一選択の問題でも受験者が選んだ選択肢は `#icon-success` などに変わるので、印は全選択肢から集める。
+    """
+    icons = {href for option in option_elements for href in _selection_icons(option)}
+    single = any(icon.startswith(SINGLE_SELECT_ICON_PREFIX) for icon in icons)
+    multi = any(icon.startswith(MULTI_SELECT_ICON_PREFIX) for icon in icons)
+    return single and not multi
 
 
 def _is_correct_mark(option: Element) -> bool:
     return option.has_class_prefix(CORRECT_CLASS_PREFIX)
 
 
-def _is_user_selected(option: Element) -> bool:
-    return any(
-        use.tag == "use" and use.attrs.get("xlink:href") in SELECTED_ICONS
+def is_user_selected(option: Element) -> bool:
+    """受験者がこの選択肢を選んだか。"""
+    return any(href in SELECTED_ICONS for href in _selection_icons(option))
+
+
+def _selection_icons(option: Element) -> list[str]:
+    return [
+        href
         for icon in option.find_all(*SELECTION_ICON)
         for use in icon.iter()
-    )
+        if use.tag == "use" and (href := use.attrs.get("xlink:href")) is not None
+    ]
 
 
 def _text_of(element: Element) -> NonEmptyText | None:

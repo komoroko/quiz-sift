@@ -17,10 +17,13 @@ class ExtractField(Enum):
 
     STEM = "stem"
     OPTIONS = "options"
-    """選択肢が4件でない。"""
+    """選択肢の件数が `OPTION_COUNTS`(4・5・6)に無い。"""
     OPTION_TEXT = "option_text"
     ANSWER = "answer"
-    """正解マークも受験者の選択も一意に決まらない。"""
+    """正解が決まらない。正解マークが無く、単一選択と判別できないか受験者の選択が1件でない。
+
+    全選択肢に正解マークが付いた問題(N < M を満たさない)もこれにする。
+    """
 
 
 @dataclass(frozen=True, slots=True)
