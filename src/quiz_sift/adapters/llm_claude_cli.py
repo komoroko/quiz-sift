@@ -6,7 +6,7 @@
 1. usage・num_turns・total_cost_usd・is_error・skills のダイジェストと、`rate_limit_event` ごとの枠を
    **成否の判定より先に** meter へ渡す(AR-65)。stdout を行ごとに読める範囲で拾い、厳格な判定を待たない。
 2. `claude_failure.classify` で7種に分類し、失敗なら meter へ記録する。再試行はしない(D-101)。
-3. `InvocationRecord` を1件ログへ出す。子の出力がログへ届く経路はこれだけにする(AR-146)。
+3. `InvocationRecord` を1件ログへ出す。記録は構造化項目だけで、子の出力の本文を持たない(AR-146、ADR-024)。
 
 `classify_clusters` は 25 問ごとに分割し、overage か枠切れ(`rate_limit_stop`)で失敗したバッチがあれば
 残りのバッチを起動しない(D-144)。段をまたぐ停止は cli の責務(D-153)。起動前検査もここでは呼ばない(D-115)。
@@ -22,7 +22,13 @@ from typing import Any
 from quiz_sift.adapters import llm_prompts as prompts
 from quiz_sift.adapters.claude_failure import Judgement, classify, scan_rate_limits
 from quiz_sift.adapters.claude_process import SubprocessRunner, Workspace
-from quiz_sift.adapters.llm_contract import parse_entailment, parse_proposals, parse_recall, parse_string
+from quiz_sift.adapters.llm_contract import (
+    ContractError,
+    parse_entailment,
+    parse_proposals,
+    parse_recall,
+    parse_string,
+)
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
@@ -33,7 +39,6 @@ from quiz_sift.ports.llm import (
     ClassificationResult,
     Entailment,
     GroupProposal,
-    LlmCallError,
     RecallDraft,
     TokenUsage,
 )
@@ -114,6 +119,7 @@ class _Envelope:
     cost_usd: float | None
     is_error: bool | None
     skills_digest: str | None
+    tools: tuple[str, ...] | None
     quotas: tuple[RateLimitInfo, ...]
 
 
@@ -147,6 +153,7 @@ def _envelope(stdout: bytes) -> _Envelope:
         cost_usd=_cost(result.get("total_cost_usd")),
         is_error=is_error if isinstance(is_error, bool) else None,
         skills_digest=None if init is None else _skills(init),
+        tools=None if init is None else _tools(init.get("tools")),
         quotas=tuple(quotas),
     )
 
@@ -183,11 +190,16 @@ def _skills(init: Mapping[str, Any]) -> str | None:
     return skills_digest(names)
 
 
-def _reason(judgement: Judgement[Any]) -> str:
-    """失敗の説明。`FailureKind` の値で始める(`ContractError` の説明は既に種別の値で始まっている)。"""
+def _tools(raw: object) -> tuple[str, ...] | None:
+    if not isinstance(raw, list) or not all(isinstance(name, str) for name in raw):
+        return None
+    return tuple(raw)
+
+
+def _error(judgement: Judgement[Any]) -> ContractError:
+    """失敗の例外。説明は種別の値で始まり、子の出力から作った値を含まない(`Judgement.detail`)。"""
     assert judgement.failure is not None
-    prefix = f"{judgement.failure.value}: "
-    return judgement.detail if judgement.detail.startswith(prefix) else prefix + judgement.detail
+    return ContractError(judgement.failure, judgement.detail)
 
 
 class ClaudeCliLlm:
@@ -215,7 +227,7 @@ class ClaudeCliLlm:
     ) -> tuple[Judgement[T], bool | None]:
         """子プロセス1本。判定と、meter へ渡した `is_error` を返す。
 
-        stdin に載せる問題は、呼び出し側が先に `_material` へ登録しておく(ログの stdout / stderr で伏せる)。
+        stdin に載せる問題は、呼び出し側が先に `_material` へ登録しておく(記録の argv と init.tools で伏せる)。
         """
         model = prompts.MODELS[method]
         argv = build_argv(model, system, schema)
@@ -249,8 +261,7 @@ class ClaudeCliLlm:
                 rate_limit_event_count=judgement.rate_limits.count,
                 overage_seen=judgement.rate_limits.overage_seen,
                 stdin=stdin,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                init_tools=envelope.tools,
                 material=self._material,
             )
         )
@@ -264,11 +275,11 @@ class ClaudeCliLlm:
         schema: Mapping[str, object],
         parse: Callable[[Mapping[str, Any]], T],
     ) -> T:
-        """1回の Protocol 呼び出し = 子プロセス1本。失敗は `LlmCallError` にする。"""
+        """1回の Protocol 呼び出し = 子プロセス1本。失敗は種別を持つ `ContractError` にする。"""
         self._meter.begin_call(method)
         judgement, _ = self._invoke(method, system, payload, schema, parse)
         if judgement.failure is not None:
-            raise LlmCallError(_reason(judgement))
+            raise _error(judgement)
         assert judgement.value is not None
         return judgement.value
 
@@ -297,7 +308,7 @@ class ClaudeCliLlm:
                 assert judgement.value is not None
                 groups.extend(judgement.value)
                 continue
-            failures.append(CallFailure(tuple(q.question_id for q in batch), _reason(judgement)))
+            failures.append(CallFailure(tuple(q.question_id for q in batch), str(_error(judgement))))
             # overage か枠切れなら、残りのバッチも同じ理由で落ちる。起動せずに返す(D-144)。
             if judgement.rate_limits.overage_seen or rate_limit_stop(
                 judgement.failure, is_error, judgement.rate_limits.last

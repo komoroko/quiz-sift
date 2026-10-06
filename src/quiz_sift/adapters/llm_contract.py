@@ -15,11 +15,15 @@ from quiz_sift.ports.metering import FailureKind
 
 
 class ContractError(LlmCallError):
-    """応答が契約に合わない(`SCHEMA` / `INCOMPLETE_IDS`)。メッセージは種別の値で始まる。"""
+    """種別を持つ呼び出しの失敗。パーサは `SCHEMA` / `INCOMPLETE_IDS` で送出する。メッセージは種別の値で始まる。
+
+    `detail` には子の出力から作った値(判定語・キー・ツール名など)を入れない。種別と件数だけを書く(NFR-2、ADR-024)。
+    """
 
     def __init__(self, kind: FailureKind, detail: str) -> None:
         super().__init__(f"{kind.value}: {detail}")
         self.kind = kind
+        self.detail = detail
 
 
 def object_schema(properties: dict[str, object]) -> dict[str, object]:
@@ -62,9 +66,9 @@ def parse_proposals(data: Mapping[str, object], keyed: Mapping[str, Question]) -
     seen = Counter(k for _, keys in parsed for k in keys) + Counter(unassigned)
     expected = Counter(list(keyed))
     if seen != expected:
-        missing = sorted(expected - seen)
-        extra = sorted(seen - expected)
-        raise ContractError(FailureKind.INCOMPLETE_IDS, f"欠落={missing} 重複または未知={extra}")
+        missing = (expected - seen).total()
+        extra = (seen - expected).total()
+        raise ContractError(FailureKind.INCOMPLETE_IDS, f"欠落 {missing} 件 重複または未知 {extra} 件")
     return [
         GroupProposal(label=label, question_ids=tuple(keyed[k].question_id for k in keys)) for label, keys in parsed
     ]
@@ -74,8 +78,8 @@ def parse_recall(data: Mapping[str, object]) -> RecallDraft:
     terms = _strings(data.get("terms"), "terms")
     try:
         key = RecallKey(terms=tuple(terms))
-    except ValueError as exc:
-        raise ContractError(FailureKind.SCHEMA, str(exc)) from exc
+    except ValueError:
+        raise ContractError(FailureKind.SCHEMA, "terms が想起キーにならない") from None
     return RecallDraft(
         key=key, answer=parse_string(data, "answer"), discrimination=parse_string(data, "discrimination")
     )
@@ -86,5 +90,5 @@ def parse_entailment(data: Mapping[str, object]) -> Entailment:
     verdict = parse_string(data, "verdict")
     try:
         return Entailment(verdict)
-    except ValueError as exc:
-        raise ContractError(FailureKind.SCHEMA, f"未知の判定語: {verdict!r}") from exc
+    except ValueError:
+        raise ContractError(FailureKind.SCHEMA, "未知の判定語") from None

@@ -4,12 +4,17 @@
 """
 
 import ast
+import traceback
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
+from support.claude_fake import SENTINEL, exited, fake_stdout, sentinel_fragments
 
 from quiz_sift.adapters import llm_prompts
-from quiz_sift.adapters.llm_contract import ContractError, parse_entailment, parse_proposals
+from quiz_sift.adapters.claude_failure import classify
+from quiz_sift.adapters.llm_contract import ContractError, parse_entailment, parse_proposals, parse_recall
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
@@ -121,3 +126,74 @@ def test_shared_modules_do_not_import_the_sdk() -> None:
     # 検査器が空振りしていないこと。
     assert "anthropic" in imported_roots((ADAPTERS / "llm_anthropic.py").read_text(encoding="utf-8"))
     assert "anthropic" in imported_roots("import anthropic.types as t\n")
+
+
+OTHER = "YwvK別の番兵Rr7m"
+"""番兵と別の値。例外文が子の値から作られていなければ、どちらを渡しても同じ文になる。"""
+
+
+def _contract_error(parse: Callable[[], object]) -> ContractError:
+    with pytest.raises(ContractError) as caught:
+        parse()
+    return caught.value
+
+
+def _judged(**stdout: Any) -> tuple[FailureKind | None, str]:
+    judgement = classify(exited(fake_stdout(**stdout)), parse_entailment)
+    return judgement.failure, judgement.detail
+
+
+# 子の出力から作る値(判定語・未知のキー・ツール名・subtype・stop_reason)を `value` として受け、例外か判定を作る。
+PARSERS: dict[str, tuple[FailureKind, Callable[[str], str]]] = {
+    "unknown_verdict": (FailureKind.SCHEMA, lambda v: str(_contract_error(lambda: parse_entailment({"verdict": v})))),
+    "unknown_key": (
+        FailureKind.INCOMPLETE_IDS,
+        lambda v: str(_contract_error(lambda: parse_proposals(reply([["0", "1", "2"]], [v]), KEYED))),
+    ),
+    "unknown_key_in_group": (
+        FailureKind.INCOMPLETE_IDS,
+        lambda v: str(_contract_error(lambda: parse_proposals(reply([["0", v]], ["2"]), KEYED))),
+    ),
+    "empty_terms": (
+        FailureKind.SCHEMA,
+        lambda v: str(_contract_error(lambda: parse_recall({"terms": [], "answer": v, "discrimination": v}))),
+    ),
+    "init_tools": (FailureKind.PROVIDER_ERROR, lambda v: repr(_judged(tools=["StructuredOutput", v]))),
+    "tool_use_name": (FailureKind.PROVIDER_ERROR, lambda v: repr(_judged(tool_use_name=v))),
+    "truncated_stop_reason": (
+        FailureKind.TRUNCATED,
+        lambda v: repr(_judged(subtype="error_max_turns", is_error=True, stop_reason=v, structured_output=None)),
+    ),
+    "is_error_subtype": (
+        FailureKind.PROVIDER_ERROR,
+        lambda v: repr(_judged(subtype=v, is_error=True, structured_output=None)),
+    ),
+    "parse_junk_line": (FailureKind.PARSE, lambda v: repr(_judged(result_count=0, junk_line=v))),
+    "verdict_through_classify": (FailureKind.SCHEMA, lambda v: repr(_judged(structured_output={"verdict": v}))),
+}
+
+
+@pytest.mark.parametrize("name", list(PARSERS))
+def test_parse_errors_carry_kind_and_count_only(name: str) -> None:
+    """どのパーサの例外文(と判定の説明)にも子の出力から作った値が載らず、種別と件数だけになる(C-014、ADR-024)。"""
+    kind, shown = PARSERS[name]
+    message = shown(SENTINEL)
+    assert kind.value in message
+    for fragment in sentinel_fragments():
+        assert fragment not in message, (name, fragment)
+    # 値を差し替えても文が変わらない: 例外文は値から作られていない。
+    assert shown(OTHER) == message
+
+
+@pytest.mark.parametrize(
+    "parse",
+    [
+        pytest.param(lambda: parse_entailment({"verdict": SENTINEL}), id="verdict"),
+        pytest.param(lambda: parse_recall({"terms": [], "answer": SENTINEL, "discrimination": SENTINEL}), id="terms"),
+    ],
+)
+def test_parse_errors_do_not_chain_the_value(parse: Callable[[], object]) -> None:
+    """トレースバックに出る連鎖例外(`__cause__` / `__context__`)にも値が載らない。"""
+    shown = "".join(traceback.format_exception(_contract_error(parse)))
+    for fragment in sentinel_fragments():
+        assert fragment not in shown, fragment

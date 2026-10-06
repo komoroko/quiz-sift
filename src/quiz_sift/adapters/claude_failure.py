@@ -8,6 +8,9 @@
 `PARSE` は stdout だけで決め、終了コードと stderr を使わない(D-119)。`stop_reason` / `is_error` /
 `subtype` は `result` イベントからだけ読む(D-131。`assistant` メッセージにも `stop_reason` が載る)。
 
+失敗の説明(`Judgement.detail`)には子の出力から作った値(ツール名・`subtype`・`stop_reason` など)を入れず、
+種別と件数だけを書く(NFR-2、ADR-024)。説明は例外文としてログと stderr へ届く。
+
 overage の走査はストリーム全体の厳格なパースと別に行う(D-134): stdout を行ごとに `json.loads` し、
 読めない行は飛ばす。こうしないと `PARSE` / `TIMEOUT` で終わった呼び出しの overage が記録されない。
 """
@@ -50,7 +53,7 @@ class Judgement[T]:
     """子1本の判定。`failure` が `None` のときだけ `value` が応答を読んだ値を持つ。
 
     `result` / `init` は stdout を厳格に読めたときの `result` イベントと `init` イベント。どちらも
-    教材本文を含みうるので repr を出さない(AR-17)。`detail` は本文を含まない理由の説明。
+    教材本文を含みうるので repr を出さない(AR-17)。`detail` は子の出力から作った値を含まない理由の説明。
     """
 
     failure: FailureKind | None
@@ -128,17 +131,16 @@ def classify[T](result: CommandResult, parse: Callable[[Mapping[str, Any]], T]) 
     subtype = events.result.get("subtype")
     stop_reason = events.result.get("stop_reason")
     if subtype == TRUNCATED_SUBTYPE or stop_reason in TRUNCATED_STOP_REASONS:
-        detail = f"応答が切り詰められた(subtype={subtype!r} stop_reason={stop_reason!r})"
-        return fail(FailureKind.TRUNCATED, detail, events)
+        return fail(FailureKind.TRUNCATED, "応答が切り詰められた", events)
     if events.result.get("is_error") is not False:
-        return fail(FailureKind.PROVIDER_ERROR, f"result の is_error が偽でない(subtype={subtype!r})", events)
+        return fail(FailureKind.PROVIDER_ERROR, "result の is_error が偽でない", events)
     structured = events.result.get("structured_output")
     if not isinstance(structured, dict):
         return fail(FailureKind.SCHEMA, "result の structured_output がオブジェクトでない", events)
     try:
         value = parse(structured)
     except ContractError as exc:
-        return fail(exc.kind, str(exc), events)
+        return fail(exc.kind, exc.detail, events)
     return Judgement(failure=None, detail="", value=value, result=events.result, init=events.init, rate_limits=scan)
 
 
@@ -180,10 +182,10 @@ def _tool_problem(events: _Events) -> str | None:
     inits = [event for event in events.events if event["type"] == "system" and event.get("subtype") == "init"]
     if not inits:
         return "init イベントが無く、有効ツールの集合を確かめられない"
-    for init in inits:
-        tools = init.get("tools")
-        if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools) or set(tools) != ALLOWED_TOOLS:
-            return f"init.tools が {sorted(ALLOWED_TOOLS)} と一致しない: {tools!r}"
+    mismatched = sum(1 for init in inits if not _allowed_tools(init.get("tools")))
+    if mismatched:
+        return f"init.tools が許可集合と一致しない init イベントが {mismatched} 件"
+    used = 0
     for event in events.events:
         if event["type"] != "assistant":
             continue
@@ -197,8 +199,12 @@ def _tool_problem(events: _Events) -> str | None:
             kind = block.get("type")
             # tool_use / server_tool_use / mcp_tool_use のどれでも、許可集合外なら失敗に倒す。
             if isinstance(kind, str) and kind.endswith("tool_use") and block.get("name") not in ALLOWED_TOOLS:
-                return f"許可集合外のツール使用: {kind} {block.get('name')!r}"
-    return None
+                used += 1
+    return f"許可集合外のツール使用が {used} 件" if used else None
+
+
+def _allowed_tools(tools: object) -> bool:
+    return isinstance(tools, list) and all(isinstance(t, str) for t in tools) and set(tools) == ALLOWED_TOOLS
 
 
 def _rate_limit_info(raw: object) -> RateLimitInfo | None:

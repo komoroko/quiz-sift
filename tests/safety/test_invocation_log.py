@@ -1,4 +1,4 @@
-"""子プロセス1本の逐語ログ(C-014 / C-015、NFR-8 (h)、AR-42)。本文と認証情報はすべて合成。
+"""子プロセス1本の記録(C-014 / C-015、NFR-8 (h)、AR-42、ADR-024)。本文と認証情報はすべて合成。
 
 フィールド名は要件(T-042 A-5)から書き写す(製品の定数を読まない。AR-30)。
 """
@@ -33,8 +33,7 @@ FIELDS = (
     "overage_seen",
     "stdin_sha256",
     "stdin_len",
-    "stdout_masked",
-    "stderr_masked",
+    "init_tools",
 )
 
 Q1 = QuestionId(DeckId("deckA"), "q1")
@@ -52,7 +51,6 @@ PROMPT_ONLY = "合成プロンプト固有の指示文"
 """stdin にだけ入る文字列。記録のどこにも現れてはならない。"""
 STDIN = f"{PROMPT_ONLY}\nk1: {STEM}\n"
 OAUTH_TOKEN = "sk-ant-oat01-SyntheticOauthToken_0123456789"
-CREDENTIALS_PATH = "/home/synthetic/.quiz-sift-claude-home/.claude/.credentials.json"
 FIRST = RateLimitInfo(
     status="allowed",
     resets_at=1790383200,
@@ -81,10 +79,8 @@ def captured() -> Iterator[io.StringIO]:
 def _record() -> InvocationRecord:
     material = MaterialTextFilter()
     material.register_question(QUESTION)
-    # 本文は生のままと JSON でエスケープされた形(stream-json の中身)の両方で stdout に載る。
-    stdout = f"{STEM}\n{json.dumps({'summary': STEM}, ensure_ascii=False)}\n{json.dumps(OPTION_TEXTS[0])}\n"
     return record_invocation(
-        argv=("claude", "-p", "--model", "claude-haiku-4-5"),
+        argv=("claude", "-p", "--model", "claude-haiku-4-5", "--system-prompt", f"{STEM} {OAUTH_TOKEN}"),
         exit_code=1,
         duration_sec=3.5,
         usage=TokenUsage(1144, 0, 0, 128),
@@ -95,8 +91,7 @@ def _record() -> InvocationRecord:
         rate_limit_event_count=2,
         overage_seen=True,
         stdin=STDIN,
-        stdout=stdout.encode("utf-8"),
-        stderr=f"Error: token {OAUTH_TOKEN} rejected ({CREDENTIALS_PATH})\n".encode(),
+        init_tools=("StructuredOutput", OPTION_TEXTS[0]),
         material=material,
     )
 
@@ -108,21 +103,16 @@ def test_record_fields_are_separate_and_stdin_body_never_appears(captured: io.St
     stdin_bytes = STDIN.encode("utf-8")
     assert record.stdin_sha256 == hashlib.sha256(stdin_bytes).hexdigest()
     assert record.stdin_len == len(stdin_bytes)
-    # 教材本文は伏せ字になり、伏せ字以外の出力は残る(全文を置き換える実装を赤にする)。
-    assert record.stdout_masked.count(MATERIAL_MASK) == 3
-    assert "summary" in record.stdout_masked
-    assert STEM not in record.stdout_masked
-    assert json.dumps(STEM, ensure_ascii=False)[1:-1] not in record.stdout_masked
-    assert OPTION_TEXTS[0] not in record.stdout_masked
-    assert record.stderr_masked.startswith("Error: token ")
-    assert OAUTH_TOKEN not in record.stderr_masked
-    assert ".credentials.json" not in record.stderr_masked
+    # argv と init.tools の教材本文・認証情報は伏せ字になり、それ以外は残る(全文を置き換える実装を赤にする)。
+    assert record.argv[:5] == ("claude", "-p", "--model", "claude-haiku-4-5", "--system-prompt")
+    assert MATERIAL_MASK in record.argv[5] and STEM not in record.argv[5] and OAUTH_TOKEN not in record.argv[5]
+    assert record.init_tools == ("StructuredOutput", MATERIAL_MASK)
 
     log_invocation(record)
     output = captured.getvalue()
     rendered = json.loads(output[output.index("{") :])
     assert tuple(rendered) == FIELDS
-    assert rendered["argv"] == ["claude", "-p", "--model", "claude-haiku-4-5"]
+    assert rendered["argv"] == list(record.argv)
     assert (rendered["exit_code"], rendered["duration_sec"], rendered["failure_kind"]) == (1, 3.5, "provider_error")
     assert rendered["usage"] == {
         "input_tokens": 1144,
@@ -136,14 +126,13 @@ def test_record_fields_are_separate_and_stdin_body_never_appears(captured: io.St
     assert rendered["rate_limit_last"]["status"] == "allowed_warning"
     assert rendered["rate_limit_last"]["resets_at"] == 1790383200
     assert (rendered["rate_limit_event_count"], rendered["overage_seen"]) == (2, True)
-    assert rendered["stdout_masked"] == record.stdout_masked
-    assert rendered["stderr_masked"] == record.stderr_masked
+    assert rendered["init_tools"] == ["StructuredOutput", MATERIAL_MASK]
 
     # stdin の本文は、どのフィールドにも、ログのどこにも入らない。
     for name in FIELDS:
         assert PROMPT_ONLY not in json.dumps(rendered[name], ensure_ascii=False), name
     assert PROMPT_ONLY not in output
-    for text in (STEM, *OPTION_TEXTS, OAUTH_TOKEN, CREDENTIALS_PATH):
+    for text in (STEM, *OPTION_TEXTS, OAUTH_TOKEN):
         assert text not in output
         assert json.dumps(text, ensure_ascii=False)[1:-1] not in output
 

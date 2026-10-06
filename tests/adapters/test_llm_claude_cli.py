@@ -556,7 +556,7 @@ def captured() -> Iterator[list[logging.LogRecord]]:
     root.setLevel(previous)
 
 
-def test_each_invocation_emits_one_masked_record(
+def test_each_invocation_emits_one_record_without_child_bodies(
     tmp_path: Path, captured: list[logging.LogRecord], capsys: pytest.CaptureFixture[str]
 ) -> None:
     members = deck(3)
@@ -578,8 +578,8 @@ def test_each_invocation_emits_one_masked_record(
         stdin = spec.stdin.encode("utf-8")
         assert record["stdin_sha256"] == hashlib.sha256(stdin).hexdigest()
         assert record["stdin_len"] == len(stdin)
-        assert "[教材本文を伏せた]" in record["stdout_masked"]
-        assert "[教材本文を伏せた]" in record["stderr_masked"]
+        assert record["init_tools"] == ["StructuredOutput"]
+        assert "stdout_masked" not in record and "stderr_masked" not in record
     everything = "\n".join(r.getMessage() for r in captured) + capsys.readouterr().out + capsys.readouterr().err
     for q in members.questions:
         for text in material(q):
