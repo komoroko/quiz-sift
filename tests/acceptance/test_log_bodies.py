@@ -21,6 +21,7 @@ import pytest
 from support.claude_fake import (
     EXECUTABLE_DIR,
     SENTINEL,
+    SENTINEL_MODE_FILE,
     FakeRunner,
     classification_output,
     exited,
@@ -257,24 +258,15 @@ def test_c014_invocation_record_keeps_structured_fields_only(
 def test_c014_excepthook_path_carries_no_child_body(tmp_path: Path) -> None:
     """`python -m quiz_sift.cli` を走らせ、未知の判定語で `main` の外へ抜けた例外を excepthook が stderr に書く。"""
     home = tmp_path / "home"
-    (home / ".quiz-sift-claude-home" / ".claude").mkdir(parents=True)
-    (home / ".quiz-sift-claude-home" / ".claude" / ".credentials.json").write_text("{}", encoding="utf-8")
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    fake = bin_dir / "claude"
-    fake.write_text(
-        f"#!{sys.executable}\n"
-        "import sys\n"
-        f"sys.path[:0] = [{str(EXECUTABLE_DIR.parents[1])!r}, {str(ROOT / 'src')!r}]\n"
-        "from support.claude_fake import sentinel_main\n"
-        "sentinel_main()\n",
-        encoding="utf-8",
-    )
-    fake.chmod(0o755)
+    minimal_home = home / ".quiz-sift-claude-home"
+    (minimal_home / ".claude").mkdir(parents=True)
+    (minimal_home / ".claude" / ".credentials.json").write_text("{}", encoding="utf-8")
+    # fake の `claude` はリポジトリ内の実行ファイルを使う(tmp は noexec のことがある)。番兵モードは HOME の印で伝える。
+    (minimal_home / SENTINEL_MODE_FILE).touch()
     root = _root(tmp_path)
     env = {
         "HOME": str(home),
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{EXECUTABLE_DIR}{os.pathsep}{os.environ['PATH']}",
         "LANG": "C.UTF-8",
         "PYTHONPATH": str(ROOT / "src"),
     }
