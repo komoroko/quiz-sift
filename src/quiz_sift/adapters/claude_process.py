@@ -81,13 +81,13 @@ class SubprocessRunner:
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             stdout, stderr = proc.communicate(spec.stdin.encode(), timeout=spec.timeout_sec)
-        except subprocess.TimeoutExpired as expired:
+        except subprocess.TimeoutExpired:
             # 後始末の最初の操作として、Python の関数を挟まずに killpg する(下の節の注記と同じ理由)。
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass  # グループの全員がもう終わっている。止める相手がいないだけ
-            stdout, stderr = _stop_group(proc, expired)
+            stdout, stderr = _stop_group(proc)
             return CommandResult(Outcome.TIMEOUT, None, stdout, stderr)
         except BaseException:
             # signal.alarm や親の SIGHUP/SIGTERM のハンドラが送出する SystemExit の派生などは、子のグループを
@@ -112,7 +112,7 @@ def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
             pipe.close()
 
 
-def _stop_group(proc: subprocess.Popen[bytes], expired: subprocess.TimeoutExpired) -> tuple[bytes, bytes]:
+def _stop_group(proc: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
     """SIGKILL を送ったタイムアウトした子のグループの終わりを待ち、それまでの出力を返す。
 
     `communicate` は読んだ分を内部に溜めていて、続けて呼ぶとそこから先を読み足した全体を返す。
@@ -122,19 +122,9 @@ def _stop_group(proc: subprocess.Popen[bytes], expired: subprocess.TimeoutExpire
     try:
         return proc.communicate(timeout=KILL_GRACE_SEC)
     except subprocess.TimeoutExpired as late:
-        stdout = late.stdout if late.stdout is not None else expired.stdout
-        stderr = late.stderr if late.stderr is not None else expired.stderr
         _close_pipes(proc)
         proc.wait()
-        return _as_bytes(stdout), _as_bytes(stderr)
-
-
-def _as_bytes(data: str | bytes | None) -> bytes:
-    if data is None:
-        return b""
-    if isinstance(data, str):
-        raise TypeError("pipe はバイト列で開いているので、部分出力が str になることはない")
-    return data
+        return late.stdout or b"", late.stderr or b""
 
 
 class Workspace:
