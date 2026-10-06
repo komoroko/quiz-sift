@@ -200,10 +200,10 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
         assert int(flag(argv, "--max-turns")) >= 3
         assert "--strict-mcp-config" in argv
         assert json.loads(flag(argv, "--mcp-config")) == {"mcpServers": {}}
-        deny = json.loads(flag(argv, "--settings"))["permissions"]["deny"]
-        assert "StructuredOutput" not in deny
-        # 素の状態に含まれるファイルシステムを読むツールと、シェル・ネットワーク系は必ず拒否する。
-        assert {"Glob", "Grep", "Read", "Bash", "Edit", "Write", "WebFetch", "WebSearch", "Agent"} <= set(deny)
+        # ユーザ設定を読まず、有効ツールは空の許可リストで絞る。拒否リストは持たない(D-208)。
+        assert flag(argv, "--setting-sources") == ""
+        assert flag(argv, "--tools") == ""
+        assert "--settings" not in argv
         assert "--safe-mode" in argv
         assert "--dangerously-skip-permissions" not in argv
         assert flag(argv, "--permission-mode") not in BYPASS_MODES
@@ -218,6 +218,20 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
     assert masked_body(opus) == masked_body(fixture_meta("success_opus")["argv"])
     assert flag(haiku, "--model") == fixture_meta("success")["model"]
     assert flag(opus, "--model") == fixture_meta("success_opus")["model"]
+
+
+def test_init_tools_mismatch_is_still_refused(tmp_path: Path) -> None:
+    """拒否リストを外しても、呼び出しごとの `init.tools` の一致判定は残る(T-060 A-3)。"""
+    for tools in (["StructuredOutput", "Bash"], ["Read"], []):
+        meter = RecordingMeter()
+        runner = FakeRunner(returning(exited(fake_stdout(structured_output={"description": "合成説明"}, tools=tools))))
+        with pytest.raises(LlmCallError, match="^provider_error: init.tools"):
+            build(meter, tmp_path, runner).describe_term("合成用語", Language.JA)
+        assert meter.of("record_failure") == [(FailureKind.PROVIDER_ERROR,)], tools
+
+    # 対照: init.tools が {StructuredOutput} なら同じ応答が通る。
+    runner = FakeRunner(returning(exited(fake_stdout(structured_output={"description": "合成説明"}))))
+    assert build(RecordingMeter(), tmp_path, runner).describe_term("合成用語", Language.JA) == "合成説明"
 
 
 FORBIDDEN_NODES = (ast.If, ast.Match, ast.Try, ast.TryStar, ast.Subscript, ast.IfExp, ast.BoolOp, ast.Lambda)
