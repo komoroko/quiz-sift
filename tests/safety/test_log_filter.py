@@ -26,7 +26,7 @@ QUESTION = Question(
     question_id=Q1,
     stem=STEM,
     options=tuple(Option(OptionId(Q1, label), text) for label, text in zip("ABCD", OPTION_TEXTS, strict=True)),
-    correct_option_id=OptionId(Q1, "A"),
+    correct_option_ids=(OptionId(Q1, "A"),),
     explanation=EXPLANATION,
     studied=StudiedFlag.UNKNOWN,
 )
@@ -91,7 +91,7 @@ def test_longer_material_is_masked_before_its_substring() -> None:
         question_id=Q1,
         stem=STEM + "(続き)",
         options=QUESTION.options,
-        correct_option_id=QUESTION.correct_option_id,
+        correct_option_ids=QUESTION.correct_option_ids,
         explanation=None,
         studied=StudiedFlag.UNKNOWN,
     )
@@ -106,7 +106,7 @@ def test_empty_material_is_not_registered() -> None:
             question_id=Q1,
             stem=STEM,
             options=QUESTION.options,
-            correct_option_id=QUESTION.correct_option_id,
+            correct_option_ids=QUESTION.correct_option_ids,
             explanation="",
             studied=StudiedFlag.UNKNOWN,
         )
@@ -122,7 +122,7 @@ def test_escaped_material_is_masked_in_repr_and_json(captured: tuple[logging.Log
         question_id=Q1,
         stem=stem,
         options=QUESTION.options,
-        correct_option_id=QUESTION.correct_option_id,
+        correct_option_ids=QUESTION.correct_option_ids,
         explanation=explanation,
         studied=StudiedFlag.UNKNOWN,
     )

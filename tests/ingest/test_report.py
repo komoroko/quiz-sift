@@ -22,7 +22,7 @@ def test_conservation_is_a_construction_invariant(write_deck: WriteDeck) -> None
     # 取り込み経路が作るレポートも同じ不変条件の上にある。除外の出る入力で、入力件数と一致する。
     data_root = write_deck(
         {
-            "a.jsonl": [question_row("q1"), question_row("q2", answer="Z"), question_row("q3")],
+            "a.jsonl": [question_row("q1"), question_row("q2", answers=["Z"]), question_row("q3")],
             "b.jsonl": [question_row("q3"), question_row("q4", options=[{"id": "A", "text": "唯一"}])],
         }
     )
@@ -44,7 +44,7 @@ def test_explanation_presence_is_counted(write_deck: WriteDeck) -> None:
                 # 空白だけの解説は「解説あり」に数えない。水増しすると NFR-1 の照合先を過大に見積もる。
                 question_row("q5", explanation="   "),
                 # 除外された問題は、解説を持っていても数えない(内訳は accepted の内訳)。
-                question_row("q6", explanation="除外される問題の解説", answer=None),
+                question_row("q6", explanation="除外される問題の解説", answers=[]),
             ]
         }
     )

@@ -84,7 +84,7 @@ def question_script(material: RecallMaterial, language: Language) -> QuestionScr
 
 
 def _reference(question: Question) -> str:
-    correct = next(o.text for o in question.options if o.option_id == question.correct_option_id)
+    correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
     reference = f"問題: {question.stem} 正解: {correct}"
     if question.explanation is not None:
         reference += f" 解説: {question.explanation}"

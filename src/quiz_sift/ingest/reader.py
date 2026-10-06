@@ -4,8 +4,11 @@
 
 ```json
 {"id": "q001", "stem": "問題文", "options": [{"id": "A", "text": "選択肢"}, ...],
- "answer": "A", "explanation": "公式解説", "studied": "studied"}
+ "answers": ["A"], "explanation": "公式解説", "studied": "studied"}
 ```
+
+`answers` は正解の選択肢 ID の配列。正解を単一の値で持つ旧キー `answer` は未知のキーとして弾き、
+読み替えない(ADR-020)。
 
 ここで弾くのは**形そのものが壊れた行**(JSON でない、必須キーが無い、型が違う、未知のキー)で、
 例外で取り込み全体を止める。黙って読み飛ばすと保存則の `input_total` から消え、壊れた行が
@@ -28,7 +31,7 @@ STUDIED_VALUES = {
 }
 """`studied` に書ける値。`unknown` は書けない — 未指定がそれを意味する(manifest と同じ)。"""
 
-_REQUIRED_KEYS = frozenset({"id", "stem", "options", "answer"})
+_REQUIRED_KEYS = frozenset({"id", "stem", "options", "answers"})
 _KEYS = _REQUIRED_KEYS | {"explanation", "studied"}
 _OPTION_KEYS = frozenset({"id", "text"})
 
@@ -52,8 +55,8 @@ class RawRecord:
     raw_id: str
     stem: str
     options: tuple[RawOption, ...]
-    answer: str | None
-    """正解の選択肢 ID。`null` や空は `None` にして、`validate.py` が `ANSWER_UNRESOLVED` にする。"""
+    answers: tuple[str, ...]
+    """正解の選択肢 ID。入力の並びのまま。空・重複・未知 ID は `validate.py` が `ANSWER_UNRESOLVED` にする。"""
     explanation: str | None
     studied: StudiedFlag | None
     """個別の既習指定。未指定は `None`(`resolve_studied` の第1引数になる)。"""
@@ -106,17 +109,15 @@ def _parse_line(line: str) -> RawRecord:
     if len(set(option_ids)) != len(option_ids):
         raise IngestFormatError("options の id が重複している")
 
-    answer = row["answer"]
-    if answer is not None and not isinstance(answer, str):
-        raise IngestFormatError("answer は文字列または null でなければならない")
-    if answer is not None:
-        answer = answer.strip() or None
+    answers_value = row["answers"]
+    if not isinstance(answers_value, list) or not all(isinstance(value, str) for value in answers_value):
+        raise IngestFormatError("answers は文字列の配列でなければならない")
 
     return RawRecord(
         raw_id=_require_text(row, "id"),
         stem=_require_text(row, "stem"),
         options=options,
-        answer=answer,
+        answers=tuple(value.strip() for value in answers_value),
         explanation=_optional_text(row, "explanation"),
         studied=_parse_studied(row.get("studied")),
     )

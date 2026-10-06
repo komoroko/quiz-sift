@@ -1,7 +1,7 @@
 """取り込み・抽出・複数セットの受入テスト(C-001 / C-002 / C-011)。claim ごとに1本。
 
 本文はすべて合成で、実教材は含まない(NFR-2)。取り込みの正常系は `tests/ingest/fixtures/healthy.jsonl`
-(合成 120 問)を使う。
+(合成 120 問)と、範囲内の (N, M) 12 組を1問ずつ持つ `tests/fixtures/ingest/n_of_m.jsonl` を使う。
 """
 
 import json
@@ -23,6 +23,7 @@ from quiz_sift.extract.evidence import SelectorKind, selector_kind_is_uniform
 from quiz_sift.extract.failures import ExtractField, FetchFailure, FetchFailureReason
 from quiz_sift.extract.udemy import FetchedPage, extract
 from quiz_sift.ingest.deck import ingest_deck
+from quiz_sift.ingest.reader import IngestFormatError
 from quiz_sift.ports.llm import ClassificationResult, GroupProposal, RecallDraft
 from quiz_sift.scoring.report import PrePost, Rate, build_report
 from quiz_sift.store.deck_scope import DeckScopedStore
@@ -30,6 +31,7 @@ from quiz_sift.store.deck_scope import DeckScopedStore
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
 
 HEALTHY = Path(__file__).resolve().parents[1] / "ingest" / "fixtures" / "healthy.jsonl"
+N_OF_M = Path(__file__).resolve().parents[1] / "fixtures" / "ingest" / "n_of_m.jsonl"
 
 
 # ---- C-001 ----
@@ -39,11 +41,19 @@ def _studied(value: str | None) -> StudiedFlag | None:
     return None if value is None else StudiedFlag(value)
 
 
+def _rows(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _shape(row: dict[str, Any]) -> tuple[int, int]:
+    return len(row["answers"]), len(row["options"])
+
+
 def test_c001_ingest_keeps_every_field_and_lists_rejections(workspace: Path) -> None:
-    source: list[dict[str, Any]] = [
-        json.loads(line) for line in HEALTHY.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
+    source = _rows(HEALTHY) + _rows(N_OF_M)
     assert len(source) >= 100
+    # 範囲内の (N, M) 12 組すべてを1問以上含む。
+    assert {_shape(row) for row in source} == {(n, m) for m in (4, 5, 6) for n in range(1, m)}
     per_question = {_studied(row.get("studied")) for row in source}
     assert per_question == {StudiedFlag.STUDIED, StudiedFlag.UNSEEN, None}  # 3段の解決を1本で確かめられる入力
     data_root = workspace / "data"
@@ -64,11 +74,15 @@ def test_c001_ingest_keeps_every_field_and_lists_rejections(workspace: Path) -> 
         for row in source:
             question = questions[row["id"]]
             assert question.stem == row["stem"].strip()
-            assert len(question.options) == 4
+            assert len(question.options) == len(row["options"])
             assert [(o.option_id.local_id, o.text) for o in question.options] == [
                 (o["id"], o["text"].strip()) for o in row["options"]
             ]
-            assert question.correct_option_id.local_id == row["answer"]
+            # 正解 N 件が欠落なく、選択肢の並び順で保持される。
+            assert [o.local_id for o in question.correct_option_ids] == [
+                o["id"] for o in row["options"] if o["id"] in row["answers"]
+            ]
+            assert question.answer_count == len(row["answers"])
             # 個別 → セット → unknown。個別の unseen はセット既定 studied に上書きされない。
             assert question.studied is (_studied(row.get("studied")) or fallback)
 
@@ -82,20 +96,81 @@ def test_c001_ingest_keeps_every_field_and_lists_rejections(workspace: Path) -> 
     # 不正な問題は1件ずつ、入力上の ID と理由で列挙される。
     broken = [dict(row) for row in source]
     broken[5]["options"] = broken[5]["options"][:3]
-    broken[10]["answer"] = "Z"
+    broken[10]["answers"] = ["Z"]
     broken.append(dict(source[20]))
     deck_id = DeckId("broken")
     write_deck(workspace, deck_id, broken)
     report = ingest_deck(data_root, deck_id).report
 
     assert report.rejected == (
-        IngestRejected(source[5]["id"], RejectionReason.OPTION_COUNT_NOT_4),
+        IngestRejected(source[5]["id"], RejectionReason.OPTION_COUNT_UNSUPPORTED),
         IngestRejected(source[10]["id"], RejectionReason.ANSWER_UNRESOLVED),
         IngestRejected(source[20]["id"], RejectionReason.DUPLICATE_ID),
         IngestRejected(source[20]["id"], RejectionReason.DUPLICATE_ID),
     )
     assert report.input_total == len(broken)
     assert report.accepted == len(source) - 3
+
+
+def _nm_row(qid: str, option_count: int, answers: list[str]) -> dict[str, Any]:
+    return {
+        "id": qid,
+        "stem": f"合成問題 {qid} の問題文",
+        "options": [{"id": label, "text": f"合成問題 {qid} の選択肢 {label}"} for label in "ABCDEFG"[:option_count]],
+        "answers": answers,
+    }
+
+
+def test_c001_out_of_range_and_unresolved_answers_are_listed(workspace: Path) -> None:
+    rows = [
+        _nm_row("ok-4-1", 4, ["B"]),
+        _nm_row("m3", 3, ["A"]),
+        _nm_row("m7", 7, ["A"]),
+        _nm_row("n0", 5, []),
+        _nm_row("n-eq-m", 4, ["A", "B", "C", "D"]),
+        _nm_row("dup-answer", 5, ["A", "A"]),
+        _nm_row("unknown-answer", 6, ["A", "G"]),
+        _nm_row("dup-id", 5, ["A", "B"]),
+        _nm_row("ok-6-5", 6, ["F", "E", "D", "C", "B"]),
+        _nm_row("dup-id", 4, ["C"]),
+    ]
+    deck_id = DeckId("out-of-range")
+    write_deck(workspace, deck_id, rows)
+    ingested = ingest_deck(workspace / "data", deck_id)
+    report = ingested.report
+
+    assert report.rejected == (
+        IngestRejected("m3", RejectionReason.OPTION_COUNT_UNSUPPORTED),
+        IngestRejected("m7", RejectionReason.OPTION_COUNT_UNSUPPORTED),
+        IngestRejected("n0", RejectionReason.ANSWER_UNRESOLVED),
+        IngestRejected("n-eq-m", RejectionReason.ANSWER_UNRESOLVED),
+        IngestRejected("dup-answer", RejectionReason.ANSWER_UNRESOLVED),
+        IngestRejected("unknown-answer", RejectionReason.ANSWER_UNRESOLVED),
+        IngestRejected("dup-id", RejectionReason.DUPLICATE_ID),
+        IngestRejected("dup-id", RejectionReason.DUPLICATE_ID),
+    )
+    assert (report.input_total, report.accepted, len(report.rejected)) == (10, 2, 8)
+    assert [(q.question_id.local_id, q.answer_count) for q in ingested.deck.questions] == [("ok-4-1", 1), ("ok-6-5", 5)]
+
+
+def test_c001_single_answer_input_is_refused(workspace: Path) -> None:
+    ok = _nm_row("ok", 4, ["A"])
+    legacy = {key: value for key, value in _nm_row("legacy", 4, ["A"]).items() if key != "answers"}
+    legacy["answ" + "er"] = "A"
+    deck_id = DeckId("legacy")
+    write_deck(workspace, deck_id, [ok, legacy])
+
+    with pytest.raises(IngestFormatError, match="未知のキー") as excinfo:
+        ingest_deck(workspace / "data", deck_id)
+    assert "questions.jsonl:2:" in str(excinfo.value)
+    # 新キーと旧キーを両方持つ行も、旧キーを読み替えずに止める。
+    write_deck(workspace, deck_id, [ok, {**ok, "id": "both", "answ" + "er": "A"}])
+    with pytest.raises(IngestFormatError, match="未知のキー"):
+        ingest_deck(workspace / "data", deck_id)
+    # 正解を配列でなく単一の値で書いたものも止める。
+    write_deck(workspace, deck_id, [ok, {**ok, "id": "scalar", "answers": "A"}])
+    with pytest.raises(IngestFormatError, match="answers は文字列の配列"):
+        ingest_deck(workspace / "data", deck_id)
 
 
 # ---- C-002 ----
@@ -189,7 +264,7 @@ def _row(qid: str, stem: str, options: list[str], explanation: str | None, studi
         "id": qid,
         "stem": stem,
         "options": [{"id": label, "text": text} for label, text in zip("ABCD", options, strict=True)],
-        "answer": "A",
+        "answers": ["A"],
         "explanation": explanation,
     }
     if studied is not None:

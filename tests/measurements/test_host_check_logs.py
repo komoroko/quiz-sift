@@ -472,7 +472,7 @@ def _write_e2e_root(root: Path) -> None:
             "id": qid,
             "stem": f"{E2E_STEM_PREFIX}{qid}",
             "options": [{"id": label, "text": f"選択肢 {label}"} for label in "ABCD"],
-            "answer": answer,
+            "answers": [answer],
             "explanation": f"解説 {qid}",
         }
         for qid, answer in E2E_QUESTIONS.items()

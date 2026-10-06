@@ -121,6 +121,10 @@ class QuizApi:
         loaded = self._load(deck_id)
         session = self._session_id(loaded, session_id)
         question = self._question(loaded, question_id)
+        if question.answer_count != 1:
+            # 応答の形(`correct_option_id` が1つ)は正解1件の問題にしか答えられない。複数正解は T-065 で受ける。
+            raise ValueError("正解が複数ある問題の回答はまだ受け付けない")
+        (correct,) = question.correct_option_ids
         with loaded.lock:
             # 再起動で出題状態が消えても、同じセッションで同じ問題に2度答えた記録は作らない。
             if any(a.question_id == question.question_id for a in loaded.store.attempts(session)):
@@ -128,7 +132,7 @@ class QuizApi:
             attempt = loaded.quizmaster.submit(session, question.question_id, OptionId(question.question_id, chosen))
         return {
             "correct": attempt.correct,
-            "correct_option_id": question.correct_option_id.local_id,
+            "correct_option_id": correct.local_id,
             "explanation": question.explanation,
         }
 

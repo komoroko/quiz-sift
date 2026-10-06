@@ -172,7 +172,7 @@ def write_deck(root: Path) -> None:
             "id": f"q{n}",
             "stem": f"合成の応答を問う合成の問題 {n}",
             "options": [{"id": label, "text": f"合成の選択肢 {label}{n}"} for label in "ABCD"],
-            "answer": "A",
+            "answers": ["A"],
         }
         for n in range(3)
     ]

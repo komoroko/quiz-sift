@@ -21,7 +21,7 @@ def question(local_id: str, stem: str, options: tuple[str, ...] = OPTIONS) -> Qu
         question_id=question_id,
         stem=stem,
         options=tuple(Option(OptionId(question_id, label), text) for label, text in zip("ABCD", options, strict=True)),
-        correct_option_id=OptionId(question_id, "A"),
+        correct_option_ids=(OptionId(question_id, "A"),),
         explanation=None,
         studied=StudiedFlag.UNKNOWN,
     )

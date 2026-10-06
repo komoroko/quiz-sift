@@ -54,7 +54,7 @@ def make_deck(deck_id: DeckId = DECK) -> Deck:
                 question_id=qid,
                 stem=f"架空の問題 {local}",
                 options=tuple(Option(OptionId(qid, label), f"選択肢 {label}") for label in "ABCD"),
-                correct_option_id=OptionId(qid, correct),
+                correct_option_ids=(OptionId(qid, correct),),
                 explanation=None,
                 studied=studied,
             )
@@ -64,7 +64,7 @@ def make_deck(deck_id: DeckId = DECK) -> Deck:
 
 def wrong_option(question: Question) -> OptionId:
     """正解でない選択肢の ID。内容で同定するのではなく ID で選ぶ。"""
-    return next(o.option_id for o in question.options if o.option_id != question.correct_option_id)
+    return next(o.option_id for o in question.options if o.option_id not in question.correct_option_ids)
 
 
 @pytest.fixture

@@ -36,7 +36,7 @@ def write_root(root: Path, gitignore: str = "data/\nout/\n") -> Path:
             "id": qid,
             "stem": f"架空の問題 {qid}",
             "options": [{"id": label, "text": f"選択肢 {label}"} for label in "ABCD"],
-            "answer": answer,
+            "answers": [answer],
             "explanation": f"解説 {qid}",
         }
         for qid, answer in QUESTIONS.items()

@@ -364,7 +364,7 @@ def test_llm_stages_stop_on_failure_and_summarise(
             "id": f"q{n:03d}",
             "stem": f"合成の問題文 {n}",
             "options": [{"id": label, "text": f"合成の選択肢 {label}"} for label in "ABCD"],
-            "answer": "A",
+            "answers": ["A"],
         }
         for n in range(count)
     ]

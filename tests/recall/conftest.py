@@ -98,7 +98,7 @@ GOOD = {
 def _question(qid: str, stem: str, texts: list[str], correct: int, explanation: str) -> Question:
     question_id = QuestionId(DECK, qid)
     options = tuple(Option(OptionId(question_id, label), text) for label, text in zip("ABCD", texts, strict=True))
-    return Question(question_id, stem, options, options[correct].option_id, explanation, StudiedFlag.UNKNOWN)
+    return Question(question_id, stem, options, (options[correct].option_id,), explanation, StudiedFlag.UNKNOWN)
 
 
 @pytest.fixture

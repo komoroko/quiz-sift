@@ -65,7 +65,7 @@ def question(name: str) -> Question:
         question_id=qid,
         stem=f"合成問題文 {name} 固有句",
         options=tuple(Option(OptionId(qid, label), f"合成選択肢 {name}{label} 固有句") for label in "ABCD"),
-        correct_option_id=OptionId(qid, "A"),
+        correct_option_ids=(OptionId(qid, "A"),),
         explanation=f"合成解説 {name} 固有句",
         studied=StudiedFlag.UNKNOWN,
     )

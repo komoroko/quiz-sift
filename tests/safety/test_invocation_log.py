@@ -44,7 +44,7 @@ QUESTION = Question(
     question_id=Q1,
     stem=STEM,
     options=tuple(Option(OptionId(Q1, label), text) for label, text in zip("ABCD", OPTION_TEXTS, strict=True)),
-    correct_option_id=OptionId(Q1, "A"),
+    correct_option_ids=(OptionId(Q1, "A"),),
     explanation=None,
     studied=StudiedFlag.UNKNOWN,
 )

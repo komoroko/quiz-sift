@@ -173,7 +173,7 @@ def _deck_json(deck: Deck) -> dict[str, Any]:
                 "id": q.question_id.local_id,
                 "stem": q.stem,
                 "options": [[o.option_id.local_id, o.text] for o in q.options],
-                "answer": q.correct_option_id.local_id,
+                "answers": [o.local_id for o in q.correct_option_ids],
                 "explanation": q.explanation,
                 "studied": q.studied.value,
             }
@@ -192,7 +192,7 @@ def _deck_from(data: dict[str, Any]) -> Deck:
                 question_id=question_id,
                 stem=row["stem"],
                 options=tuple(Option(OptionId(question_id, oid), text) for oid, text in row["options"]),
-                correct_option_id=OptionId(question_id, row["answer"]),
+                correct_option_ids=tuple(OptionId(question_id, oid) for oid in row["answers"]),
                 explanation=row["explanation"],
                 studied=StudiedFlag(row["studied"]),
             )

@@ -84,7 +84,7 @@ def test_pcm_audio_refuses_malformed_frames() -> None:
 def make_question(n: int) -> Question:
     qid = QuestionId(DeckId("deck"), f"q{n}")
     options = tuple(Option(OptionId(qid, label), f"選択肢{label}") for label in "ABCD")
-    return Question(qid, f"問題{n}", options, options[0].option_id, None, StudiedFlag.UNKNOWN)
+    return Question(qid, f"問題{n}", options, (options[0].option_id,), None, StudiedFlag.UNKNOWN)
 
 
 class Recorder:

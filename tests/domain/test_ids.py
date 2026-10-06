@@ -33,7 +33,7 @@ def make_question(deck_id: DeckId, local_id: str) -> Question:
         question_id=question_id,
         stem="問題文",
         options=options,
-        correct_option_id=options[0].option_id,
+        correct_option_ids=(options[0].option_id,),
         explanation=None,
         studied=StudiedFlag.UNKNOWN,
     )

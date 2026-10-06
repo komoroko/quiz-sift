@@ -46,7 +46,7 @@ def _row(n: int) -> dict[str, Any]:
         "id": _qid(n),
         "stem": f"合成問題文{n}: 可用性ゾーン{n}をまたぐ構成はどれか。",
         "options": [{"id": label, "text": f"合成選択肢{n}{label}番"} for label in "ABCD"],
-        "answer": "A",
+        "answers": ["A"],
         "explanation": f"合成公式解説{n}: ゾーン{n}の複数に配置する。",
     }
 

@@ -36,7 +36,7 @@ class ClusterId:
 class OptionId:
     """1問内で一意な選択肢 ID。
 
-    採点は `chosen == correct_option_id` で行う(R-8)。`local_id` だけの比較だと
+    採点は `correct_option_ids` との比較で行う(R-8)。`local_id` だけの比較だと
     別の問題の「A」どうしが等しくなってしまうため、所属する問題を内包する。
     """
 

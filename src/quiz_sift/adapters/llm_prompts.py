@@ -68,7 +68,7 @@ ENTAILMENT_SCHEMA: Final = object_schema({"verdict": {"type": "string", "enum": 
 
 
 def render_question(question: Question) -> dict[str, object]:
-    correct = next(o.text for o in question.options if o.option_id == question.correct_option_id)
+    correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
     return {
         "stem": question.stem,
         "options": [o.text for o in question.options],

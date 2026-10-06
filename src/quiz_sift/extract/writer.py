@@ -87,6 +87,6 @@ def _question_row(question: ExtractedQuestion) -> dict[str, object]:
         "id": question.local_id,
         "stem": question.stem,
         "options": [{"id": option.label, "text": option.text} for option in question.options],
-        "answer": question.answer_label,
+        "answers": [question.answer_label],
         "explanation": question.explanation,
     }

@@ -109,7 +109,7 @@ def _scoring_row(qid: str, answer: str, studied: str | None) -> dict[str, Any]:
         "id": qid,
         "stem": f"合成問題 {qid}: 正しいものはどれか。",
         "options": [{"id": label, "text": f"{qid} の選択肢 {label}"} for label in ORIGINAL_ORDER],
-        "answer": answer,
+        "answers": [answer],
         "explanation": f"{qid} の解説",
     }
     if studied is not None:
@@ -236,7 +236,7 @@ def _store_row(n: int) -> dict[str, Any]:
         "id": _qid(n),
         "stem": f"合成問題: {word}に対応する値はどれか。",
         "options": [{"id": label, "text": f"値{n:02d}{label}"} for label in "ABCD"],
-        "answer": "A",
+        "answers": ["A"],
         "explanation": f"{word}には値{n:02d}Aが対応する。",
     }
 

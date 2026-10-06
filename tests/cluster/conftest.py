@@ -32,7 +32,7 @@ def _question(row: dict[str, object]) -> Question:
         question_id=qid,
         stem=str(row["stem"]),
         options=options,
-        correct_option_id=options[correct].option_id,
+        correct_option_ids=(options[correct].option_id,),
         explanation=str(row["explanation"]),
         studied=StudiedFlag.UNKNOWN,
     )

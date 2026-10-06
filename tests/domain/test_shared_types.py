@@ -4,9 +4,12 @@
 「名前がある」だけでは足りないため、**下流が実際に読むフィールド**を名指しで検査する。
 """
 
+import ast
 import dataclasses
+import json
 from dataclasses import fields
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -14,7 +17,7 @@ from quiz_sift.domain.attempt import AttemptRecord, ClusterStat
 from quiz_sift.domain.audio_meta import AudioMeta
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId, SessionId
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.question import OPTION_COUNT, Option, Question
+from quiz_sift.domain.question import OPTION_COUNTS, Option, Question
 from quiz_sift.domain.recall import RecallKey
 from quiz_sift.domain.report import IngestOk, IngestRejected, IngestReport, RejectionReason
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
@@ -30,7 +33,7 @@ def make_question(*, explanation: str | None = "公式解説", studied: StudiedF
         question_id=Q1,
         stem="問題文",
         options=OPTIONS,
-        correct_option_id=OPTIONS[0].option_id,
+        correct_option_ids=(OPTIONS[0].option_id,),
         explanation=explanation,
         studied=studied,
     )
@@ -45,21 +48,22 @@ def test_shared_types_expose_downstream_fields() -> None:
     # OptionId — R-8 の採点と web からの送信はこの ID だけを使う。
     assert field_names(OptionId) == ["question_id", "local_id"]
 
-    # Question — 選択肢4件を OptionId 付きで保持し、解説と既習フラグを持つ。
+    # Question — 選択肢 M 件を OptionId 付きで保持し、正解の ID の組・解説・既習フラグを持つ。
     question = make_question()
-    assert len(question.options) == OPTION_COUNT
+    assert len(question.options) in OPTION_COUNTS
     assert [option.option_id for option in question.options] == [OptionId(Q1, label) for label in "ABCD"]
     assert all(isinstance(option.option_id, OptionId) for option in question.options)
     assert question.explanation == "公式解説"
     assert make_question(explanation=None).explanation is None
     assert question.studied is StudiedFlag.UNKNOWN
-    assert question.correct_option_id == OPTIONS[0].option_id
+    assert question.correct_option_ids == (OPTIONS[0].option_id,)
+    assert question.answer_count == 1
 
     # IngestReport — R-1。保存則と解説の内訳。
     report = IngestReport(
         input_total=3,
         accepted=2,
-        rejected=(IngestRejected(raw_id="raw-9", reason=RejectionReason.OPTION_COUNT_NOT_4),),
+        rejected=(IngestRejected(raw_id="raw-9", reason=RejectionReason.OPTION_COUNT_UNSUPPORTED),),
         with_explanation=1,
         without_explanation=1,
     )
@@ -138,21 +142,21 @@ def test_shared_types_are_frozen() -> None:
 
 def test_invariants_refuse_impossible_values() -> None:
     """不変条件が「テストで確かめる性質」ではなく「構築できない構造」であること。"""
-    with pytest.raises(ValueError, match="選択肢は 4 件"):
+    with pytest.raises(ValueError, match="選択肢は"):
         Question(
             question_id=Q1,
             stem="問題文",
             options=OPTIONS[:3],
-            correct_option_id=OPTIONS[0].option_id,
+            correct_option_ids=(OPTIONS[0].option_id,),
             explanation=None,
             studied=StudiedFlag.UNKNOWN,
         )
-    with pytest.raises(ValueError, match="correct_option_id"):
+    with pytest.raises(ValueError, match="correct_option_ids"):
         Question(
             question_id=Q1,
             stem="問題文",
             options=OPTIONS,
-            correct_option_id=OptionId(QuestionId(DECK, "q2"), "A"),
+            correct_option_ids=(OptionId(QuestionId(DECK, "q2"), "A"),),
             explanation=None,
             studied=StudiedFlag.UNKNOWN,
         )
@@ -161,7 +165,7 @@ def test_invariants_refuse_impossible_values() -> None:
             question_id=Q1,
             stem="問題文",
             options=(*OPTIONS[:3], Option(OptionId(QuestionId(DECK, "q2"), "D"), "選択肢 D")),
-            correct_option_id=OPTIONS[0].option_id,
+            correct_option_ids=(OPTIONS[0].option_id,),
             explanation=None,
             studied=StudiedFlag.UNKNOWN,
         )
@@ -221,7 +225,113 @@ def test_invariants_refuse_impossible_values() -> None:
 
 def test_rejection_reasons_cover_the_designed_set() -> None:
     assert {reason.value for reason in RejectionReason} == {
-        "option_count_not_4",
+        "option_count_unsupported",
         "answer_unresolved",
         "duplicate_id",
     }
+
+
+def _question(question_id: QuestionId, option_count: int, answers: tuple[int, ...]) -> Question:
+    options = tuple(Option(OptionId(question_id, label), f"選択肢 {label}") for label in "ABCDEFG"[:option_count])
+    return Question(
+        question_id=question_id,
+        stem="問題文",
+        options=options,
+        correct_option_ids=tuple(options[i].option_id for i in answers),
+        explanation=None,
+        studied=StudiedFlag.UNKNOWN,
+    )
+
+
+def test_question_holds_answer_ids_and_rejects_out_of_range() -> None:
+    """受入基準 A-4: 正解は ID の組(選択肢順・重複なし・1 ≤ N < M)で、構築時に強制される。"""
+    assert OPTION_COUNTS == frozenset({4, 5, 6})
+    for m in sorted(OPTION_COUNTS):
+        for n in range(1, m):
+            question = _question(Q1, m, tuple(range(m - n, m)))
+            assert len(question.options) == m
+            assert question.answer_count == n
+            assert question.correct_option_ids == tuple(o.option_id for o in question.options[m - n :])
+
+    for m in (3, 7):
+        with pytest.raises(ValueError, match="選択肢は"):
+            _question(Q1, m, (0,))
+    for answers, message in (
+        ((), "正解は 1 件以上"),
+        ((0, 1, 2, 3), "正解は 1 件以上"),
+        ((1, 0), "選択肢順"),
+        ((0, 0), "重複なく"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            _question(Q1, 4, answers)
+    with pytest.raises(ValueError, match="この問題の選択肢"):
+        Question(
+            question_id=Q1,
+            stem="問題文",
+            options=OPTIONS,
+            correct_option_ids=(OPTIONS[0].option_id, OptionId(QuestionId(DECK, "q2"), "B")),
+            explanation=None,
+            studied=StudiedFlag.UNKNOWN,
+        )
+
+
+_REPO = Path(__file__).resolve().parents[2]
+_GONE = frozenset({"correct" + "_option_id", "OPTION" + "_COUNT", "OPTION" + "_COUNT" + "_NOT_4"})
+"""単一正解の時代の識別子。組み立てで作り、このファイル自身が数えられないようにする。"""
+_OLD_KEY = "answ" + "er"
+
+
+def _identifiers(tree: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.update(part for part in (*node.name.split("."), node.asname) if part)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.keyword) and node.arg is not None:
+            names.add(node.arg)
+    return names
+
+
+def _old_key_rows(tree: ast.AST) -> list[int]:
+    """旧キーを持つ取り込み用の行の行番号。
+
+    行は dict リテラル(`"stem"` と `"options"` を持つもの)か、`question_row(...)` のキーワード引数で書かれる。
+    """
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            keys = {key.value for key in node.keys if isinstance(key, ast.Constant)}
+            if {"stem", "options"} <= keys and _OLD_KEY in keys:
+                lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "question_row":
+            if any(keyword.arg == _OLD_KEY for keyword in node.keywords):
+                lines.append(node.lineno)
+    return lines
+
+
+def test_single_answer_names_are_gone() -> None:
+    """受入基準 A-5: 単一正解の識別子と、取り込みの入力の旧キーが残っていない。"""
+    sources = sorted((_REPO / "src").rglob("*.py")) + sorted((_REPO / "tests").rglob("*.py"))
+    assert len(sources) > 50
+    leftovers = []
+    old_key_rows = []
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        leftovers += [f"{path.relative_to(_REPO)}: {name}" for name in sorted(_identifiers(tree) & _GONE)]
+        old_key_rows += [f"{path.relative_to(_REPO)}:{line}" for line in _old_key_rows(tree)]
+    assert leftovers == []
+    assert old_key_rows == []
+
+    fixtures = sorted((_REPO / "tests" / "ingest" / "fixtures").glob("*.jsonl")) + sorted(
+        (_REPO / "tests" / "fixtures" / "ingest").glob("*.jsonl")
+    )
+    assert fixtures
+    for path in fixtures:
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if line.strip():
+                assert _OLD_KEY not in json.loads(line), f"{path.relative_to(_REPO)}:{line_no}"
