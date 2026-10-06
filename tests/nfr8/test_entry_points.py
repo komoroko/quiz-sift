@@ -130,19 +130,22 @@ def test_no_entry_point_reaches_a_metered_client() -> None:
 
 
 def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """判定が赤くなり得ること: 入口の cli が関数の中で `anthropic` を遅延 import すると、辿った外部パッケージに入る。"""
+    """判定が赤くなり得ること: 入口から辿った先の製品モジュールが関数の中で `anthropic` を遅延 import すると、
+    推移的な到達として外部パッケージに入る(cli → アダプタ → SDK の形)。
+    """
+    adapter_name = "quiz_sift.adapters.synthetic_sdk_adapter"
     sdk_cli = tmp_path / "cli.py"
-    sdk_cli.write_text(
-        "from quiz_sift.adapters import llm_prompts\n\n\ndef build():\n    import anthropic\n\n    return anthropic\n",
-        encoding="utf-8",
-    )
+    sdk_cli.write_text("from quiz_sift.adapters import synthetic_sdk_adapter\n", encoding="utf-8")
+    adapter = tmp_path / "synthetic_sdk_adapter.py"
+    adapter.write_text("def build():\n    import anthropic\n\n    return anthropic\n", encoding="utf-8")
+    synthetic = {"quiz_sift.cli": sdk_cli, adapter_name: adapter}
     real = module_path
-    monkeypatch.setattr(
-        sys.modules[__name__], "module_path", lambda name: sdk_cli if name == "quiz_sift.cli" else real(name)
-    )
+    monkeypatch.setattr(sys.modules[__name__], "module_path", lambda name: synthetic.get(name) or real(name))
 
+    # 入口の cli 自身は外部パッケージを import しない: SDK は2段目でだけ現れる。
+    assert not any(target.split(".")[0] != "quiz_sift" for target in imported("quiz_sift.cli", sdk_cli))
     modules, external = reachable({"quiz_sift.cli"})
-    assert {"quiz_sift.cli", "quiz_sift.adapters.llm_prompts"} <= modules
+    assert {"quiz_sift.cli", adapter_name} <= modules
     assert "anthropic" in external & METERED
 
 
