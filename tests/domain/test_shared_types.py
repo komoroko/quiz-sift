@@ -294,7 +294,20 @@ def _identifiers(tree: ast.AST) -> set[str]:
             names.add(node.arg)
         elif isinstance(node, ast.keyword) and node.arg is not None:
             names.add(node.arg)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
     return names
+
+
+def test_identifiers_include_definitions() -> None:
+    """互換エイリアスとして残りやすい定義(メソッド・プロパティ・クラス)の名前も A-5 の検査に掛かる。"""
+    gone = "correct" + "_option_id"
+    for source in (
+        f"class Q:\n    @property\n    def {gone}(self): return self.ids[0]\n",
+        f"async def {gone}(): pass\n",
+        f"class {gone}: pass\n",
+    ):
+        assert gone in _identifiers(ast.parse(source)), source
 
 
 def _old_key_rows(tree: ast.AST) -> list[int]:
