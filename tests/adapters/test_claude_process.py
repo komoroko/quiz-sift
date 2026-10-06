@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from quiz_sift.adapters import claude_process
 from quiz_sift.adapters.claude_process import PreflightError, SubprocessRunner, Workspace, default_preflight
 from quiz_sift.ports.process import CommandSpec, Outcome
 
@@ -416,6 +417,54 @@ def test_timeout_keeps_partial_stdout_and_prompt_travels_only_on_stdin(
     missing = runner.run(CommandSpec((str(tmp_path / "no-such-binary"),), env, tmp_path, prompt))
     assert missing.outcome is Outcome.SPAWN
     assert missing.returncode is None
+
+
+def _blocked_in(pid: int) -> set[int]:
+    """`/proc/<pid>/status` の SigBlk(ブロック中のシグナルのビット列)を番号の集合にする。"""
+    (line,) = [line for line in Path(f"/proc/{pid}/status").read_text().splitlines() if line.startswith("SigBlk:")]
+    bits = int(line.split()[1], 16)
+    return {signum for signum in range(1, 65) if bits >> (signum - 1) & 1}
+
+
+def test_signal_during_spawn_still_kills_the_child_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """fork/exec の後・Popen が戻る前に届いたシグナルの例外でも、起動済みの子のグループを止めてから通す(D-221)。
+
+    子は親のシグナルマスクを継承するので、子の側では遅らせたシグナルがブロックされていないことも確かめる。
+    """
+    env = Workspace(tmp_path / "home", tmp_path).child_env()
+    slow = (sys.executable, "-c", "import time; time.sleep(60)")
+    spawned: list[subprocess.Popen[bytes]] = []
+    real_popen = subprocess.Popen
+
+    class SignalledPopen(real_popen):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            spawned.append(self)
+            blocked_in_child.append(_blocked_in(self.pid))
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    blocked_in_child: list[set[int]] = []
+
+    def on_term(signum: int, frame: FrameType | None) -> None:
+        raise _Alarm("SIGTERM")
+
+    monkeypatch.setattr(subprocess, "Popen", SignalledPopen)
+    mask_before = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    previous = signal.signal(signal.SIGTERM, on_term)
+    try:
+        with pytest.raises(_Alarm):
+            SubprocessRunner().run(CommandSpec(slow, env, tmp_path, ""))
+        (proc,) = spawned
+        returncode = proc.poll()  # 片付けで kill する前に、runner が止めたかを読む
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        for leftover in spawned:
+            if leftover.poll() is None:
+                leftover.kill()
+                leftover.wait()
+    assert returncode == -signal.SIGKILL
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == mask_before
+    assert blocked_in_child[0] & set(claude_process.DEFERRED_SIGNALS) == set()
 
 
 def test_construction_and_import_have_no_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

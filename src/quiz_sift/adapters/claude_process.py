@@ -9,6 +9,7 @@ import・`SubprocessRunner()`・`Workspace()` の構築はファイルシステ�
 
 import contextlib
 import fcntl
+import functools
 import json
 import os
 import shutil
@@ -34,6 +35,9 @@ ALLOWED_SETTINGS_KEYS = frozenset({"theme"})
 KILL_GRACE_SEC = 5
 """プロセスグループに SIGKILL を送ってから pipe の終端を待つ秒数(D-186)。"""
 
+DEFERRED_SIGNALS = frozenset({signal.SIGHUP, signal.SIGTERM, signal.SIGALRM, signal.SIGINT})
+"""spawn の間だけ遅らせるシグナル。どれもハンドラが例外を送出しうる(12 時間の上限・D-221・Ctrl-C)。"""
+
 FALLBACK_LANG = "C.UTF-8"
 FALLBACK_TZ = "Asia/Tokyo"
 
@@ -52,6 +56,11 @@ class SubprocessRunner:
     def run(self, spec: CommandSpec) -> CommandResult:
         if set(spec.env) != CHILD_ENV_KEYS:
             raise ValueError(f"子プロセスの環境は {sorted(CHILD_ENV_KEYS)} に一致しない: {sorted(spec.env)}")
+        # Popen の内側(fork の後)や、Popen が戻ってから下の try に入るまでに例外が来ると、起動済みの子を
+        # killpg する経路が無い。そこまでは DEFERRED_SIGNALS を遅らせ、届いていた分は下の try の中で処理する。
+        # 子はマスクを継承するので、exec の前に元のマスクへ戻す。マスクはスレッドごとなので、この遅延は
+        # run を呼んだスレッドだけがシグナルを受けられる構成(CLI の主スレッド)で効く。
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
         try:
             proc = subprocess.Popen(
                 spec.argv,
@@ -61,10 +70,16 @@ class SubprocessRunner:
                 cwd=spec.cwd,
                 env=dict(spec.env),
                 start_new_session=True,
+                preexec_fn=functools.partial(signal.pthread_sigmask, signal.SIG_SETMASK, mask),
             )
         except OSError as exc:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             return CommandResult(Outcome.SPAWN, None, b"", str(exc).encode())
+        except BaseException:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            raise
         try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             stdout, stderr = proc.communicate(spec.stdin.encode(), timeout=spec.timeout_sec)
         except subprocess.TimeoutExpired as expired:
             stdout, stderr = _stop_group(proc, expired)
