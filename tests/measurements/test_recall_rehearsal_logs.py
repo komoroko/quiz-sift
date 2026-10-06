@@ -575,7 +575,8 @@ def _broken(check: Any, text: str) -> None:
 
 
 def test_record_with_a_nonzero_check_is_red() -> None:
-    _broken(check_recall_passed, re.sub(r"^\| `missing_options` \| 0 \|$", "| `missing_options` | 1 |", _read(), 1, re.M))
+    text = re.sub(r"^\| `missing_options` \| 0 \|$", "| `missing_options` | 1 |", _read(), count=1, flags=re.M)
+    _broken(check_recall_passed, text)
 
 
 def test_record_with_a_failed_recall_is_red() -> None:
@@ -595,11 +596,13 @@ def test_record_missing_a_regeneration_is_red() -> None:
 
 
 def test_record_with_a_wrong_extrapolation_is_red() -> None:
-    _broken(check_usage_recorded, re.sub(r"^(\| トークン数 \| \d+ \| )[^|]+\|$", r"\g<1>1 |", _read(), 1, re.M))
+    text = re.sub(r"^(\| トークン数 \| \d+ \| )[^|]+\|$", r"\g<1>1 |", _read(), count=1, flags=re.M)
+    _broken(check_usage_recorded, text)
 
 
 def test_record_with_a_wrong_estimate_is_red() -> None:
-    _broken(check_usage_recorded, re.sub(r"^\| seven_day \| [^|]+ \|$", "| seven_day | 0 |", _read(), 1, re.M))
+    text = re.sub(r"^\| seven_day \| [^|]+ \|$", "| seven_day | 0 |", _read(), count=1, flags=re.M)
+    _broken(check_usage_recorded, text)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
