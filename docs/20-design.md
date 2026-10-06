@@ -166,7 +166,7 @@
     1. `init.tools` が `{StructuredOutput}` と一致する(拒否リスト無し、C-024)。
     2. SEC-001 の番兵(D-193、D-213): 中身検査を通さない直接起動。最小ホームの `.claude/settings.json` をその場で一時的に書き換え、到達できない `ANTHROPIC_BASE_URL`(`http://127.0.0.1:9`)を番兵にする。指定を外した argv では番兵のアドレスへの接続の失敗で落ち(stderr の分類で確かめる)、最終 argv では成功する。後始末は元のバイト列の sha256 の一致で確かめる。資格情報は写さない。
 - argv が変わるので、契約フィクスチャ・home-probe の記録・`BARE_FLAGS` を第2段の後に取り直す。
-- **(a) SDK の経路の削除**: `adapters/llm_anthropic.py` を削除し、依存 `anthropic` を `pyproject.toml` と `uv.lock` から外す(D-216)。`tests/nfr8/test_no_metered_sdk.py`・`test_entry_points.py`・`test_composition.py`・`tests/adapters/test_llm_contract.py` の該当部分は削除後の状態に合わせて直す。依存が変わるので、mandate の前の `rein audit run` はこの削除の前後どちらで取ったかを記録する。
+- **(a) SDK の経路の削除**: `adapters/llm_anthropic.py` を削除する(D-216)。`tests/nfr8/` と `tests/adapters/test_llm_contract.py` の該当部分を直し、消えたアダプタに代わる陰性対照(anthropic を import する合成のアダプタ)を置く。依存 `anthropic` の削除は、イメージの作り直しと再ピンが要るので次サイクルに繰り越す(D-223)。
 - **What this requires of a person**: ホストで最小ホームとログイン状態を保つこと。番兵の実測の間、最小ホームの設定が一時的に書き換わる(実測の道具が戻す)。
 - **Reversibility**: 可逆(合成プロンプトだけ。D-108 と同じ扱い。最小ホームの書き換えは sha256 で戻ったことを確かめる)。
 
