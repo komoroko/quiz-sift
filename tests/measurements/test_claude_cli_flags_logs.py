@@ -74,7 +74,11 @@ def test_flags_record_has_init_tools_per_allowlist_candidate() -> None:
         assert not set(AUTO_APPROVE_FLAGS) & set(argv), argv
         assert "--json-schema" in argv
         assert isinstance(run["exit_code"], int)
-        assert run["init_tools"] is None or isinstance(run["init_tools"], list), run["init_tools"]
+        # init 無し(None)を許すのは、CLI が起動前に失敗した run だけ。
+        if run["exit_code"] == 0:
+            assert isinstance(run["init_tools"], list) and run["init_tools"], run
+        else:
+            assert run["init_tools"] is None or isinstance(run["init_tools"], list), run["init_tools"]
         assert isinstance(run["structured_output_returned"], bool)
         assert run["structured_output_returned"] == (
             isinstance(run["structured_output"], dict) and run["result_is_error"] is False

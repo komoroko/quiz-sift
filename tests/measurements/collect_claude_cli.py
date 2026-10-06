@@ -466,14 +466,23 @@ def without_deny_list(argv: list[str]) -> list[str]:
     return argv[:i] + argv[i + 2 :]
 
 
+def is_json(line: str) -> bool:
+    try:
+        json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
 def allowlist_run(flag: str, value: str, env: dict[str, str]) -> dict[str, object]:
     argv = [*without_deny_list(design_argv(compact(SCHEMA), HAIKU)), flag, value]
     with tempfile.TemporaryDirectory() as cwd:
         proc = subprocess.run(argv, input=FLAGS_PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
-    try:
-        events = parse_events(proc.stdout)
-    except json.JSONDecodeError:
-        events = []
+    # 読めない行を「init 無し」と記録すると、パーサの失敗が「許可リストの手段が無い」という実測にすり替わる。
+    bad = [line for line in proc.stdout.decode(errors="replace").splitlines() if not is_json(line)]
+    if bad:
+        raise SystemExit(f"{flag} {value!r}: 標準出力に JSON でない行が {len(bad)} 行ある。先頭: {bad[0][:120]!r}")
+    events = parse_events(proc.stdout)
     inits = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
     results = [e for e in events if e.get("type") == "result"]
     structured = results[-1].get("structured_output") if results else None

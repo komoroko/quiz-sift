@@ -18,7 +18,7 @@ NFR-8 のフラグの実測の第1段(T-054 / C-023・C-024)。製品の argv �
 
 ```yaml
 collector: tests/measurements/collect_claude_cli.py
-collected_at: '2026-10-06T17:08:47+09:00'
+collected_at: '2026-10-06T17:22:07+09:00'
 claude_version: 2.1.290 (Claude Code)
 model: claude-haiku-4-5
 home: /home/koich/.quiz-sift-claude-home
@@ -83,7 +83,7 @@ allowlist_runs:
   structured_output:
     answer: 5
   structured_output_returned: true
-  stdout_sha256: 79eb63945d9b981f9c07b76b62f48173ffa241014e2297ed667ec3807f145ad4
+  stdout_sha256: 1daa51d8479a66834fe3eafcd6cf1972504bb2c6edc996bba16328e796e2f9df
 - flag: --tools
   value: StructuredOutput
   argv:
@@ -117,7 +117,7 @@ allowlist_runs:
   structured_output:
     answer: 5
   structured_output_returned: true
-  stdout_sha256: ab66101f4019bbed2d937e04f2820ee8c23b0ac8bed4a1ef3e9c8d15d2d08e0a
+  stdout_sha256: 2d3a9db04e2ddec3e573795907319cdf8dcfce4be7c03ee3e4d5bd18d7b373f4
 ```
 
 ## 結論
