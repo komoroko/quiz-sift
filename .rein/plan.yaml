@@ -534,6 +534,7 @@ tasks:
     - src/quiz_sift/pipeline/overhead.py
     - tests/acceptance/test_cli_hardening.py
     - tests/adapters/test_claude_contract.py
+    - tests/adapters/test_claude_failure.py
     - tests/adapters/test_llm_claude_cli.py
     - tests/fixtures/claude_cli/
     - tests/measurements/collect_claude_cli.py
