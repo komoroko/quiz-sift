@@ -1,22 +1,20 @@
 """含意判定器(C-013 / NFR-1 / ADR-009)。
 
-LLM の応答は**手書きフィクスチャ**で固定する(D-043)。判定は `AnthropicLlm` に偽のクライアントを
-差して通すので、応答 JSON のパースから集約・書き出しの抑止までが実物の経路になる。
+LLM の応答は**手書きフィクスチャ**で固定する(D-043)。fake の判定器は手書きの判定語を共有の契約
+(`llm_contract.parse_entailment`)で読むので、判定語のパースから集約・書き出しの抑止までが実物の経路になる。
 測っているのは判定器のロジックであって、モデルの判定能力ではない。
 """
 
-import json
 import logging
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
-from quiz_sift.adapters.llm_anthropic import AnthropicLlm
-from quiz_sift.ports.llm import Entailment, LlmCallError, TokenUsage
+from quiz_sift.adapters.llm_contract import parse_entailment
+from quiz_sift.ports.llm import Entailment, LlmCallError
 from quiz_sift.safety.entailment import (
     Claim,
     EntailmentRejected,
@@ -59,42 +57,19 @@ FIXTURE_VERDICTS = {
 """手書きフィクスチャ: statement ごとに LLM が返した体の verdict。"""
 
 
-class Recorder:
-    def record(self, model: str, usage: TokenUsage) -> None:
-        pass
-
-    def begin_call(self, method: str) -> None:
-        pass
-
-
-class FixtureClient:
-    """`messages.create` の要求から statement を読み、手書きの verdict を JSON 応答として返す。"""
+class FixtureChecker:
+    """`EntailmentChecker` の fake。statement ごとの手書きの verdict を、応答の JSON として共有の契約で読む。"""
 
     def __init__(self, verdicts: dict[str, str | Exception]) -> None:
         self.verdicts = verdicts
         self.asked: list[str] = []
-        self.messages = self
 
-    def create(self, **request: Any) -> object:
-        statement = json.loads(request["messages"][0]["content"])["statement"]
+    def check_entailment(self, reference: str, statement: str) -> Entailment:
         self.asked.append(statement)
         verdict = self.verdicts[statement]
         if isinstance(verdict, Exception):
             raise verdict
-        return SimpleNamespace(
-            stop_reason="end_turn",
-            content=[SimpleNamespace(type="text", text=json.dumps({"verdict": verdict}))],
-            usage=SimpleNamespace(
-                input_tokens=1, cache_creation_input_tokens=0, cache_read_input_tokens=0, output_tokens=1
-            ),
-        )
-
-
-def make_llm(verdicts: dict[str, str | Exception]) -> tuple[AnthropicLlm, FixtureClient]:
-    client = FixtureClient(verdicts)
-    llm = AnthropicLlm(cast(Any, Recorder()))
-    llm.client = cast(Any, client)
-    return llm, client
+        return parse_entailment({"verdict": verdict})
 
 
 class Emitter:
@@ -115,7 +90,7 @@ def claims(*statements: str) -> list[Claim]:
 
 
 def test_three_verdicts_and_fail_closed(tmp_path: Path) -> None:
-    llm, _ = make_llm({"良": "consistent", "悪": "contradicted", "謎": "uncertain", "壊": LlmCallError("refusal")})
+    llm = FixtureChecker({"良": "consistent", "悪": "contradicted", "謎": "uncertain", "壊": LlmCallError("refusal")})
 
     # 3値がそのまま区別されて返る。uncertain は consistent に倒れない。
     assert judge(llm, claims("良", "良")) is Entailment.CONSISTENT
@@ -168,7 +143,7 @@ emit_if_consistent(Checker(), [Claim("r", "s")], lambda: Path({str(artifact)!r})
 
 
 def test_no_false_positive_on_paraphrase(tmp_path: Path) -> None:
-    llm, client = make_llm(dict(FIXTURE_VERDICTS))
+    llm = FixtureChecker(dict(FIXTURE_VERDICTS))
 
     # 言い換えは字面が正解とほとんど重ならないが、1件も矛盾扱いにならない。
     false_positives = [p for p in PARAPHRASES if judge(llm, claims(p)) is not Entailment.CONSISTENT]
@@ -184,18 +159,18 @@ def test_no_false_positive_on_paraphrase(tmp_path: Path) -> None:
     assert rejected.value.verdict is Entailment.CONTRADICTED
     assert planted.calls == 0
     # 判定は全件 LLM に問い合わせている(字面で先に弾いていない)。
-    assert PLANTED_CONTRADICTION in client.asked
+    assert PLANTED_CONTRADICTION in llm.asked
 
 
 def test_mutation_detection_rate_is_recorded(caplog: pytest.LogCaptureFixture, record_property: Any) -> None:
-    llm, client = make_llm(dict(FIXTURE_VERDICTS))
+    llm = FixtureChecker(dict(FIXTURE_VERDICTS))
     mutants = claims(*(statement for _, statement, _ in MUTANTS))
 
     with caplog.at_level(logging.INFO, logger="quiz_sift.safety.entailment"):
         report = measure_mutations(llm, mutants)
 
     # 全ミューテーションを1件ずつ判定している。
-    assert client.asked == [m.statement for m in mutants]
+    assert llm.asked == [m.statement for m in mutants]
     assert (report.total, report.contradicted, report.uncertain) == (6, 4, 1)
     assert report.detection_rate == pytest.approx(4 / 6)
 

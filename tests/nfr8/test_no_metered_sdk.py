@@ -1,10 +1,11 @@
 """既定構成の実行が SDK(`anthropic`)を読み込まない(NFR-8 (a)、C-020 A-1 / A-2)。
 
-`sys.modules` はプロセス全域なので、判定は新規インタプリタ(サブプロセス)で行う(AR-50)。同じプロセスには
-テストコードから SDK アダプタを直接構築するテストがあり、同居させると順序次第で赤になる。
+`sys.modules` はプロセス全域なので、判定は新規インタプリタ(サブプロセス)で行う(AR-50)。同じプロセスの
+ほかのテストが何を読み込んだかに判定を左右させない。
 
 `anthropic` の import 可能性は `sys.path` の先頭に置いたスタブパッケージで満たす(AR-49)。判定に要るのは
-「読み込まれたか」だけで、スタブは `messages.create` に形の合う応答を返す。`claude` は PATH に置いた fake の
+「読み込まれたか」だけ。
+陰性対照は、anthropic を import する合成のアダプタを既定の選択点へ差し込む(C-027)。`claude` は PATH に置いた fake の
 実行ファイル、最小ホームはテストが作った tmp の `HOME` の下に T-029 の実測形で置く。
 """
 
@@ -17,7 +18,8 @@ from typing import Any
 
 from support.claude_fake import EXECUTABLE_DIR
 
-SRC = Path(__file__).resolve().parents[2] / "src"
+REPO = Path(__file__).resolve().parents[2]
+SRC = REPO / "src"
 DECK = "synthetic"
 
 METERED_ENV = (
@@ -37,46 +39,28 @@ METERED_ENV = (
 )
 """NFR-8 が列挙した 13 個の metered 認証変数(要件から書き写す。製品の定数は読まない)。"""
 
-STUB_SDK = '''"""テスト用の anthropic スタブ。`messages.create` はスキーマに形の合う応答を返す。"""
-
-import json
-from types import SimpleNamespace
-
-types = SimpleNamespace(Message=object)
-
-
-class APIError(Exception):
-    pass
-
-
-def _filled(schema, payload):
-    if "groups" in schema.get("properties", {}):
-        keys = [question["key"] for question in payload["questions"]]
-        return {"groups": [{"label": "合成グループ", "question_ids": keys}], "unassigned": []}
-    if schema.get("type") == "object":
-        return {key: _filled(value, payload) for key, value in schema["properties"].items()}
-    if schema.get("type") == "array":
-        return [_filled(schema["items"], payload)]
-    return schema["enum"][0] if "enum" in schema else "合成の応答"
-
-
-class _Messages:
-    def create(self, **request):
-        payload = json.loads(request["messages"][0]["content"])
-        output = _filled(request["output_config"]["format"]["schema"], payload)
-        return SimpleNamespace(
-            stop_reason="end_turn",
-            content=[SimpleNamespace(type="text", text=json.dumps(output, ensure_ascii=False))],
-            usage=SimpleNamespace(
-                input_tokens=1, cache_creation_input_tokens=0, cache_read_input_tokens=0, output_tokens=1
-            ),
-        )
+STUB_SDK = '''"""テスト用の anthropic スタブ。判定に要るのは「読み込まれたか」だけ。"""
 
 
 class Anthropic:
-    def __init__(self):
-        self.messages = _Messages()
+    pass
 '''
+
+SDK_ADAPTER_MODULE = "synthetic_sdk_adapter"
+
+SDK_ADAPTER = '''"""anthropic を import する合成の LLM アダプタ(陰性対照)。呼び出しは `ClaudeCliLlm` に任せる。"""
+
+import anthropic
+
+from quiz_sift.adapters.llm_claude_cli import ClaudeCliLlm
+
+
+class SdkImportingLlm(ClaudeCliLlm):
+    def __init__(self, meter):
+        super().__init__(meter)
+        self.sdk_client = anthropic.Anthropic()
+'''
+"""消えた SDK アダプタに代わる陰性対照。製品の外(テストが作る tmp)に置き、既定の選択点へ差し込む。"""
 
 DRIVER = '''"""新規インタプリタで既定構成のクラスタリング段を1回走らせ、判定に要る事実を JSON で書く。"""
 
@@ -95,14 +79,15 @@ import quiz_sift
 from quiz_sift import composition
 
 if variant == "sdk":
-    # 選択点を SDK アダプタへ差し替えた版(negative control)。composition.py の本文を書き換えて読み込む。
+    # 選択点を anthropic を import する合成のアダプタへ差し替えた版(negative control)。
+    # composition.py の本文を書き換えて読み込む。
     source = Path(composition.__file__).read_text(encoding="utf-8")
     for old, new in (
         (
             "from quiz_sift.adapters.llm_claude_cli import ClaudeCliLlm",
-            "from quiz_sift.adapters.llm_anthropic import AnthropicLlm",
+            "from synthetic_sdk_adapter import SdkImportingLlm",
         ),
-        ("return ClaudeCliLlm(meter)", "return AnthropicLlm(meter)"),
+        ("return ClaudeCliLlm(meter)", "return SdkImportingLlm(meter)"),
     ):
         assert source.count(old) == 1, old
         source = source.replace(old, new)
@@ -187,6 +172,7 @@ def run_default(tmp_path: Path, variant: str) -> tuple[dict[str, Any], list[dict
     (stub_dir / "anthropic").mkdir(parents=True)
     stub = stub_dir / "anthropic" / "__init__.py"
     stub.write_text(STUB_SDK, encoding="utf-8")
+    (stub_dir / f"{SDK_ADAPTER_MODULE}.py").write_text(SDK_ADAPTER, encoding="utf-8")
     driver = tmp_path / "driver.py"
     driver.write_text(DRIVER, encoding="utf-8")
     home = tmp_path / "home"
@@ -231,14 +217,33 @@ def test_default_run_never_loads_the_sdk(tmp_path: Path) -> None:
     assert report["anthropic_loaded"] is False
 
 
-def test_swapping_in_the_sdk_adapter_goes_red(tmp_path: Path) -> None:
+def test_swapping_in_an_sdk_importing_adapter_goes_red(tmp_path: Path) -> None:
     report, (start, end) = run_default(tmp_path, "sdk")
     assert report["importable"] is True
     assert report["loaded_at_start"] is False
-    # 差し替え版でもパイプラインは SDK アダプタを実際に使った(import だけで赤になったのではない)。
-    assert report["built"] == ["AnthropicLlm"]
+    # 差し替え版でもパイプラインは合成のアダプタを実際に使った(差し替えに失敗して赤になったのではない)。
+    assert report["built"] == ["SdkImportingLlm"]
     assert report["exit_code"] == 0
     assert (start["record"], end["record"]) == ("start", "end")
     assert end["llm_calls"] >= 1
     # 同じ判定が赤になる。
     assert report["anthropic_loaded"] is True
+
+
+def test_c027_anthropic_adapter_is_gone() -> None:
+    """SDK アダプタのファイルが無く、src と tests のどこからも参照されない(C-027)。名前はここで組み立てる。"""
+    module, cls = "llm_" + "anthropic", "Anthropic" + "Llm"
+    assert not (SRC / "quiz_sift" / "adapters" / f"{module}.py").exists()
+
+    def hits(name: str) -> list[str]:
+        return [
+            path.relative_to(REPO).as_posix()
+            for root in (SRC, REPO / "tests")
+            for path in sorted(root.rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts and name.encode() in path.read_bytes()
+        ]
+
+    assert hits(module) == [] and hits(cls) == []
+    # 走査が空振りしていない: 既定のアダプタの名前は src と tests の両方で見つかる。
+    found = hits("llm_" + "claude_cli")
+    assert any(p.startswith("src/") for p in found) and any(p.startswith("tests/") for p in found)

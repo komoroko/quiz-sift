@@ -11,6 +11,8 @@ import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src"
 PACKAGE = SRC / "quiz_sift"
@@ -31,9 +33,6 @@ METERED = frozenset(
     }
 )
 """metered API へ HTTP を発行しうる第三者パッケージ(従量課金の SDK と、その下で使われる HTTP クライアント)。"""
-
-METERED_PRODUCT_MODULES = frozenset({"quiz_sift.adapters.llm_anthropic"})
-"""metered API を呼ぶ製品側のモジュール。"""
 
 
 def module_path(name: str) -> Path | None:
@@ -127,23 +126,27 @@ def test_no_entry_point_reaches_a_metered_client() -> None:
 
     modules, external = reachable(entries)
     assert "quiz_sift.composition" in modules and "quiz_sift.adapters.llm_claude_cli" in modules
-    assert modules & METERED_PRODUCT_MODULES == set()
     assert external & METERED == set(), sorted(external)
 
-    cli = PACKAGE / "cli.py"
-    assert not any(target.endswith("llm_anthropic") for target in imported("quiz_sift.cli", cli))
 
+def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """判定が赤くなり得ること: 入口から辿った先の製品モジュールが関数の中で `anthropic` を遅延 import すると、
+    推移的な到達として外部パッケージに入る(cli → アダプタ → SDK の形)。
+    """
+    adapter_name = "quiz_sift.adapters.synthetic_sdk_adapter"
+    sdk_cli = tmp_path / "cli.py"
+    sdk_cli.write_text("from quiz_sift.adapters import synthetic_sdk_adapter\n", encoding="utf-8")
+    adapter = tmp_path / "synthetic_sdk_adapter.py"
+    adapter.write_text("def build():\n    import anthropic\n\n    return anthropic\n", encoding="utf-8")
+    synthetic = {"quiz_sift.cli": sdk_cli, adapter_name: adapter}
+    real = module_path
+    monkeypatch.setattr(sys.modules[__name__], "module_path", lambda name: synthetic.get(name) or real(name))
 
-def test_reachability_sees_the_sdk_when_it_is_imported(tmp_path: Path) -> None:
-    """判定が赤くなり得ること: 切り替え前の cli の import 文からは、SDK アダプタと `anthropic` に到達する。"""
-    old_cli = tmp_path / "cli.py"
-    old_cli.write_text("from quiz_sift.adapters import llm_anthropic, llm_prompts\n", encoding="utf-8")
-    targets = imported("quiz_sift.cli", old_cli)
-    assert "quiz_sift.adapters.llm_anthropic" in targets
-
-    modules, external = reachable(targets)
-    assert "quiz_sift.adapters.llm_anthropic" in modules
-    assert "anthropic" in external
+    # 入口の cli 自身は外部パッケージを import しない: SDK は2段目でだけ現れる。
+    assert not any(target.split(".")[0] != "quiz_sift" for target in imported("quiz_sift.cli", sdk_cli))
+    modules, external = reachable({"quiz_sift.cli"})
+    assert {"quiz_sift.cli", adapter_name} <= modules
+    assert "anthropic" in external & METERED
 
 
 def main_calls(path: Path) -> list[ast.Call]:

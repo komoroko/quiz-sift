@@ -124,7 +124,6 @@ def test_shared_modules_do_not_import_the_sdk() -> None:
     for name in ("llm_prompts.py", "llm_contract.py"):
         assert "anthropic" not in imported_roots((ADAPTERS / name).read_text(encoding="utf-8")), name
     # 検査器が空振りしていないこと。
-    assert "anthropic" in imported_roots((ADAPTERS / "llm_anthropic.py").read_text(encoding="utf-8"))
     assert "anthropic" in imported_roots("import anthropic.types as t\n")
 
 
