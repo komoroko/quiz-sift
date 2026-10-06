@@ -27,6 +27,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -354,9 +355,9 @@ cluster 段の分類は全問を1度に見るので問題数に比例しない�
 
 | 項目 | リハーサル | {TARGET_QUESTIONS} 問への外挿 |
 |---|---|---|
-| 呼び出し数 | {usage["calls"]} | {_fmt(usage["calls_190"])} |
-| プロバイダ呼び出し数 | {usage["invocations"]} | {_fmt(usage["invocations_190"])} |
-| トークン数 | {usage["tokens"]} | {_fmt(usage["tokens_190"])} |
+| 呼び出し数 | {usage["calls"]} | {usage["calls_190"]:.2f} |
+| プロバイダ呼び出し数 | {usage["invocations"]} | {usage["invocations_190"]:.2f} |
+| トークン数 | {usage["tokens"]} | {usage["tokens_190"]:.2f} |
 
 ## レート枠
 
@@ -442,12 +443,13 @@ def _table(body: str) -> dict[str, list[str]]:
 
 
 def _number(value: str) -> float:
-    assert re.fullmatch(r"-?\d+(\.\d+)?(e-?\d+)?", value), f"数値でない: {value!r}"
+    assert re.fullmatch(r"-?\d+(\.\d+)?(e[+-]?\d+)?", value), f"数値でない: {value!r}"
     return float(value)
 
 
 def _close(recorded: str, expected: float) -> bool:
-    return abs(_number(recorded) - expected) <= 1e-5 * max(1.0, abs(expected))
+    """記録は有効数字6桁で書くので相対誤差で比べる。枠の比は 1e-8 の桁なので絶対誤差では比べられない。"""
+    return math.isclose(_number(recorded), expected, rel_tol=1e-5)
 
 
 def executions_of(text: str) -> list[dict[str, Any]]:
