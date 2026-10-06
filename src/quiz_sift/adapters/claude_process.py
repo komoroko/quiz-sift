@@ -82,26 +82,28 @@ class SubprocessRunner:
             signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             stdout, stderr = proc.communicate(spec.stdin.encode(), timeout=spec.timeout_sec)
         except subprocess.TimeoutExpired as expired:
+            # 後始末の最初の操作として、Python の関数を挟まずに killpg する(下の節の注記と同じ理由)。
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # グループの全員がもう終わっている。止める相手がいないだけ
             stdout, stderr = _stop_group(proc, expired)
             return CommandResult(Outcome.TIMEOUT, None, stdout, stderr)
         except BaseException:
             # signal.alarm や親の SIGHUP/SIGTERM のハンドラが送出する SystemExit の派生などは、子のグループを
-            # 残さずにそのまま通す(AR-149、D-221)。
-            _kill_group(proc)
+            # 残さずにそのまま通す(AR-149、D-221)。後始末に入った直後に次のシグナルが届くと、そのハンドラは
+            # 次に呼ばれる Python の関数の入口で走り、例外が差し替わって後始末が飛ぶ。そのため最初の操作は
+            # 組み込み関数の os.killpg を直接呼ぶ(組み込み関数は、保留中のハンドラを呼び出しの後でしか走らせない)。
+            # SIGTERM は挟まない(D-209)。子は wait されるまでゾンビとして残るので、グループ ID(= 子の pid)が
+            # 他へ再利用されることはない。
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # グループの全員がもう終わっている。止める相手がいないだけ
             _close_pipes(proc)
             proc.wait()
             raise
         return CommandResult(Outcome.EXITED, proc.returncode, stdout, stderr)
-
-
-def _kill_group(proc: subprocess.Popen[bytes]) -> None:
-    """子のプロセスグループへ SIGTERM を挟まずに SIGKILL を送る(D-209)。
-
-    子は `wait()` されるまでゾンビとして残るので、グループ ID(= 子の pid)が他へ再利用されることはない。
-    グループの全員がすでに終わっていれば `ProcessLookupError` になる。止める相手がいないだけなので無視する。
-    """
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
@@ -111,13 +113,12 @@ def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
 
 
 def _stop_group(proc: subprocess.Popen[bytes], expired: subprocess.TimeoutExpired) -> tuple[bytes, bytes]:
-    """タイムアウトした子のグループを止め、それまでの出力を返す。
+    """SIGKILL を送ったタイムアウトした子のグループの終わりを待ち、それまでの出力を返す。
 
     `communicate` は読んだ分を内部に溜めていて、続けて呼ぶとそこから先を読み足した全体を返す。
     新しいセッションに抜けた孫が pipe を持ち続けると `KILL_GRACE_SEC` でも終端が来ないので、そのときは
     溜まっていた分だけを持って自分で pipe を閉じる(孫の終了は待たない)。
     """
-    _kill_group(proc)
     try:
         return proc.communicate(timeout=KILL_GRACE_SEC)
     except subprocess.TimeoutExpired as late:
