@@ -19,6 +19,8 @@ COLLECTOR = "tests/measurements/collect_claude_cli.py"
 ALLOWLIST_FLAGS = ("--tools",)
 ALLOWLIST_VALUES = ("", "StructuredOutput")
 AUTO_APPROVE_FLAGS = ("--allowedTools", "--allowed-tools")
+# ユーザ設定を読まない指定(設計 NFR-8)。
+SETTINGS_BLOCK_FLAG = "--setting-sources"
 
 SETTINGS_LINE = re.compile(r"ユーザ設定の遮断: (?:あり\((--[\w-]+)\)|なし)")
 ALLOWLIST_LINE = re.compile(r"許可リスト: (?:一致あり\((--[\w-]+) (\"[^\"]*\")\)|一致なし)")
@@ -94,9 +96,11 @@ def test_flags_record_states_the_chosen_flags() -> None:
     assert settings, lines[0]
     assert allowlist, lines[1]
 
-    # 遮断ありと書くなら、そのフラグは --help に現れた設定のフラグであること。
-    if settings.group(1):
-        assert settings.group(1) in record["settings_flags"]
+    # 遮断のフラグが --help に現れていれば「あり(そのフラグ)」、現れていなければ「なし」。
+    if SETTINGS_BLOCK_FLAG in record["settings_flags"]:
+        assert settings.group(1) == SETTINGS_BLOCK_FLAG, lines[0]
+    else:
+        assert settings.group(1) is None, lines[0]
 
     # 一致ありは、拒否リストを外した argv で init.tools が {StructuredOutput} と一致し構造化出力が返った候補。
     matching = [
