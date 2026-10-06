@@ -1,9 +1,9 @@
-"""`claude` の子プロセス1本の逐語ログ(NFR-2、NFR-3、NFR-8 (h)、ADR-018)。
+"""`claude` の子プロセス1本の記録(NFR-2、NFR-3、NFR-8 (h)、ADR-018、ADR-024)。
 
 全文を後からマスクする実装にしない(AR-42)。`InvocationRecord` が項目を別々のフィールドとして持ち、
-ログはそのレンダリングとして作る。stdin(教材本文を含むプロンプト)は sha256 と長さだけを持ち、
-本文はどのフィールドにも入らない。stdout / stderr は構築時に教材本文(`MaterialTextFilter`)と
-認証情報(`mask_secrets`)を伏せた文字列として持つ。
+ログはそのレンダリングとして作る。stdin(教材本文を含むプロンプト)は sha256 と長さだけを持つ。
+子の stdout / stderr の本文はどのフィールドにも入れない(ADR-024): マスクは登録した文字列全体しか伏せず、
+教材の断片を取りこぼす。診断は構造化項目と合成の入力での再現で行う(D-214)。
 """
 
 import hashlib
@@ -37,8 +37,8 @@ class InvocationRecord:
     stdin_sha256: str
     stdin_len: int
     """stdin の UTF-8 バイト数(`stdin_sha256` と同じバイト列の長さ)。"""
-    stdout_masked: str
-    stderr_masked: str
+    init_tools: tuple[str, ...] | None
+    """`init` イベントの `tools`。`init` が無いか文字列の配列でなければ `None`。"""
 
     def render(self) -> str:
         """ログ1行ぶんの JSON。フィールドをそのまま項目として出す。"""
@@ -60,11 +60,10 @@ def record_invocation(
     rate_limit_event_count: int,
     overage_seen: bool,
     stdin: str,
-    stdout: bytes,
-    stderr: bytes,
+    init_tools: tuple[str, ...] | None,
     material: MaterialTextFilter,
 ) -> InvocationRecord:
-    """stdin をダイジェストと長さに、stdout / stderr を伏せた文字列にして記録を作る。"""
+    """stdin をダイジェストと長さにして記録を作る。argv と `init_tools` は教材本文と認証情報を伏せて写す。"""
     stdin_bytes = stdin.encode("utf-8")
     return InvocationRecord(
         argv=tuple(_mask(arg, material) for arg in argv),
@@ -79,19 +78,13 @@ def record_invocation(
         overage_seen=overage_seen,
         stdin_sha256=hashlib.sha256(stdin_bytes).hexdigest(),
         stdin_len=len(stdin_bytes),
-        stdout_masked=_mask(_decode(stdout), material),
-        stderr_masked=_mask(_decode(stderr), material),
+        init_tools=None if init_tools is None else tuple(_mask(tool, material) for tool in init_tools),
     )
 
 
 def log_invocation(record: InvocationRecord) -> None:
-    """記録をログへ出す。子プロセスの出力がログへ届く経路はこれだけにする。"""
+    """記録をログへ出す。子プロセスの記録がログへ届く経路はこれだけにする。"""
     logger.info("claude invocation %s", record.render())
-
-
-def _decode(data: bytes) -> str:
-    # 記録は子の出力をそのまま写すものなので、UTF-8 でないバイトも落とさずエスケープして残す。
-    return data.decode("utf-8", errors="backslashreplace")
 
 
 def _mask(text: str, material: MaterialTextFilter) -> str:

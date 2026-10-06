@@ -40,6 +40,7 @@ from typing import Any, BinaryIO
 from quiz_sift import __version__, composition
 from quiz_sift.adapters import claude_process, llm_prompts
 from quiz_sift.adapters.llm_claude_cli import MAX_TURNS
+from quiz_sift.adapters.llm_contract import ContractError
 from quiz_sift.audio.synthesize import synthesize_tracks
 from quiz_sift.cluster.run import Clustering, cluster_deck
 from quiz_sift.decks.registry import deck_data_dir, deck_out_dir, manifest_path
@@ -448,7 +449,7 @@ class Pipeline:
                 drafts[qid] = llm.generate_recall(questions[qid], deck.language)
             except LlmCallError as error:
                 failures += 1
-                logger.warning("recall: 問題 %s の呼び出しが失敗: %s", qid.local_id, error)
+                logger.warning("recall: 問題 %s の呼び出しが失敗: %s", qid.local_id, _failure_kind(error))
         issued = len(drafts) + failures
         logger.info("recall summary: questions=%d issued=%d failure_count=%d", len(order), issued, failures)
         if failures:
@@ -585,6 +586,19 @@ def _exit_code(error: BaseException) -> int:
     if error.code is None:
         return 0
     return error.code if isinstance(error.code, int) else 1
+
+
+def _failure_kind(error: LlmCallError) -> str:
+    """ログに出す失敗の種別。例外文は子の出力から作った値を含みうるので出さない(NFR-2、ADR-024)。
+
+    既定の `Llm` は種別を持つ `ContractError` を送出する。種別を持たない実装の例外は型名で表す。
+    """
+    return error.kind.value if isinstance(error, ContractError) else type(error).__name__
+
+
+def _log_level() -> int:
+    """`main` の間 root logger に設定するレベル。テストは差し替えて DEBUG のレコードも集める(AR-D6)。"""
+    return logging.INFO
 
 
 def _masked_excepthook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
@@ -746,7 +760,7 @@ def main(
     root_logger = logging.getLogger()
     level = root_logger.level
     root_logger.addHandler(handler)
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(_log_level())
     try:
         _run(args, handler, llm_factory, tts_factory, preflight)
     finally:

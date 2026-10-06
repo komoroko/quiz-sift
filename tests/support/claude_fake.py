@@ -34,8 +34,16 @@ PAYLOAD_KEYS = frozenset({"structured_output", "input"})
 SCAN_EXCLUDED_DIRS = frozenset({"support", "measurements"})
 """走査から外す `tests/` 直下のディレクトリ(ファクトリ自身と、実物の採取経路)。"""
 
+SENTINEL = "ZqxJ番兵Wv8k教材Pp3r"
+"""子の本文に混ぜる番兵(C-014)。ログ・例外文・stderr に、これもその断片(`sentinel_fragments`)も現れてはならない。"""
+
 _KEEP: Any = object()
 """骨格の値をそのまま使う印。"""
+
+
+def sentinel_fragments(width: int = 4) -> list[str]:
+    """番兵の断片: 幅 `width` の部分文字列すべて。ASCII だけの断片を含むので、`\\u` エスケープされた形も拾う。"""
+    return [SENTINEL[i : i + width] for i in range(len(SENTINEL) - width + 1)]
 
 
 def success_events() -> list[dict[str, Any]]:
@@ -230,9 +238,32 @@ def _filled(schema: Mapping[str, Any]) -> Any:
             return schema["enum"][0] if "enum" in schema else "合成の応答"
 
 
+SENTINEL_MODE_FILE = "sentinel-mode"
+"""子の HOME(最小ホーム)にこの名前のファイルがあれば、fake の `claude` は番兵の本文を返す(`sentinel_answer`)。
+
+子へ渡る環境は HOME / PATH / LANG / TZ だけなので、切り替えは HOME の下のファイルで伝える。
+"""
+
+
 def main() -> None:
-    """PATH に置く fake の `claude` の入口(`EXECUTABLE_DIR/claude`)。stdin を読み、`answer` を stdout へ書く。"""
-    sys.stdout.buffer.write(answer(sys.argv, sys.stdin.read()))
+    """PATH に置く fake の `claude` の入口(`EXECUTABLE_DIR/claude`)。stdin を読み、応答を stdout へ書く。"""
+    if (Path.home() / SENTINEL_MODE_FILE).exists():
+        sentinel_answer()
+    else:
+        sys.stdout.buffer.write(answer(sys.argv, sys.stdin.read()))
+
+
+def sentinel_answer() -> None:
+    """番兵の本文を返す。含意判定には番兵を判定語として返し(未知の判定語)、それ以外は `answer` で応答する。
+    stderr にはどの呼び出しでも番兵を書く。
+    """
+    argv, stdin = sys.argv, sys.stdin.read()
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    if "verdict" in schema["properties"]:
+        sys.stdout.buffer.write(fake_stdout(structured_output={"verdict": SENTINEL}))
+    else:
+        sys.stdout.buffer.write(answer(argv, stdin))
+    sys.stderr.write(f"{SENTINEL}\n")
 
 
 class FakeRunner:
