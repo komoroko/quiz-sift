@@ -30,7 +30,7 @@ def test_attempts_survive_a_restart(tmp_path: Path, deck: Deck, clock: FakeClock
     right, wrong = deck.questions[0], deck.questions[3]
     quizmaster.present(PRE, right.question_id)
     clock.seconds += 2.5
-    quizmaster.submit(PRE, right.question_id, right.correct_option_id)
+    quizmaster.submit(PRE, right.question_id, right.correct_option_ids[0])
     quizmaster.present(PRE, wrong.question_id)
     clock.seconds += 11.0
     quizmaster.submit(PRE, wrong.question_id, wrong_option(wrong))
@@ -46,6 +46,6 @@ def test_attempts_survive_a_restart(tmp_path: Path, deck: Deck, clock: FakeClock
         env={**os.environ, "PYTHONPATH": str(src)},
     )
     assert json.loads(out.stdout) == [
-        [PRE.local_id, right.question_id.local_id, right.correct_option_id.local_id, True, 2.5],
+        [PRE.local_id, right.question_id.local_id, right.correct_option_ids[0].local_id, True, 2.5],
         [PRE.local_id, wrong.question_id.local_id, wrong_option(wrong).local_id, False, 11.0],
     ]

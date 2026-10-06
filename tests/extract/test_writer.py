@@ -68,7 +68,7 @@ def test_output_passes_ingest_validator(tmp_path: Path) -> None:
     outcomes = validate(read_jsonl(path), DeckId("aws-saa"), None)
     assert all(isinstance(o, IngestOk) for o in outcomes)
     questions = [o.question for o in outcomes if isinstance(o, IngestOk)]
-    assert [q.correct_option_id.local_id for q in questions] == ["B", "D"]
+    assert [[o.local_id for o in q.correct_option_ids] for q in questions] == [["B"], ["D"]]
     assert [q.explanation for q in questions] == ["解説 1", None]
 
     # 壊れた1行を足すと、検証は非0終了する。

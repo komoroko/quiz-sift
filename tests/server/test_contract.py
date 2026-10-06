@@ -1,12 +1,16 @@
 """API 契約(R-12)。A-1: API が学習記録への唯一の書き込み経路。A-5: web/ は LLM SDK を import しない。"""
 
+import json
 import re
 import sqlite3
+import threading
 from pathlib import Path
 
+from quiz_sift.ports.clock import SystemClock
+from quiz_sift.server.handler import make_server
 from quiz_sift.store.location import store_path
 
-from .conftest import DECK, QUESTIONS, SERVER_SRC, WEB_ROOT, Client
+from .conftest import DECK, QUESTIONS, SERVER_SRC, WEB_ROOT, Client, write_root
 
 WEB_SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 BROWSER_STORAGE = re.compile(r"\b(localStorage|sessionStorage|indexedDB|document\.cookie)\b")
@@ -136,3 +140,31 @@ def test_llm_sdk_pattern_catches_imports() -> None:
         assert LLM_SDKS.search(line), line
     assert LLM_PACKAGES.search('"@anthropic-ai/sdk": "1.0.0",')
     assert BROWSER_STORAGE.search("window.localStorage.setItem('a', 'b')")
+
+
+def test_multi_answer_question_is_refused_without_recording(tmp_path: Path) -> None:
+    """正解が複数ある問題は、応答の形(`correct_option_id` が1つ)で答えられないので記録せずに 400。"""
+    root = write_root(tmp_path)
+    row = {
+        "id": "multi",
+        "stem": "架空の問題 multi",
+        "options": [{"id": label, "text": f"選択肢 {label}"} for label in "ABCDE"],
+        "answers": ["A", "C"],
+    }
+    with (root / "data" / DECK / "q.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    srv = make_server(root, port=0, clock=SystemClock())
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = Client(srv.server_port)
+        session = client.json("POST", f"/api/decks/{DECK}/sessions", expect=201)["session_id"]
+        base = f"/api/decks/{DECK}/sessions/{session}"
+        client.json("GET", f"{base}/questions/multi")
+        response, _ = client.request("POST", f"{base}/answers", {"question_id": "multi", "chosen": "A"})
+        assert response.status == 400
+        assert not store_path(root).exists() or _rows(root) == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)

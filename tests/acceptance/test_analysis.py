@@ -49,7 +49,7 @@ def _deck_row(row: Mapping[str, Any], *, explained: bool = True) -> dict[str, An
         "id": row["id"],
         "stem": row["stem"],
         "options": [{"id": label, "text": text} for label, text in zip("ABCD", row["options"], strict=True)],
-        "answer": "ABCD"[row["correct"]],
+        "answers": ["ABCD"[row["correct"]]],
         "explanation": row["explanation"] if explained else None,
     }
 

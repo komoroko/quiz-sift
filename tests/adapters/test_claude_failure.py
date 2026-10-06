@@ -42,7 +42,7 @@ def _question(name: str) -> Question:
         question_id=qid,
         stem=f"合成問題文 {name}",
         options=tuple(Option(OptionId(qid, label), f"合成選択肢 {label}") for label in "ABCD"),
-        correct_option_id=OptionId(qid, "A"),
+        correct_option_ids=(OptionId(qid, "A"),),
         explanation=None,
         studied=StudiedFlag.UNKNOWN,
     )

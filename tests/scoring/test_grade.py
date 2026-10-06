@@ -23,13 +23,13 @@ def _ratio(store: DeckScopedStore, session: SessionId) -> float:
 
 def test_grading_under_nonidentity_shuffle(quizmaster: Quizmaster, deck: Deck, store: DeckScopedStore) -> None:
     by_id = {q.question_id: q for q in deck.questions}
-    for session, answer, expected in ((PRE, lambda q: q.correct_option_id, 1.0), (POST, wrong_option, 0.0)):
+    for session, answer, expected in ((PRE, lambda q: q.correct_option_ids[0], 1.0), (POST, wrong_option, 0.0)):
         presented = _present_all(quizmaster, deck, session)
 
         # フィクスチャ側の前提: 並びが問題ごとに異なり、正解が位置 0 に来ない問題がある。
         patterns = {tuple(o.local_id for o in p.presentation) for p in presented}
         assert len(patterns) > 1, "全問が同じ並びになっている"
-        assert any(p.presentation[0] != by_id[p.question_id].correct_option_id for p in presented)
+        assert any(p.presentation[0] != by_id[p.question_id].correct_option_ids[0] for p in presented)
         for p in presented:
             original = tuple(o.option_id for o in by_id[p.question_id].options)
             assert sorted(p.presentation) == sorted(original)
@@ -43,7 +43,7 @@ def test_grading_under_nonidentity_shuffle(quizmaster: Quizmaster, deck: Deck, s
 def test_grade_rejects_option_of_another_question(deck: Deck) -> None:
     first, second = deck.questions[:2]
     with pytest.raises(ValueError):
-        grade(first, second.correct_option_id)
+        grade(first, second.correct_option_ids[0])
 
 
 def test_grade_compares_ids(deck: Deck) -> None:
@@ -55,8 +55,8 @@ def test_grade_compares_ids(deck: Deck) -> None:
 def test_submit_requires_a_presentation(quizmaster: Quizmaster, deck: Deck) -> None:
     question = deck.questions[0]
     with pytest.raises(ValueError):
-        quizmaster.submit(PRE, question.question_id, question.correct_option_id)
+        quizmaster.submit(PRE, question.question_id, question.correct_option_ids[0])
     quizmaster.present(PRE, question.question_id)
-    quizmaster.submit(PRE, question.question_id, question.correct_option_id)
+    quizmaster.submit(PRE, question.question_id, question.correct_option_ids[0])
     with pytest.raises(ValueError):
-        quizmaster.submit(PRE, question.question_id, question.correct_option_id)
+        quizmaster.submit(PRE, question.question_id, question.correct_option_ids[0])

@@ -4,8 +4,10 @@
 
 1. `DUPLICATE_ID` — 同じ `id` が2件以上ある。**その `id` を持つ全件**を除外する。どれが正しいかは
    入力から決まらず、先勝ちにすると学習記録が入力の並び順で別の問題を指すようになる。
-2. `OPTION_COUNT_NOT_4` — 選択肢が4件でない。
-3. `ANSWER_UNRESOLVED` — `answer` が無いか、どの選択肢の `id` とも一致しない。
+2. `OPTION_COUNT_UNSUPPORTED` — 選択肢の数 M が `OPTION_COUNTS` に無い。
+3. `ANSWER_UNRESOLVED` — `answers` が空・重複・選択肢に無い ID を含む、または正解の数 N が M 以上。
+
+正解は入力の並びに依らず選択肢の並び順に揃える。
 
 既習フラグは `resolve_studied` で 個別 → デッキ既定 → `unknown` の順に解決する。
 """
@@ -14,7 +16,7 @@ from collections import Counter
 from collections.abc import Sequence
 
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
-from quiz_sift.domain.question import OPTION_COUNT, Option, Question
+from quiz_sift.domain.question import OPTION_COUNTS, Option, Question
 from quiz_sift.domain.report import IngestOk, IngestOutcome, IngestRejected, IngestReport, RejectionReason
 from quiz_sift.domain.studied import StudiedFlag, resolve_studied
 from quiz_sift.ingest.reader import RawRecord
@@ -44,9 +46,16 @@ def _validate_one(
 ) -> IngestOutcome:
     if duplicated:
         return IngestRejected(record.raw_id, RejectionReason.DUPLICATE_ID)
-    if len(record.options) != OPTION_COUNT:
-        return IngestRejected(record.raw_id, RejectionReason.OPTION_COUNT_NOT_4)
-    if record.answer is None or record.answer not in {option.option_id for option in record.options}:
+    if len(record.options) not in OPTION_COUNTS:
+        return IngestRejected(record.raw_id, RejectionReason.OPTION_COUNT_UNSUPPORTED)
+    option_ids = [option.option_id for option in record.options]
+    answers = set(record.answers)
+    if (
+        not answers
+        or len(answers) != len(record.answers)
+        or not answers <= set(option_ids)
+        or len(answers) >= len(option_ids)
+    ):
         return IngestRejected(record.raw_id, RejectionReason.ANSWER_UNRESOLVED)
 
     question_id = QuestionId(deck_id, record.raw_id)
@@ -55,7 +64,9 @@ def _validate_one(
             question_id=question_id,
             stem=record.stem,
             options=tuple(Option(OptionId(question_id, option.option_id), option.text) for option in record.options),
-            correct_option_id=OptionId(question_id, record.answer),
+            correct_option_ids=tuple(
+                OptionId(question_id, option_id) for option_id in option_ids if option_id in answers
+            ),
             explanation=record.explanation,
             studied=resolve_studied(record.studied, deck_default),
         )

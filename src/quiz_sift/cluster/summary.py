@@ -88,7 +88,7 @@ def ungrounded_terms(summary: str, members: Deck) -> tuple[str, ...]:
 def _reference(members: Deck) -> str:
     lines = []
     for question in members.questions:
-        correct = next(o.text for o in question.options if o.option_id == question.correct_option_id)
+        correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
         line = f"問題: {question.stem} 正解: {correct}"
         if question.explanation is not None:
             line += f" 解説: {question.explanation}"

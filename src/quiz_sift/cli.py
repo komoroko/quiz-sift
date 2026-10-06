@@ -109,7 +109,10 @@ def _models(*methods: str) -> str:
     return ",".join(f"{m}={llm_prompts.MODELS[m]}" for m in (*methods, "check_entailment"))
 
 
-INGEST = Stage("ingest")
+# ingest の digest は入力のバイト列だけで決まり、実装コードは入らない。成果物(deck JSON)の形を変えたら
+# `deck_format` を上げて digest を変える。上げないと旧形式の成果物にキャッシュヒットし、旧形式の入力が
+# 取り込みの検査(`IngestFormatError`)を通らずに素通りする。2 = 正解を `answers` 配列で持つ形(ADR-020)。
+INGEST = Stage("ingest", params={"deck_format": 2})
 CLUSTER = Stage(
     "cluster",
     prompt_template="\n".join((llm_prompts.CLASSIFY_SYSTEM, llm_prompts.SUMMARIZE_SYSTEM, _ENTAILMENT)),
@@ -173,7 +176,7 @@ def _deck_json(deck: Deck) -> dict[str, Any]:
                 "id": q.question_id.local_id,
                 "stem": q.stem,
                 "options": [[o.option_id.local_id, o.text] for o in q.options],
-                "answer": q.correct_option_id.local_id,
+                "answers": [o.local_id for o in q.correct_option_ids],
                 "explanation": q.explanation,
                 "studied": q.studied.value,
             }
@@ -192,7 +195,7 @@ def _deck_from(data: dict[str, Any]) -> Deck:
                 question_id=question_id,
                 stem=row["stem"],
                 options=tuple(Option(OptionId(question_id, oid), text) for oid, text in row["options"]),
-                correct_option_id=OptionId(question_id, row["answer"]),
+                correct_option_ids=tuple(OptionId(question_id, oid) for oid in row["answers"]),
                 explanation=row["explanation"],
                 studied=StudiedFlag(row["studied"]),
             )

@@ -13,7 +13,7 @@ from quiz_sift.domain.question import Question
 class RejectionReason(Enum):
     """問題1件を取り込まなかった理由。"""
 
-    OPTION_COUNT_NOT_4 = "option_count_not_4"
+    OPTION_COUNT_UNSUPPORTED = "option_count_unsupported"
     ANSWER_UNRESOLVED = "answer_unresolved"
     DUPLICATE_ID = "duplicate_id"
 

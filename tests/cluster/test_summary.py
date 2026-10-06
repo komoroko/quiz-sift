@@ -117,7 +117,7 @@ def _deck(language: Language, rows: dict[str, tuple[str, str]]) -> tuple[Deck, G
     for label, (stem, explanation) in rows.items():
         qid = QuestionId(deck_id, label)
         options = tuple(Option(OptionId(qid, x), f"{label} {x}") for x in "ABCD")
-        questions.append(Question(qid, stem, options, options[0].option_id, explanation, StudiedFlag.UNKNOWN))
+        questions.append(Question(qid, stem, options, (options[0].option_id,), explanation, StudiedFlag.UNKNOWN))
     deck = Deck(deck_id, language, None, tuple(questions))
     return deck, {q.question_id.local_id: (q.question_id,) for q in questions}
 

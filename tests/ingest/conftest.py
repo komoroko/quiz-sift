@@ -22,7 +22,7 @@ def question_row(raw_id: str, **overrides: Any) -> dict[str, Any]:
         "id": raw_id,
         "stem": f"問題 {raw_id} の問題文",
         "options": [{"id": label, "text": f"{raw_id} の選択肢 {label}"} for label in "ABCD"],
-        "answer": "B",
+        "answers": ["B"],
     }
     row.update(overrides)
     return {key: value for key, value in row.items() if value is not ...}

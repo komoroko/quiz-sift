@@ -46,7 +46,7 @@ def _row(n: int) -> dict[str, Any]:
         "id": _qid(n),
         "stem": f"合成問題: {word}に対応する値はどれか。",
         "options": [{"id": label, "text": f"値{n:02d}{label}"} for label in "ABCD"],
-        "answer": "A",
+        "answers": ["A"],
         "explanation": f"{word}には値{n:02d}Aが対応する。",
     }
 

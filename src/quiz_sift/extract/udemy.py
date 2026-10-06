@@ -24,7 +24,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from quiz_sift.domain.question import OPTION_COUNT
 from quiz_sift.extract.evidence import AnswerEvidence, SelectorKind
 from quiz_sift.extract.failures import ExtractField, ExtractionFailure, FetchFailure, FetchFailureReason
 from quiz_sift.extract.html_tree import Element, parse_html
@@ -91,8 +90,8 @@ class ExtractedQuestion:
             texts.append(self.explanation)
         if not all(isinstance(text, NonEmptyText) for text in texts):
             raise TypeError("本文は NonEmptyText でなければならない")
-        if len(self.options) != OPTION_COUNT:
-            raise ValueError(f"選択肢は {OPTION_COUNT} 件でなければならない: {len(self.options)} 件")
+        if len(self.options) != len(OPTION_LABELS):
+            raise ValueError(f"選択肢は {len(OPTION_LABELS)} 件でなければならない: {len(self.options)} 件")
         if self.answer_label not in {option.label for option in self.options}:
             raise ValueError("answer_label がこの問題の選択肢に無い")
 
@@ -184,7 +183,7 @@ def _extract_question(block: Element, local_id: str, question_index: int) -> Ext
         return fail(ExtractField.STEM, stems[0] if stems else block)
 
     option_elements = block.find_all(*OPTION)
-    if len(option_elements) != OPTION_COUNT:
+    if len(option_elements) != len(OPTION_LABELS):
         return fail(ExtractField.OPTIONS, block)
     options = []
     for label, element in zip(OPTION_LABELS, option_elements, strict=True):

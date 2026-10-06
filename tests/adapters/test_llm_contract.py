@@ -22,7 +22,7 @@ ADAPTERS = Path(__file__).resolve().parents[2] / "src" / "quiz_sift" / "adapters
 def make_question(n: int) -> Question:
     qid = QuestionId(DeckId("deck"), f"q{n}")
     options = tuple(Option(OptionId(qid, label), f"選択肢{label}") for label in "ABCD")
-    return Question(qid, f"問題{n}", options, options[0].option_id, None, StudiedFlag.UNKNOWN)
+    return Question(qid, f"問題{n}", options, (options[0].option_id,), None, StudiedFlag.UNKNOWN)
 
 
 KEYED = {str(n): make_question(n) for n in range(3)}

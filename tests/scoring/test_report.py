@@ -23,7 +23,7 @@ def _log(deck: Deck, session: SessionId, correct_ids: set[str]) -> list[AttemptR
         AttemptRecord(
             session_id=session,
             question_id=q.question_id,
-            chosen=q.correct_option_id if q.question_id.local_id in correct_ids else wrong_option(q),
+            chosen=q.correct_option_ids[0] if q.question_id.local_id in correct_ids else wrong_option(q),
             correct=q.question_id.local_id in correct_ids,
             elapsed_seconds=4.0,
             answered_at=AT,

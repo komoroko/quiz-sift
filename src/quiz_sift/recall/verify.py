@@ -42,7 +42,7 @@ def question_texts(question: Question) -> list[str]:
 
 def distractors(question: Question) -> tuple[str, ...]:
     """誤答選択肢の本文。"""
-    return tuple(o.text for o in question.options if o.option_id != question.correct_option_id)
+    return tuple(o.text for o in question.options if o.option_id not in question.correct_option_ids)
 
 
 def missing_key_terms(key: RecallKey, question: Question) -> tuple[str, ...]:

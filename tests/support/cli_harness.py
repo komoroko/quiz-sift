@@ -164,7 +164,7 @@ def write_root(root: Path) -> Path:
             "id": qid,
             "stem": stem,
             "options": [{"id": label, "text": text} for label, text in zip("ABCD", texts, strict=True)],
-            "answer": answer,
+            "answers": [answer],
             "explanation": explanation,
         }
         for qid, stem, texts, answer, explanation in ROWS

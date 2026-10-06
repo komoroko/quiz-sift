@@ -36,7 +36,7 @@ def _deck(with_explanations: bool) -> Deck:
                 qid,
                 stem,
                 options,
-                options[1].option_id,
+                (options[1].option_id,),
                 explanation if with_explanations else None,
                 StudiedFlag.UNKNOWN,
             )
