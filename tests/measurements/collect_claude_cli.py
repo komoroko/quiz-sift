@@ -223,7 +223,8 @@ def render_contract(record: dict[str, object], metas: dict[str, dict[str, object
 
 NFR-8 (e)1(C-020)の「有効ツールが実際に許容集合に収まる」ことのホスト実測と、NFR-6(C-018)の契約
 フィクスチャ(AR-43 / AR-63)の採取記録。ゲートは argv の形しか見えないので、ここだけが実 CLI の
-`init.tools` を見る。argv は `--safe-mode` を含む設計 (e) の形(D-130 / D-133)。
+`init.tools` を見る。argv は製品の `build_argv` の最終 argv(`--safe-mode`・ユーザ設定の遮断・空の許可リストを含み、
+拒否リストは無い。D-130 / D-133 / D-208)。
 `tests/measurements/collect_claude_cli.py contract` が書き、
 `tests/measurements/test_claude_cli_logs.py` がフィクスチャ本体と突き合わせて機械判定する。
 
@@ -597,7 +598,9 @@ def hardening(repo: Path, metered: list[str]) -> int:
         "sentinel_runs": sentinel_runs,
     }
     tools_line = (
-        "init.tools: 一致({StructuredOutput})" if init_run["init_tools"] == ["StructuredOutput"] else "init.tools: 不一致"
+        "init.tools: 一致({StructuredOutput})"
+        if init_run["init_tools"] == ["StructuredOutput"]
+        else "init.tools: 不一致"
     )
     negative, positive = sentinel_runs["without_settings_block"], sentinel_runs["final_argv"]
     sentinel_line = (

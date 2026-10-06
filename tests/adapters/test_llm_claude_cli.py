@@ -355,7 +355,7 @@ def test_usage_is_recorded_before_judging_and_no_retry(tmp_path: Path) -> None:
             )
         },
     }
-    fixture_usage = TokenUsage(1144, 0, 0, 128)
+    fixture_usage = TokenUsage(1253, 0, 0, 141)
     for name, (result, kind) in shapes.items():
         meter = RecordingMeter()
         runner = FakeRunner(returning(result))
@@ -403,7 +403,7 @@ def test_every_nfr7_value_reaches_the_meter(tmp_path: Path) -> None:
         (
             "claude-opus-5-5",
             fixture_result["num_turns"],
-            TokenUsage(1144, 0, 0, 128),
+            TokenUsage(1253, 0, 0, 141),
             fixture_result["total_cost_usd"],
             False,
             skills_digest(init["skills"]),

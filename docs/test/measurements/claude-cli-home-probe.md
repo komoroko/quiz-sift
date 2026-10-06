@@ -63,6 +63,8 @@ claude 2.1.282 の実行ファイルに埋め込まれたスキーマ定義を�
 `tests/measurements/collect_claude_cli.py home-probe` である。作業ディレクトリの親は、スクリプトが
 `mkdtemp` の配下に作る専用のディレクトリ(`/tmp` 直下ではない。D-151)で、呼び出しごとにその下へ空の
 作業ディレクトリを作る。`--safe-mode` あり(設計 argv)となし(positive control)で1回ずつ呼んだ。
+2026-10-06(T-060)に製品の `build_argv` の最終 argv で取り直した。positive control は、最終 argv から
+ユーザ設定の遮断(`--setting-sources` とその値)と `--safe-mode` を外した argv である(T-060 A-7)。
 後始末のあとに4つの番兵・最小ホームの `.claude/CLAUDE.md` と `rules/`・親ディレクトリが残っていないことを
 確かめた。元からあったファイルは置き換えていない(あれば採取しない)。
 `tests/measurements/test_claude_cli_home_probe_logs.py` が下の記録を機械判定する。
@@ -71,8 +73,8 @@ claude 2.1.282 の実行ファイルに埋め込まれたスキーマ定義を�
 
 ```yaml
 collector: tests/measurements/collect_claude_cli.py
-collected_at: '2026-09-26T05:49:17+09:00'
-claude_version: 2.1.282 (Claude Code)
+collected_at: '2026-10-06T19:25:20+09:00'
+claude_version: 2.1.290 (Claude Code)
 model: claude-haiku-4-5
 home: /home/koich/.quiz-sift-claude-home
 env_keys:
@@ -82,7 +84,7 @@ env_keys:
 - TZ
 metered_vars_checked: 13
 metered_vars_in_parent_env: []
-parent_dir: /tmp/quiz-sift-home-probe-j1dm2kh1/parent
+parent_dir: /tmp/quiz-sift-home-probe-9u31wc1u/parent
 parent_created_by_collector: true
 prompt: 'SYNTHETIC HOME PROBE (quiz-sift T-041). No study material is included. Which
   codewords do you see?
@@ -90,13 +92,13 @@ prompt: 'SYNTHETIC HOME PROBE (quiz-sift T-041). No study material is included. 
   '
 sentinels:
 - location: $HOME/.claude/CLAUDE.md
-  codeword: QSPROBE-540686D9
+  codeword: QSPROBE-FEDB27E5
 - location: $HOME/.claude/rules/probe.md
-  codeword: QSPROBE-DB28DE79
+  codeword: QSPROBE-FD668123
 - location: <parent>/CLAUDE.md
-  codeword: QSPROBE-CB20300B
+  codeword: QSPROBE-9632625C
 - location: <parent>/.claude/CLAUDE.md
-  codeword: QSPROBE-1456DCCE
+  codeword: QSPROBE-B09CA3D4
 runs:
   safe_mode:
     argv:
@@ -119,15 +121,17 @@ runs:
     - --strict-mcp-config
     - --mcp-config
     - '{"mcpServers":{}}'
-    - --settings
-    - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+    - --setting-sources
+    - ''
+    - --tools
+    - ''
     - --permission-mode
     - default
     - --safe-mode
     exit_code: 0
     memory_paths: null
     returned: []
-    stdout_sha256: 9a0d15e571c291191444ecf76c897c5bd6bdbd0b8afac0a5be9b868bb36b61d4
+    stdout_sha256: 15bc4d00215662394658fbf9588be6e6769f3c7ba3ebc3bb355306f4f564a7f8
   without_safe_mode:
     argv:
     - claude
@@ -149,19 +153,19 @@ runs:
     - --strict-mcp-config
     - --mcp-config
     - '{"mcpServers":{}}'
-    - --settings
-    - '{"permissions":{"deny":["Agent","AskUserQuestion","Bash","BashOutput","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterPlanMode","EnterWorktree","ExitPlanMode","ExitWorktree","Glob","Grep","KillShell","LS","LSP","ListAgents","Monitor","MultiEdit","NotebookEdit","NotebookRead","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","Task","TaskCreate","TaskGet","TaskList","TaskOutput","TaskStop","TaskUpdate","TodoWrite","ToolSearch","WebFetch","WebSearch","Write"]}}'
+    - --tools
+    - ''
     - --permission-mode
     - default
     exit_code: 0
     memory_paths:
-      auto: /home/koich/.quiz-sift-claude-home/.claude/projects/-tmp-quiz-sift-home-probe-j1dm2kh1-parent-work-plain/memory/
+      auto: /home/koich/.quiz-sift-claude-home/.claude/projects/-tmp-quiz-sift-home-probe-9u31wc1u-parent-work-plain/memory/
     returned:
-    - QSPROBE-540686D9
-    - QSPROBE-DB28DE79
-    - QSPROBE-CB20300B
-    - QSPROBE-1456DCCE
-    stdout_sha256: 5f5358a9ad5ce16b424b0d18992057651af1569daf30f6a915116b483b523fea
+    - QSPROBE-FEDB27E5
+    - QSPROBE-FD668123
+    - QSPROBE-9632625C
+    - QSPROBE-B09CA3D4
+    stdout_sha256: 7a4333068a81a635305a27cddf293ff86326ed784cb0172073b3fc9c52b6e2fe
 cleanup:
   sentinels_remaining: []
   home_claude_md_exists: false

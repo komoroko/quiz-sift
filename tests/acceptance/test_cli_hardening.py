@@ -57,7 +57,7 @@ def all_argvs(tmp_path: Path) -> list[tuple[str, ...]]:
     q = Question(
         question_id=qid,
         stem="合成問題文",
-        options=tuple(Option(OptionId(qid, label), f"合成選択肢 {label}") for label in "AB"),
+        options=tuple(Option(OptionId(qid, label), f"合成選択肢 {label}") for label in "ABCD"),
         correct_option_ids=(OptionId(qid, "A"),),
         explanation="合成解説",
         studied=StudiedFlag.UNKNOWN,

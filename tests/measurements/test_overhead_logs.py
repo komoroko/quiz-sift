@@ -7,9 +7,13 @@
 - A-2: 最小二乗の切片 c を num_turns で割った値と出所が `pipeline/overhead.py` の定数と一致する。
 - A-3: 3点の回帰残差と、`overhead × turns + material = 入力合計` がどちらも相対誤差 `TOLERANCE` 以内。
   material は記録した既知長 × k からだけ出し、表の `material` 列もそれと一致しなければならない。
+
+T-060 で子 CLI の argv を変えたので、最終 argv で取り直した(C-019)。記録の argv は製品の `build_argv` の出力
+そのもので、定数の `argv_digest` は今の `build_argv` から取ったダイジェストと一致する(古い定数が残らない)。
 """
 
 import dataclasses
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -147,6 +151,25 @@ def test_linearity_and_identity_hold_without_subtraction(model: str) -> None:
     log = load(model)
     check_table(model, log)
     check_linearity_and_identity(log, OVERHEAD[model])
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_c019_overhead_was_measured_with_the_final_argv(model: str) -> None:
+    log = load(model)
+    check_table(model, log)
+    check_constant(model, log, OVERHEAD[model])
+    check_linearity_and_identity(log, OVERHEAD[model])
+    argv = log.record["argv"]
+    system_prompt = argv[argv.index("--system-prompt") + 1]
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    # 記録に残った argv は、製品の `build_argv` が今返す argv そのもの。
+    assert argv == list(build_argv(model, system_prompt, schema))
+
+
+def test_overhead_digest_matches_the_product_argv() -> None:
+    assert set(OVERHEAD) == set(MODELS)
+    for model, constant in OVERHEAD.items():
+        assert constant.argv_digest == current_argv_digest(model), model
 
 
 # --- 判定が赤になるべき入力(判定そのものの negative control) ---
