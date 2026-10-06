@@ -2,13 +2,15 @@
 
 **ホストで**人が走らせる。サンドボックスには `claude` が無く、ゲートはここで書いたファイルを読むだけ:
 
-    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> contract
-    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> home-probe
-    python tests/measurements/collect_claude_cli.py --repo <リポジトリ> flags
+    PYTHONPATH=src uv run python tests/measurements/collect_claude_cli.py --repo <リポジトリ> contract
+    PYTHONPATH=src uv run python tests/measurements/collect_claude_cli.py --repo <リポジトリ> home-probe
+    PYTHONPATH=src uv run python tests/measurements/collect_claude_cli.py --repo <リポジトリ> flags
+    PYTHONPATH=src uv run python tests/measurements/collect_claude_cli.py --repo <リポジトリ> hardening
 
 前提(ADR-014 / ADR-017): 人が最小ホームを用意済みであること(`HOME=~/.quiz-sift-claude-home claude /login`)。
 
-- argv は設計 NFR-8 節の (e) をそのまま組む(`--safe-mode` を含む。D-130 / D-133)。
+- argv は独自に持たず、製品の `build_argv`(`ClaudeCliLlm` と同じ関数)で組む(設計 NFR-8 第2段)。本文の
+  フラグ(`--system-prompt` / `--json-schema`)の値だけが合成のもの。
 - 子プロセスへ渡す環境は `HOME` / `PATH` / `LANG` / `TZ` の4つだけで、`HOME` は最小ホーム。作業ディレクトリは
   呼び出しごとに作る空ディレクトリ。
 - 親環境に metered 認証変数(docs/10-requirements.md が列挙する13個)が1つでもあれば採取しない。記録するのは
@@ -22,16 +24,23 @@
 `docs/test/measurements/claude-cli-contract.md`。
 
 `home-probe`: 4つの場所に実行ごとの乱数の合言葉を置き、`--safe-mode` あり・なしの argv で1回ずつ呼んで、
-見えた合言葉をスキーマで返させる(NFR-8 (e)5。なしの側は positive control)。後始末を確かめ、
+見えた合言葉をスキーマで返させる(NFR-8 (e)5)。positive control は、最終 argv からユーザ設定の遮断と
+`--safe-mode` を外した argv(T-060 A-7)。後始末を確かめ、
 `docs/test/measurements/claude-cli-home-probe.md` の「## 記録」を書き直す。作業ディレクトリの親は
 このスクリプトが作る専用のディレクトリで、`/tmp` 直下には置かない(D-151)。
 
 `flags`: NFR-8 のフラグの実測の第1段(T-054 / C-023・C-024)。`claude --version` と `--help` を採り、`--help` に
 現れるフラグのうちユーザ設定の読み込み元とツールの有効化に関わるものを列挙する。有効ツールの許可リストの
-候補フラグごとに、空の許可リストと `StructuredOutput` を明示したものの2通りで、拒否リスト(`--settings` の
-`permissions.deny`)を外した argv から合成プロンプトを1回ずつ送り、`init.tools` と構造化出力の有無を記録する。
+候補フラグごとに、空の許可リストと `StructuredOutput` を明示したものの2通りで、拒否リストの無い argv(製品の
+argv からユーザ設定の遮断と許可リストを外したもの)に候補を足して合成プロンプトを1回ずつ送り、`init.tools` と
+構造化出力の有無を記録する。
 権限の自動承認のフラグ(`--allowedTools` など)は許可リストの候補に数えない。
 出力は `docs/test/measurements/claude-cli-flags.md`。
+
+`hardening`: NFR-8 のフラグの実測の第2段(T-060 / C-023・C-024)。製品の最終 argv で `init.tools` を採り、
+最小ホームの `.claude/settings.json` に到達できない `ANTHROPIC_BASE_URL` の番兵を一時的に置いて、ユーザ設定の
+遮断を外した argv と最終 argv で1回ずつ直接起動する(中身検査は通さない)。設定は元のバイト列に戻し、sha256 を
+記録する。出力は `docs/test/measurements/claude-cli-hardening.md`。
 """
 
 import argparse
@@ -49,6 +58,8 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+
+from quiz_sift.adapters.llm_claude_cli import build_argv
 
 MINIMAL_HOME = Path.home() / ".quiz-sift-claude-home"
 
@@ -71,54 +82,6 @@ METERED_VARS = (
 
 HAIKU = "claude-haiku-4-5"
 OPUS = "claude-opus-5-5"
-
-# `--settings` の `permissions.deny` に並べるツール名。2026-09-25 に 2.1.282 の素の `init.tools` を
-# (存在しないモデル名で、枠を消費せずに)読んだ24本に、他フラグの有無で現れる `Glob` / `Grep` などを足した。
-# 列挙が正しいかは列挙の側では保証しない。判定は採取した `init.tools` が {StructuredOutput} と一致すること。
-DENIED_TOOLS = (
-    "Agent",
-    "AskUserQuestion",
-    "Bash",
-    "BashOutput",
-    "CronCreate",
-    "CronDelete",
-    "CronList",
-    "DesignSync",
-    "Edit",
-    "EnterPlanMode",
-    "EnterWorktree",
-    "ExitPlanMode",
-    "ExitWorktree",
-    "Glob",
-    "Grep",
-    "KillShell",
-    "LS",
-    "LSP",
-    "ListAgents",
-    "Monitor",
-    "MultiEdit",
-    "NotebookEdit",
-    "NotebookRead",
-    "PushNotification",
-    "Read",
-    "RemoteTrigger",
-    "ReportFindings",
-    "ScheduleWakeup",
-    "SendMessage",
-    "Skill",
-    "Task",
-    "TaskCreate",
-    "TaskGet",
-    "TaskList",
-    "TaskOutput",
-    "TaskStop",
-    "TaskUpdate",
-    "TodoWrite",
-    "ToolSearch",
-    "WebFetch",
-    "WebSearch",
-    "Write",
-)
 
 SYSTEM_PROMPT = "You are a calculator. Return only the requested structured answer."
 
@@ -152,43 +115,34 @@ PROBE_SCHEMA = {
 }
 
 
-def design_argv(json_schema: str, model: str, system_prompt: str = SYSTEM_PROMPT) -> list[str]:
-    """設計 NFR-8 節 (e) の argv。"""
-    return [
-        "claude",
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--max-turns",
-        "3",
-        "--json-schema",
-        json_schema,
-        "--model",
-        model,
-        "--system-prompt",
-        system_prompt,
-        "--exclude-dynamic-system-prompt-sections",
-        "--strict-mcp-config",
-        "--mcp-config",
-        json.dumps({"mcpServers": {}}, separators=(",", ":")),
-        "--settings",
-        json.dumps({"permissions": {"deny": list(DENIED_TOOLS)}}, separators=(",", ":")),
-        "--permission-mode",
-        "default",
-        "--safe-mode",
-    ]
+def product_argv(model: str, schema: dict[str, object], system_prompt: str = SYSTEM_PROMPT) -> list[str]:
+    """製品の argv(`ClaudeCliLlm` と同じ `build_argv`)。採取側は独自の argv を持たない(設計 NFR-8 第2段)。"""
+    return list(build_argv(model, system_prompt, schema))
 
 
-def compact(obj: object) -> str:
-    return json.dumps(obj, separators=(",", ":"))
+def without(argv: list[str], valued: tuple[str, ...] = (), bare: tuple[str, ...] = ()) -> list[str]:
+    """argv から、値付きフラグ `valued` をその値ごと、素のフラグ `bare` を外す。無いフラグを指したら止める。"""
+    out = list(argv)
+    for flag in valued:
+        i = out.index(flag)
+        del out[i : i + 2]
+    for flag in bare:
+        out.remove(flag)
+    return out
+
+
+def with_value(argv: list[str], flag: str, value: str) -> list[str]:
+    """argv の `flag` の値だけを差し替える。"""
+    out = list(argv)
+    out[out.index(flag) + 1] = value
+    return out
 
 
 # 名前 → (モデル, argv, rate_limit_event が無ければ採り直すか)。
 CASES = {
-    "success": (HAIKU, design_argv(compact(SCHEMA), HAIKU), True),
-    "success_opus": (OPUS, design_argv(compact(SCHEMA), OPUS), True),
-    "invalid_schema": (HAIKU, design_argv(INVALID_SCHEMA, HAIKU), False),
+    "success": (HAIKU, product_argv(HAIKU, SCHEMA), True),
+    "success_opus": (OPUS, product_argv(OPUS, SCHEMA), True),
+    "invalid_schema": (HAIKU, with_value(product_argv(HAIKU, SCHEMA), "--json-schema", INVALID_SCHEMA), False),
 }
 
 
@@ -269,7 +223,8 @@ def render_contract(record: dict[str, object], metas: dict[str, dict[str, object
 
 NFR-8 (e)1(C-020)の「有効ツールが実際に許容集合に収まる」ことのホスト実測と、NFR-6(C-018)の契約
 フィクスチャ(AR-43 / AR-63)の採取記録。ゲートは argv の形しか見えないので、ここだけが実 CLI の
-`init.tools` を見る。argv は `--safe-mode` を含む設計 (e) の形(D-130 / D-133)。
+`init.tools` を見る。argv は製品の `build_argv` の最終 argv(`--safe-mode`・ユーザ設定の遮断・空の許可リストを含み、
+拒否リストは無い。D-130 / D-133 / D-208)。
 `tests/measurements/collect_claude_cli.py contract` が書き、
 `tests/measurements/test_claude_cli_logs.py` がフィクスチャ本体と突き合わせて機械判定する。
 
@@ -379,8 +334,9 @@ def home_probe(repo: Path, metered: list[str]) -> int:
     parent.mkdir()
     codewords = {loc: f"QSPROBE-{secrets.token_hex(4).upper()}" for loc in PROBE_LOCATIONS}
     paths = {loc: build(parent) for loc, build in PROBE_LOCATIONS.items()}
-    safe_argv = design_argv(compact(PROBE_SCHEMA), HAIKU, PROBE_SYSTEM_PROMPT)
-    plain_argv = [token for token in safe_argv if token != "--safe-mode"]
+    safe_argv = product_argv(HAIKU, PROBE_SCHEMA, PROBE_SYSTEM_PROMPT)
+    # positive control: 最終 argv からユーザ設定の遮断と `--safe-mode` を外す(T-060 A-7)。
+    plain_argv = without(safe_argv, valued=(SETTINGS_BLOCK_FLAG,), bare=("--safe-mode",))
     collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
     try:
         for loc, path in paths.items():
@@ -460,12 +416,6 @@ def help_flags(help_text: str) -> set[str]:
     }
 
 
-def without_deny_list(argv: list[str]) -> list[str]:
-    """設計 argv から拒否リスト(`--settings` とその値)を外す。"""
-    i = argv.index("--settings")
-    return argv[:i] + argv[i + 2 :]
-
-
 def is_json(line: str) -> bool:
     try:
         json.loads(line)
@@ -474,30 +424,37 @@ def is_json(line: str) -> bool:
     return True
 
 
-def allowlist_run(flag: str, value: str, env: dict[str, str]) -> dict[str, object]:
-    argv = [*without_deny_list(design_argv(compact(SCHEMA), HAIKU)), flag, value]
+def direct_run(argv: list[str], prompt: str, env: dict[str, str]) -> dict[str, object]:
+    """中身検査を通さず `claude` を直接起動し、`init.tools`・構造化出力・失敗の原因を拾う。"""
     with tempfile.TemporaryDirectory() as cwd:
-        proc = subprocess.run(argv, input=FLAGS_PROMPT.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
+        proc = subprocess.run(argv, input=prompt.encode(), env=env, cwd=cwd, capture_output=True, timeout=300)
     # 読めない行を「init 無し」と記録すると、パーサの失敗が「許可リストの手段が無い」という実測にすり替わる。
     bad = [line for line in proc.stdout.decode(errors="replace").splitlines() if not is_json(line)]
     if bad:
-        raise SystemExit(f"{flag} {value!r}: 標準出力に JSON でない行が {len(bad)} 行ある。先頭: {bad[0][:120]!r}")
+        raise SystemExit(f"標準出力に JSON でない行が {len(bad)} 行ある。先頭: {bad[0][:120]!r}")
     events = parse_events(proc.stdout)
     inits = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
     results = [e for e in events if e.get("type") == "result"]
     structured = results[-1].get("structured_output") if results else None
     return {
-        "flag": flag,
-        "value": value,
         "argv": argv,
         "exit_code": proc.returncode,
         "stderr": proc.stderr.decode(errors="replace"),
         "init_tools": inits[0]["tools"] if inits else None,
         "result_is_error": results[-1].get("is_error") if results else None,
+        "result_text": results[-1].get("result") if results else None,
         "structured_output": structured,
         "structured_output_returned": isinstance(structured, dict) and not results[-1].get("is_error"),
         "stdout_sha256": hashlib.sha256(proc.stdout).hexdigest(),
     }
+
+
+def allowlist_run(flag: str, value: str, env: dict[str, str]) -> dict[str, object]:
+    # 第1段の argv: 製品の argv から、第1段の後に足したユーザ設定の遮断と許可リストを外し、候補を末尾に足す。
+    argv = [*without(product_argv(HAIKU, SCHEMA), valued=(SETTINGS_BLOCK_FLAG, *ALLOWLIST_FLAGS)), flag, value]
+    run = direct_run(argv, FLAGS_PROMPT, env)
+    del run["result_text"]
+    return {"flag": flag, "value": value, **run}
 
 
 def flags(repo: Path, metered: list[str]) -> int:
@@ -572,10 +529,125 @@ NFR-8 のフラグの実測の第1段(T-054 / C-023・C-024)。製品の argv �
 """
 
 
+HARDENING_PROMPT = "SYNTHETIC HARDENING PROBE (quiz-sift T-060). No study material is included. What is 2 + 3?\n"
+# 読まれると呼び出しが失敗する番兵: 到達できない API の宛先(D-193)。
+SENTINEL_URL = "http://127.0.0.1:9"
+# 番兵のアドレスへの接続の失敗の印。2.1.290 は stream-json の下で stderr を空にし、`result` の本文に書く
+# (2026-10-06 実測)ので、stderr と `result` の本文の両方から分類する。
+CONNECTION_REFUSED = re.compile(r"ECONNREFUSED|Connection refused")
+
+
+def failure_cause(run: dict[str, object]) -> str | None:
+    """失敗した run の原因の分類。成功した run は None。"""
+    if run["exit_code"] == 0 and run["result_is_error"] is False:
+        return None
+    text = f"{run['stderr']}\n{run['result_text'] or ''}"
+    return "connection_refused" if CONNECTION_REFUSED.search(text) else "other"
+
+
+def hardening(repo: Path, metered: list[str]) -> int:
+    """NFR-8 のフラグの実測の第2段(T-060 / C-023・C-024)。製品の最終 argv で init.tools と SEC-001 の番兵を測る。"""
+    settings = MINIMAL_HOME / ".claude" / "settings.json"
+    original = settings.read_bytes()
+    loaded = json.loads(original)
+    if not isinstance(loaded, dict) or "env" in loaded:
+        # 元の `env` を上書きすると戻すべき値と番兵が混ざる。起動前検査(D-122)が拒む状態でもある。
+        print(f"{settings} が JSON オブジェクトでないか、既に env を持つ", file=sys.stderr)
+        return 2
+    sentinel_bytes = (json.dumps({**loaded, "env": {"ANTHROPIC_BASE_URL": SENTINEL_URL}}, indent=2) + "\n").encode()
+
+    env = child_env()
+    version = claude_version(env)
+    final_argv = product_argv(HAIKU, SCHEMA)
+    unblocked_argv = without(final_argv, valued=(SETTINGS_BLOCK_FLAG,))
+    collected_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    init_run = direct_run(final_argv, HARDENING_PROMPT, env)
+    try:
+        settings.write_bytes(sentinel_bytes)
+        sentinel_runs = {
+            "without_settings_block": direct_run(unblocked_argv, HARDENING_PROMPT, env),
+            "final_argv": direct_run(final_argv, HARDENING_PROMPT, env),
+        }
+    finally:
+        settings.write_bytes(original)
+    restored = settings.read_bytes()
+    for run in sentinel_runs.values():
+        run["failure_cause"] = failure_cause(run)
+
+    record: dict[str, object] = {
+        "collector": "tests/measurements/collect_claude_cli.py",
+        "collected_at": collected_at,
+        "claude_version": version,
+        "model": HAIKU,
+        "home": str(MINIMAL_HOME),
+        "env_keys": sorted(env),
+        "metered_vars_checked": len(METERED_VARS),
+        "metered_vars_in_parent_env": metered,
+        "prompt": HARDENING_PROMPT,
+        "launch": "subprocess.run(direct, no preflight)",
+        "init_tools_run": init_run,
+        "sentinel": {
+            "path": "$HOME/.claude/settings.json",
+            "env": {"ANTHROPIC_BASE_URL": SENTINEL_URL},
+            "sha256_original": hashlib.sha256(original).hexdigest(),
+            "sha256_with_sentinel": hashlib.sha256(sentinel_bytes).hexdigest(),
+            "sha256_after_restore": hashlib.sha256(restored).hexdigest(),
+            "restored_content": json.loads(restored),
+            "credentials_copied": False,
+        },
+        "sentinel_runs": sentinel_runs,
+    }
+    tools_line = (
+        "init.tools: 一致({StructuredOutput})"
+        if init_run["init_tools"] == ["StructuredOutput"]
+        else "init.tools: 不一致"
+    )
+    negative, positive = sentinel_runs["without_settings_block"], sentinel_runs["final_argv"]
+    sentinel_line = (
+        f"番兵: 遮断なしで {negative['failure_cause']}、最終 argv で "
+        f"{'成功' if positive['failure_cause'] is None else positive['failure_cause']}"
+    )
+    restore_line = f"後始末: {'元のバイト列に戻った' if restored == original else '元のバイト列と違う'}"
+    path = repo / "docs" / "test" / "measurements" / "claude-cli-hardening.md"
+    path.write_text(render_hardening(record, [tools_line, sentinel_line, restore_line]))
+    print("\n".join([tools_line, sentinel_line, restore_line]))
+    return 0
+
+
+def render_hardening(record: dict[str, object], lines: list[str]) -> str:
+    conclusion = "\n".join(lines)
+    return f"""# 実測ログ: claude CLI のフラグ(第2段)
+
+NFR-8 のフラグの実測の第2段(T-060 / C-023・C-024)。採取側は独自の argv を持たず、製品の
+`build_argv`(`ClaudeCliLlm` と同じ関数)をそのまま使う。その最終 argv(拒否リスト無し)で:
+
+1. `init.tools` が `{{StructuredOutput}}` と一致するか(C-024)。
+2. SEC-001 の番兵(D-193、D-213): 最小ホームの `.claude/settings.json` をその場で一時的に書き換え、到達できない
+   `ANTHROPIC_BASE_URL` を `env` に置く。最終 argv からユーザ設定の遮断(`--setting-sources` とその値)だけを
+   外した argv では番兵のアドレスへの接続の失敗で落ち、最終 argv では成功するか(C-023)。起動は中身検査を
+   通さない直接起動。後始末は元のバイト列の sha256 の一致で確かめる。資格情報は写さない。
+
+`tests/measurements/collect_claude_cli.py hardening` が書き、`tests/measurements/test_claude_cli_hardening_logs.py`
+が機械判定する。採取は最小ホーム(ADR-014)を `HOME` に向け、子プロセスへ渡す環境は `HOME` / `PATH` /
+`LANG` / `TZ` の4つだけ。送ったのは合成プロンプトだけ。接続の失敗は stderr と `result` の本文から分類する
+(2.1.290 は stream-json の下で stderr を空にし、`result` の本文に書く)。
+
+## 記録
+
+```yaml
+{yaml.safe_dump(record, allow_unicode=True, sort_keys=False).rstrip()}
+```
+
+## 結論
+
+{conclusion}
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("what", choices=("contract", "home-probe", "flags"))
+    parser.add_argument("what", choices=("contract", "home-probe", "flags", "hardening"))
     args = parser.parse_args()
 
     metered = sorted(v for v in METERED_VARS if v in os.environ)
@@ -585,7 +657,7 @@ def main() -> int:
     if not (MINIMAL_HOME / ".claude" / ".credentials.json").is_file():
         print(f"最小ホームが用意されていない: HOME={MINIMAL_HOME} claude /login", file=sys.stderr)
         return 2
-    commands = {"contract": contract, "home-probe": home_probe, "flags": flags}
+    commands = {"contract": contract, "home-probe": home_probe, "flags": flags, "hardening": hardening}
     return commands[args.what](args.repo, metered)
 
 

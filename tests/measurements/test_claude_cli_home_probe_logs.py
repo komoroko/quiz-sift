@@ -7,8 +7,8 @@
 
 1. 採取経路は collect_claude_cli.py にあり、4つの場所に実行ごとの乱数の合言葉を置いた。
 2. `--safe-mode` 付きの設計 argv で返った合言葉が 0 件。
-3. positive control: `--safe-mode` だけを外した argv で4つとも返る(無いと「0 件」は番兵が効いていないだけでも
-   成立する)。
+3. positive control: 最終 argv からユーザ設定の遮断(`--setting-sources` とその値)と `--safe-mode` を外した
+   argv で4つとも返る(無いと「0 件」は番兵が効いていないだけでも成立する。T-060 A-7)。
 4. 後始末の後に番兵が残らず、最小ホームの `.claude/CLAUDE.md` と `rules/` が無い。作業ディレクトリの親は
    採取スクリプトが作った専用のディレクトリで、`/tmp` 直下ではない(D-151)。
 
@@ -35,6 +35,7 @@ LOCATIONS = [
 ]
 CODEWORD = re.compile(r"QSPROBE-[0-9A-F]{8}")
 PER_CALL_VALUES = ("--json-schema", "--system-prompt")
+SETTINGS_BLOCK_FLAG = "--setting-sources"
 
 
 def probe_record() -> dict[str, Any]:
@@ -70,13 +71,15 @@ def test_sentinels_are_read_only_without_safe_mode() -> None:
     assert len(codewords) == len(LOCATIONS), sentinels
     assert all(CODEWORD.fullmatch(c) for c in codewords), sentinels
 
-    # 設計 argv(--safe-mode あり)と、それから --safe-mode だけを外した argv。
+    # 設計 argv(--safe-mode あり)と、それからユーザ設定の遮断と --safe-mode を外した argv。
     safe = record["runs"]["safe_mode"]
     plain = record["runs"]["without_safe_mode"]
     contract_argv = yaml.safe_load(SUCCESS_META.read_text(encoding="utf-8"))["argv"]
     assert "--safe-mode" in safe["argv"]
     assert without_per_call_values(safe["argv"]) == without_per_call_values(contract_argv)
-    assert plain["argv"] == [t for t in safe["argv"] if t != "--safe-mode"]
+    i = safe["argv"].index(SETTINGS_BLOCK_FLAG)
+    unblocked = safe["argv"][:i] + safe["argv"][i + 2 :]
+    assert plain["argv"] == [t for t in unblocked if t != "--safe-mode"]
     assert safe["exit_code"] == 0 and plain["exit_code"] == 0
 
     # (2) --safe-mode ありで返った合言葉は 0 件。
@@ -84,7 +87,7 @@ def test_sentinels_are_read_only_without_safe_mode() -> None:
     assert not leaked, f"--safe-mode でも番兵が読まれた: {leaked}"
     assert safe["memory_paths"] is None
 
-    # (3) positive control: --safe-mode なしで4つとも返る。
+    # (3) positive control: ユーザ設定の遮断と --safe-mode なしで4つとも返る。
     missing = sorted(codewords - {m.group() for c in plain["returned"] for m in CODEWORD.finditer(c)})
     assert not missing, f"--safe-mode なしで返らなかった番兵: {missing}"
 

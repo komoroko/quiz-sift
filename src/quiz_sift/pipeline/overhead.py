@@ -37,29 +37,29 @@ def skills_digest(names: Sequence[str] | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-_SKILLS_2026_09_26 = "ed36efc60ca4981b830e199aeebe39322fbc8a3e750e0b39b9daeae6afcd2774"
+_SKILLS_2026_10_06 = "348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14"
 
 OVERHEAD: Mapping[str, OverheadConstant] = MappingProxyType(
     {
-        # 切片 921.0 / num_turns 2。
+        # 切片 1060.3333333333335 / num_turns 2。
         "claude-opus-5-5": OverheadConstant(
             model="claude-opus-5-5",
-            per_turn_tokens=460.5,
+            per_turn_tokens=530.1666666666667,
             bucket="cache_creation_input_tokens",
-            measured_at=date(2026, 9, 26),
-            cli_version="2.1.283",
-            argv_digest="caf33f6f31c8a4b02c627ca95209cc48dc1b4e616984c79549e4bcaa0d773954",
-            skills_digest=_SKILLS_2026_09_26,
+            measured_at=date(2026, 10, 6),
+            cli_version="2.1.290",
+            argv_digest="7be15268ad5b8c2990489105260475a37ed97b7305bfc1a6706663709d9fde86",
+            skills_digest=_SKILLS_2026_10_06,
         ),
-        # 切片 1115.0 / num_turns 2。
+        # 切片 1224.3333333333335 / num_turns 2。
         "claude-haiku-4-5": OverheadConstant(
             model="claude-haiku-4-5",
-            per_turn_tokens=557.5,
+            per_turn_tokens=612.1666666666667,
             bucket="input_tokens",
-            measured_at=date(2026, 9, 26),
-            cli_version="2.1.283",
-            argv_digest="c5cbab94561ebe3d3edcf126768ead3229bbc5e135501e9f669f2c728f96b11b",
-            skills_digest=_SKILLS_2026_09_26,
+            measured_at=date(2026, 10, 6),
+            cli_version="2.1.290",
+            argv_digest="66c1b01769d3385b32422acb877cdeef860ff266d144d816e701b7a7bab0dcb2",
+            skills_digest=_SKILLS_2026_10_06,
         ),
     }
 )
