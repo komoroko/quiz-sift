@@ -1,6 +1,6 @@
 cycle:
   id: quiz-sift
-  base_commit: '0000000000000000000000000000000000000000'
+  base_commit: 0b8fdd2b5fa95bde03c6d0eeb2ca2d07525ecf42
   branch: build/quiz-sift
 claims:
 - id: C-001
