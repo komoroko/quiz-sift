@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-06T20:59:34+09:00'
+updated_at: '2026-10-07T06:10:42+09:00'
 gates:
   mandate:
     status: approved
@@ -238,186 +238,159 @@ tasks:
       tree: sha256:0022e550151bd0950ce9c96c7560dcbf696cc85e3e94a8df3afccd8348e5329d
       updated_at: '2026-10-06T17:37:03+09:00'
   T-060:
-    status: todo
-    attempts: 6
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: b9f9b871-3a41-4b2b-b1fb-098100d07f7d
-        output_tail: 'T-060 は needs-revision で報告しました。スコープ内の作業はコミット済み(`9f675ff`)ですが、品質ゲートの `test` で 2 件が赤のまま残っています。このファイルは
-          T-060 のスコープ外なので、私は直していません。
-
-
-          **ホストでの実測結果**(argv は製品の `build_argv`。`--setting-sources ""` と `--tools ""` を使い、拒否リストはありません)
-
-          - **init.tools**: 最終 argv で `{StructuredOutput}` と一致しました(`docs/test/measurements/claude-cli-hardening.md`)。
-
-          - **SEC-001 の番兵**: ユーザ設定の遮断を外した argv では、番兵のアドレスへの接続が `ECONNREFUSED` で失敗しました。最終 argv では成功しました。
-
-          - **最小ホームの後始末**: `settings.json` は sha256 が一致し、元のバイト列(`{"theme": "dark"}`)に戻りました。
-
-          - **契約フィクスチャと home-probe**: 取り直しました。home-probe の陽性対照(最終 argv からユーザ設定の遮断と `--safe-mode` を外した
-          argv)では、4 つの番兵がすべて返りました。
-
-          - **固定オーバーヘッド**: 2 モデルを測り直しました。切片は haiku が 1224.33、opus が 1060.33 で、どちらも num_turns 2 です。`OVERHEAD`
-          の定数(argv_digest、skills_digest、cli 2.1.290)を差し替えました。
-
-          - 記録を読むテストとして `test_claude_cli_hardening_logs.py` を新しく置き、既存のログ検査 3 本を新しい argv に合わせました。
-
-
-          **検証**: A-1〜A-9 の pytest ノードはすべて緑です。lint、format、types、docs、smoke も緑です。
-
-
-          **赤のまま残っている 2 件**: `tests/adapters/test_claude_failure.py` の次の 2 本です。
-
-          - `test_overage_scan_covers_parse_and_timeout_output`
-
-          - `test_event_streams_come_only_from_the_fake_factory`
-
-
-          原因は、このファイルの `FIXTURE_RATE_LIMIT` が古い `success.stdout` の値を書き写した定数であることです。A-7 に従ってフィクスチャを取り直したので、新しい値と合わなくなりました。`rein
-          task scope-add` は、`guard.scope_additions` が設定されていないため拒否されました。
-
-
-          **必要な判断**: `/revise` で `tests/adapters/test_claude_failure.py` を T-060 のスコープに加えるかどうかです。加われば、修正は
-          `FIXTURE_RATE_LIMIT` の 3 つの値(resets_at、five_hour、seven_day)を新しいフィクスチャの値に差し替えるだけで済みます。'
-        at: '2026-10-06T19:38:48+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-060: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 7:10pm (Asia/Tokyo)
-        at: '2026-10-06T18:58:41+09:00'
-      updated_at: '2026-10-06T20:12:11+09:00'
-      salvage_branch: build/quiz-sift-T-060-salvage-20261006-101346
-      salvage_state: restored
-      report:
-        outcome: needs-revision
-        summary: 'スコープ内の作業は完了・コミット済み(9f675ff)。ホストで最終 argv(--setting-sources "" / --tools ""、拒否リスト無し)により実測:
-          init.tools={StructuredOutput}、番兵は遮断なしで ECONNREFUSED・最終 argv で成功、最小ホームの settings.json は sha256
-          一致で復元、契約フィクスチャ・home-probe(陽性対照は遮断と --safe-mode を外した argv)・overhead 2モデル(切片 haiku 1224.33 / opus
-          1060.33、num_turns 2)を取り直して OVERHEAD を差し替え。A-1〜A-9 の pytest ノードはすべて緑、lint/format/types/docs/smoke
-          も緑。ただし gate の test が 2 件赤: tests/adapters/test_claude_failure.py の test_overage_scan_covers_parse_and_timeout_output
-          と test_event_streams_come_only_from_the_fake_factory。原因は同ファイルの FIXTURE_RATE_LIMIT が旧 success.stdout
-          の rate_limit_event(resets_at=1790383200, five_hour 0.53, seven_day 0.45/1790550000)を書き写した定数で、フィクスチャを取り直した(A-7
-          が要求)ため新しい実物(resets_at=1791299400, five_hour 0.14/1791299400, seven_day 0.34/1791759600)と食い違う。このファイルは
-          T-060 の scope 外で、rein task scope-add は guard.scope_additions 未設定のため拒否された。必要な判断: tests/adapters/test_claude_failure.py
-          を T-060 の scope に加える(/revise)。修正は FIXTURE_RATE_LIMIT の3値の差し替えだけ。'
-        at: '2026-10-06T19:38:38+09:00'
-        touched:
-        - docs/test/measurements/claude-cli-contract.md
-        - docs/test/measurements/claude-cli-hardening.md
-        - docs/test/measurements/claude-cli-home-probe.md
-        - docs/test/measurements/overhead-claude-haiku-4-5.md
-        - docs/test/measurements/overhead-claude-opus-5-5.md
-        - src/quiz_sift/adapters/llm_claude_cli.py
-        - src/quiz_sift/pipeline/overhead.py
-        - tests/acceptance/test_cli_hardening.py
-        - tests/adapters/test_llm_claude_cli.py
-        - tests/fixtures/claude_cli/invalid_schema.meta.yaml
-        - tests/fixtures/claude_cli/success.meta.yaml
-        - tests/fixtures/claude_cli/success.stdout
-        - tests/fixtures/claude_cli/success_opus.meta.yaml
-        - tests/fixtures/claude_cli/success_opus.stdout
-        - tests/measurements/collect_claude_cli.py
-        - tests/measurements/test_claude_cli_hardening_logs.py
-        - tests/measurements/test_claude_cli_home_probe_logs.py
-        - tests/measurements/test_claude_cli_logs.py
-        - tests/measurements/test_overhead_logs.py
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-060: the implementer reported needs-revision — スコープ内の作業は完了・コミット済み(9f675ff)。ホストで最終
-          argv(--setting-sources "" / --tools ""、拒否リスト無し)により実測: init.tools={StructuredOutput}、番兵は遮断なしで
-          ECONNREFUSED・最終 argv で成功、最小ホームの settings.json は sha256 一致で復元、契約フィクスチャ・home-probe(陽性対照は遮断と --safe-mode
-          を外した argv)・overhead 2モデル(切片 haiku 1224.33 / opus 1060.33、num_turns 2)を取り直して OVERHEAD を差し替え。A-1〜A-9
-          の pytest ノードはすべて緑、lint/format/types/docs/smoke も緑。ただし gate の test が 2 件赤: tests/adapters/test_claude_failure.py
-          の test_overage_scan_covers_parse_and_timeout_output と test_event_streams_come_only_from_the_fake_factory。原因は同ファイルの
-          FIXTURE_RATE_LIMIT が旧 success.stdout の rate_limit_event(resets_at=1790383200, five_hour 0.53,
-          seven_day 0.45/1790550000)を書き写した定数で、フィクスチャを取り直した(A-7 が要求)ため新しい実物(resets_at=1791299400, five_hour
-          0.14/1791299400, seven_day 0.34/1791759600)と食い違う。このファイルは T-060 の scope 外で、rein task scope-add
-          は guard.scope_additions 未設定のため拒否された。必要な判断: tests/adapters/test_claude_failure.py を T-060 の scope
-          に加える(/revise)。修正は FIXTURE_RATE_LIMIT の3値の差し替えだけ。'
-        tree: sha256:11971fcef1506136fea79fdbe97ba282a050bbc0fe7343af98a5ae06d773d434
+    status: done
+    attempts: 7
+    completed_commit: d59dddc191780f002598d431092e632b5bf68867
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-7
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-8
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-9
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      - id: A-7
+        kind: command
+        reused: false
+      - id: A-8
+        kind: command
+        reused: false
+      - id: A-9
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: f66375f286259f6a32f9aa6350dc2702d16b9912
+        step: test
+      tree: sha256:2cd723a92f3af8296e045f2e0db0caee6e03d3f72dcafd192440a8ec04c542be
+      updated_at: '2026-10-06T21:26:37+09:00'
   T-057:
-    status: todo
-    attempts: 6
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: f0582905-15c7-4fec-a1ef-3b65db8415f8
-        output_tail: 'レビュー指摘は正しかったので、`test_answer_form_helpers_are_private` を削除しました。4e7e5ce でコミットし、`rein
-          report --outcome implemented` を記録しています。
-
-
-          - **理由**: 関数名を確かめるだけのテストで、単一選択の判別が誤っても失敗しません。判別の振る舞いは `test_c002_user_selected_only_for_single_select`
-          が確かめています。
-
-          - **ゲート**: lint、types、test(432 件成功、3件 skip)、docs、smoke は通りました。format は削除後に末尾の空行が1つ残って失敗したので、整形し直して通しています。
-
-          - **ループの検査への影響**: テストを消すだけで製品コードは変えていないので、修正前に失敗するテストは付けられません。修正にそうしたテストを求めるビルドの検査で差し戻される可能性があり、その旨を報告に書いてあります。'
-        at: '2026-10-06T20:03:44+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-057: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 7:10pm (Asia/Tokyo)
-        at: '2026-10-06T18:58:41+09:00'
-      updated_at: '2026-10-06T20:11:42+09:00'
-      salvage_branch: build/quiz-sift-T-057-salvage-20261006-101353
-      salvage_state: restored
-      report:
-        outcome: implemented
-        summary: レビュー指摘(test_udemy.py:141)は妥当と判断して直した。test_answer_form_helpers_are_private を削除した。内部名を
-          hasattr で固定するだけで、判別の誤りでは赤にならず、どの受入基準にも対応しない。単一選択の判別の振る舞いは test_c002_user_selected_only_for_single_select
-          が押さえている。削除だけの変更で製品コードは変わらないので、修正前に失敗するテストは付けられない。gate.sh の lint/format/types/test(432 passed,
-          3 skipped)/docs/smoke はすべて exit 0。
-        at: '2026-10-06T20:03:34+09:00'
-        touched:
-        - tests/extract/test_udemy.py
-      retries_left:
-        lint: 2
-        format: 2
-        types: 2
-        test: 1
-        docs: 1
-        smoke: 1
-        negative-control: 1
-        acceptance:A-1: 1
-        acceptance:A-2: 1
-        acceptance:A-3: 1
-        acceptance:A-4: 1
-        acceptance:A-5: 1
-        acceptance:A-6: 1
-      review:
-        findings:
-        - severity: must_fix
-          statement: answer_form と AnswerForm が公開名になっているが、使うのは udemy.py の中の _identify_answer だけ(src・tests
-            に他の呼び出し元は無い)。モジュールの docstring(16行目)は `_answer_form` と書いていて、実装と名前が食い違っている。どちらも非公開(_answer_form
-            / _AnswerForm)にして、docstring と揃える。
-          anchor: src/quiz_sift/extract/udemy.py:254
-        - severity: must_fix
-          statement: rerun は extract(pages) を2回走らせている。1回目の結果で JSONL とレポートを書き、記録の件数は rerun_counts の中の2回目の
-            extract から取る。deck-source も rerun_counts の中で別に抽出する。書いた問題と記録した件数が同じ1回の抽出から出ていることを、コードの形で保証していない。rerun_counts
-            が ExtractResult を受け取るようにして、抽出を1回にまとめる。
-          anchor: tests/measurements/test_extraction_logs.py:1060
-        - severity: must_fix
-          statement: test_answer_form_helpers_are_private は振る舞いではなく実装の内部名(_answer_form / _AnswerForm が在り、answer_form
-            / AnswerForm が無いこと)を hasattr で固定している。単一選択の判別の振る舞いは test_c002_user_selected_only_for_single_select
-            が押さえており、このテストは関数名を変えるリファクタリングでだけ赤になり、判別の誤りでは赤にならない。どの受入基準にも対応しないので削除する。
-          anchor: tests/extract/test_udemy.py:141
-        - severity: must_fix
-          statement: '_AnswerForm の MULTI と UNKNOWN を区別しても、それを読む箇所が無い。唯一の呼び出し元 _identify_answer は `is
-            not _AnswerForm.SINGLE` しか見ていない。3値の Enum と docstring は、単一選択かどうかを返す bool 関数(例: _is_single_select)で足りる。要求に無い区別(YAGNI)なので削る。'
-          anchor: src/quiz_sift/extract/udemy.py:63
-        - severity: question
-          statement: check_golden_nofm が見るのは、正解2件以上の行が3件以上・受験者の誤答が3件以上・一致率100% だけで、元のゴールデンセット(GOLDEN_SIZE=10
-            行)を含むことは要求していない。たとえば正解2件以上の3行だけの golden-set-nofm.md でも通る。C-002 は「人手で確認した N-of-M を3件以上加えたゴールデンセット全体」と書き、T-058
-            A-4 は3条件しか挙げていない。判定に「10 行 + N-of-M 3 行以上」を含めるべきかは、計画側で決める必要がある。
-          anchor: tests/measurements/test_extraction_logs.py:341
+    status: done
+    attempts: 7
+    completed_commit: 477635ec4bc636afb3d7020d22cd2295bc7b4ae3
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: f66375f286259f6a32f9aa6350dc2702d16b9912
+        step: test
+      tree: sha256:53833e2650e0d5946e52c6ea03e864b3bd2b7bdff8426a447129220f8d0a3a7f
+      updated_at: '2026-10-06T21:26:37+09:00'
   T-067:
     status: done
     attempts: 6
@@ -457,19 +430,336 @@ tasks:
       tree: sha256:b1307b2c29df4eb23cf3666f72b9a45b63f2fbf0c0e2c671e75fb7a45fa0d46c
       updated_at: '2026-10-06T20:13:13+09:00'
   T-061:
-    status: todo
+    status: done
+    attempts: 1
+    completed_commit: a957989a4c4b0e33819136bc52ddb898ac9aaa2f
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: d59dddc191780f002598d431092e632b5bf68867
+        step: test
+      tree: sha256:3a2613719b8654e21f12a986fbbd1c9b646207157322a13d49a0762ae1eade63
+      updated_at: '2026-10-06T22:05:10+09:00'
   T-062:
-    status: todo
+    status: done
+    attempts: 10
+    completed_commit: 667f8cc6a1f4e681b1a5825e8e1047a1e0a13334
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: a957989a4c4b0e33819136bc52ddb898ac9aaa2f
+        step: test
+      tree: sha256:71ed088d97b499b4db629c8ba0393c54eea96c68969abf62aa6a815c46cbcb4e
+      updated_at: '2026-10-07T00:48:58+09:00'
   T-063:
-    status: todo
+    status: done
+    attempts: 1
+    completed_commit: 8d704502c827b6b76d0bf5ac0d29025cd0ab91ac
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-6
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-7
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-8
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      - id: A-6
+        kind: command
+        reused: false
+      - id: A-7
+        kind: command
+        reused: false
+      - id: A-8
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 667f8cc6a1f4e681b1a5825e8e1047a1e0a13334
+        step: test
+      tree: sha256:ce3632b7379adf1050ca7f74615f6f910b7f405ac1df71eeaa565cdfac464304
+      updated_at: '2026-10-07T01:32:23+09:00'
   T-064:
-    status: todo
+    status: needs-revision
+    attempts: 16
+    handoff:
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 6a323c52-6e60-4f96-b5b4-ed3576e7477d
+        output_tail: "T-064 は実装せずに止め、`rein report --outcome needs-revision` で報告しました。コードは何も変更していません。\n\n\
+          **止めた理由**\n設計(R-6)のとおりに型を変えると、T-064 の scope 外にある次の3ファイルを直さないと test と types のゲートが通りません。\n- 設計の変更:\
+          \ `Answer(texts: tuple[str, ...])` にし、`Discrimination` に `distractor_ids` を足す。\n- 影響する3ファイル:\
+          \ どれも `Answer(\"…\")` / `Discrimination(\"…\")` を1引数の文字列で直接組み立てている。\n  - `tests/audio/conftest.py:46-47`\n\
+          \  - `tests/domain/test_shared_types.py:101,124-125`\n  - `tests/glossary/test_audio_series.py:39`\n\
+          \n`rein task scope-add` は、`guard.scope_additions` が設定されていないとして拒否されました。\n\n**scope 内で通す手段もありましたが、採っていません**\n\
+          - `distractor_ids` に既定値 `()` を置く: 互換シムになり、参照先の ID が無い識別ポイントを型として許してしまいます。\n- 台本の `Discrimination`\
+          \ には ID を持たせず、`generate_scripts` の中で想起素材から引く: 設計の「Discrimination に distractor_ids を引き継ぐ」から外れます。\n\
+          \n**判断してほしいこと**\n`/revise` で、上の3ファイルを T-064 の scope に足してください。足せば、受入基準 A-1〜A-3 は設計どおりにそのまま実装できます。"
+        at: '2026-10-07T05:27:41+09:00'
+      last_fault:
+        kind: ENV_TRANSIENT
+        where: 'T-064: implementer'
+        rc: 1
+        output_tail: You've hit your session limit · resets 5:20am (Asia/Tokyo)
+        at: '2026-10-07T05:09:38+09:00'
+      updated_at: '2026-10-07T06:10:20+09:00'
+      report:
+        outcome: needs-revision
+        summary: 'T-064 の scope が、設計(docs/20-design.md R-6)の型変更が必ず触るテストを含まない。設計は Answer(texts: tuple[str,
+          ...]) と、Discrimination に distractor_ids を足すことを求めるが、scope 外の tests/audio/conftest.py:46-47、tests/domain/test_shared_types.py:101,124-125、tests/glossary/test_audio_series.py:39
+          が Answer("…") / Discrimination("…") を1引数の文字列で直接組み立てている。設計どおりに変えると、この3ファイルが mypy(gate.sh types)と
+          pytest で赤になる。直すには scope 外への書き込みが要る。rein task scope-add は『guard.scope_additions が未設定』として拒否した。scope
+          を広げずに通す手段は2つあるが、どちらも採らなかった。(a) Discrimination.distractor_ids に既定値 () を置く: 互換シムで、ID の無い識別ポイントを型として許してしまう。(b)
+          台本の Discrimination に ID を持たせず、generate_scripts の中で RecallSet から引く: 設計の『Discrimination に distractor_ids
+          を引き継ぐ』から外れる。依頼: /revise で T-064 の scope に上の3ファイルを足すこと。足せば受入基準 A-1〜A-3 はこのまま実装できる。何も変更していない。'
+        at: '2026-10-07T05:27:34+09:00'
+      escalation:
+        kind: agent_needs_revision
+        message: 'T-064: the implementer reported needs-revision — T-064 の scope が、設計(docs/20-design.md
+          R-6)の型変更が必ず触るテストを含まない。設計は Answer(texts: tuple[str, ...]) と、Discrimination に distractor_ids を足すことを求めるが、scope
+          外の tests/audio/conftest.py:46-47、tests/domain/test_shared_types.py:101,124-125、tests/glossary/test_audio_series.py:39
+          が Answer("…") / Discrimination("…") を1引数の文字列で直接組み立てている。設計どおりに変えると、この3ファイルが mypy(gate.sh types)と
+          pytest で赤になる。直すには scope 外への書き込みが要る。rein task scope-add は『guard.scope_additions が未設定』として拒否した。scope
+          を広げずに通す手段は2つあるが、どちらも採らなかった。(a) Discrimination.distractor_ids に既定値 () を置く: 互換シムで、ID の無い識別ポイントを型として許してしまう。(b)
+          台本の Discrimination に ID を持たせず、generate_scripts の中で RecallSet から引く: 設計の『Discrimination に distractor_ids
+          を引き継ぐ』から外れる。依頼: /revise で T-064 の scope に上の3ファイルを足すこと。足せば受入基準 A-1〜A-3 はこのまま実装できる。何も変更していない。'
+        tree: sha256:ce3632b7379adf1050ca7f74615f6f910b7f405ac1df71eeaa565cdfac464304
   T-065:
-    status: todo
+    status: needs-revision
+    attempts: 16
+    handoff:
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: bd3f8de1-7df4-4b06-9726-fd6ab25927d9
+        output_tail: 'T-065 は実装せず、`needs-revision` で止めました。scope が足りず、品質ゲートの `bash gate.sh test` を緑にできないためです。コードは何も変更していません。
+
+
+          **理由**: チケットと設計の R-8 は、`AttemptRecord.chosen` を `frozenset[OptionId]` に変えるよう求めています。ところが scope
+          外の `tests/domain/test_shared_types.py`(T-055 の領域)が、`AttemptRecord` を `chosen=OptionId(...)`
+          で作り、`attempt.chosen == OPTIONS[0].option_id` と確かめています(75–83行、183–210行)。型を変えるとこのテストは必ず落ちます。両方を通すには後方互換の分岐を入れるしかなく、それは方針にも設計にも反します。
+
+
+          **試したこと**: `rein task scope-add T-065 tests/domain/test_shared_types.py` を実行しましたが、`guard.scope_additions`
+          が設定されていないため拒否されました。
+
+
+          **必要な判断**: `/revise` で T-065 の scope に `tests/domain/test_shared_types.py` を加えてください。そのファイルで変えるのは、`AttemptRecord`
+          の構築引数と `chosen` の確認を frozenset に合わせる部分だけです。
+
+
+          `rein report` はこの理由を中央の監査チェーンに記録しました。終了コードは 2 でした。'
+        at: '2026-10-07T05:28:45+09:00'
+      last_fault:
+        kind: ENV_TRANSIENT
+        where: 'T-065: implementer'
+        rc: 1
+        output_tail: You've hit your session limit · resets 5:20am (Asia/Tokyo)
+        at: '2026-10-07T05:09:37+09:00'
+      updated_at: '2026-10-07T06:10:21+09:00'
+      report:
+        outcome: needs-revision
+        summary: 'scope の欠落: チケットと設計(R-8: ''chosen: frozenset[OptionId]''、To do ''Attempt.chosen を frozenset
+          に'')は src/quiz_sift/domain/attempt.py の AttemptRecord.chosen を frozenset[OptionId] に変えることを求めるが、tests/domain/test_shared_types.py(T-055
+          の scope、T-065 の scope 外)が AttemptRecord を chosen=OptionId(...) で構築し ''attempt.chosen == OPTIONS[0].option_id''
+          を断言している(75-83行、183-210行)。この変更後はこのテストが必ず赤になり、DoD の ''bash gate.sh test''(pytest -q、testpaths=tests)を緑にできない。後方互換の分岐で両方を満たすことは方針(後方互換を持たない)と設計に反する。''rein
+          task scope-add T-065 tests/domain/test_shared_types.py'' は guard.scope_additions 未設定のため拒否された。必要な判断:
+          /revise で T-065 の scope に tests/domain/test_shared_types.py を加える(変更は AttemptRecord の構築引数と chosen
+          の断言を frozenset に追従させるだけ)。作業は何も行っていない(差分なし)。'
+        at: '2026-10-07T05:28:37+09:00'
+      escalation:
+        kind: agent_needs_revision
+        message: 'T-065: the implementer reported needs-revision — scope の欠落: チケットと設計(R-8: ''chosen: frozenset[OptionId]''、To
+          do ''Attempt.chosen を frozenset に'')は src/quiz_sift/domain/attempt.py の AttemptRecord.chosen
+          を frozenset[OptionId] に変えることを求めるが、tests/domain/test_shared_types.py(T-055 の scope、T-065 の scope
+          外)が AttemptRecord を chosen=OptionId(...) で構築し ''attempt.chosen == OPTIONS[0].option_id'' を断言している(75-83行、183-210行)。この変更後はこのテストが必ず赤になり、DoD
+          の ''bash gate.sh test''(pytest -q、testpaths=tests)を緑にできない。後方互換の分岐で両方を満たすことは方針(後方互換を持たない)と設計に反する。''rein
+          task scope-add T-065 tests/domain/test_shared_types.py'' は guard.scope_additions 未設定のため拒否された。必要な判断:
+          /revise で T-065 の scope に tests/domain/test_shared_types.py を加える(変更は AttemptRecord の構築引数と chosen
+          の断言を frozenset に追従させるだけ)。作業は何も行っていない(差分なし)。'
+        tree: sha256:ce3632b7379adf1050ca7f74615f6f910b7f405ac1df71eeaa565cdfac464304
   T-066:
     status: todo
   T-068:
-    status: todo
+    status: done
+    attempts: 16
+    completed_commit: c05c6476f6e3f6b256db507ec0f2f6754e9fcd53
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:a3a8488a0153b7d8fc27ffbc7c811d66e0e7dae26222911b4e280e7953641929
+      updated_at: '2026-10-07T06:10:42+09:00'
   T-069:
     status: todo
   T-070:
