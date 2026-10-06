@@ -99,7 +99,7 @@ executors:
 executor_profiles:
   quality:
     kind: oci
-    image: localhost/rein-quality@sha256:1a1da729afad9808c193516a87d1db168f17bed2beaf4ce8e387d13bfd4262ab
+    image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
     network_profile: none
     dockerfile: .rein/oci/quiz-sift/Containerfile
     # kind: oci
