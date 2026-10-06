@@ -653,7 +653,9 @@ def _synthetic_page(*blocks: tuple[int, tuple[int, ...], tuple[int, ...], bool])
     return f"<html><body><main>{''.join(html)}</main></body></html>"
 
 
-def _synthetic_out_root(tmp_path: Path) -> Path:
+def _synthetic_out_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """合成の生 HTML を持つ out/ を作る。記録のコミット ID は固定値にする — 品質ゲートのサンドボックスに git は無い。"""
+    monkeypatch.setattr(sys.modules[__name__], "_commit", lambda: "0123456789ab")
     (tmp_path / ".gitignore").write_text("out/\n", encoding="utf-8")
     raw = tmp_path / RAW_DIR
     raw.mkdir(parents=True)
@@ -679,7 +681,7 @@ def _synthetic_out_root(tmp_path: Path) -> Path:
 
 def test_rerun_record_holds_counts_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A-5: rerun が保存済みの生 HTML を抽出し直し、件数だけを記録する。本文は書かない。"""
-    out_root = _synthetic_out_root(tmp_path)
+    out_root = _synthetic_out_root(tmp_path, monkeypatch)
     record = tmp_path / "extraction-rerun.md"
     monkeypatch.setattr(sys.modules[__name__], "RERUN_LOG", record)
     from quiz_sift.adapters import browser_cdp
@@ -713,7 +715,7 @@ def test_golden_and_deck_source_commands_write_judgeable_records(
 
     どちらも本文は書かない。
     """
-    out_root = _synthetic_out_root(tmp_path)
+    out_root = _synthetic_out_root(tmp_path, monkeypatch)
     golden, refetch = tmp_path / "golden-set-nofm.md", tmp_path / "extraction-refetch.md"
     monkeypatch.setattr(sys.modules[__name__], "GOLDEN_NOFM_LOG", golden)
     monkeypatch.setattr(sys.modules[__name__], "REFETCH_LOG", refetch)
