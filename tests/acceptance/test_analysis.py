@@ -39,7 +39,7 @@ from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, G
 from quiz_sift.ports.process import CommandResult, CommandSpec
 from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
 from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION, EntailmentRejected
-from quiz_sift.script.generate import LabelEnumerationFound, ScriptTooLong
+from quiz_sift.script.generate import LabelEnumerationFound, MissingAnswerElement, ScriptTooLong
 
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
 
@@ -52,6 +52,10 @@ def _fixture() -> list[dict[str, Any]]:
     return [json.loads(line) for line in KNOWN5.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+LABELS = "ABCDEF"
+"""選択肢のラベル。フィクスチャの選択肢は4件で、C-006 の試験は5件・6件の問題も作る。"""
+
+
 def _correct(row: Mapping[str, Any]) -> list[int]:
     """正解の選択肢の位置。フィクスチャは単一正解(`correct`)、この試験で足す複数正解の問題は `corrects`。"""
     return list(row["corrects"]) if "corrects" in row else [row["correct"]]
@@ -61,8 +65,8 @@ def _deck_row(row: Mapping[str, Any], *, explained: bool = True) -> dict[str, An
     return {
         "id": row["id"],
         "stem": row["stem"],
-        "options": [{"id": label, "text": text} for label, text in zip("ABCD", row["options"], strict=True)],
-        "answers": ["ABCD"[i] for i in _correct(row)],
+        "options": [{"id": label, "text": text} for label, text in zip(LABELS, row["options"], strict=False)],
+        "answers": [LABELS[i] for i in _correct(row)],
         "explanation": row["explanation"] if explained else None,
     }
 
@@ -735,6 +739,11 @@ def _seconds(text: str) -> float:
     return sum(not ch.isspace() for ch in text) / 7.0
 
 
+def _answer(question: Mapping[str, Any]) -> str:
+    """台本の成果物の1問分から、読み上げる答え(要素を空白で連結したもの)。"""
+    return " ".join(question["answers"])
+
+
 def _long(text: str, seconds: float) -> str:
     sentence = "スタンバイへ同期で複製され、障害時は自動で切り替わる。"
     return text + "。" + sentence * round(seconds / _seconds(sentence))
@@ -754,14 +763,14 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
         draft = DRAFTS[q["id"]]
         # 問いかけは想起キーから作られ、答えと識別ポイントは想起素材のまま。
         assert all(term in q["prompt"] for term in draft.key.terms)
-        assert (q["answer"], q["discrimination"]) == (draft.answers[0].text, draft.discrimination.text)
+        assert (q["answers"], q["discrimination"]["text"]) == ([draft.answers[0].text], draft.discrimination.text)
         # 「間」はテキストではなく、秒数を持つ別の要素として表される。
         assert isinstance(q["pause"], float) and q["pause"] >= 3.0
 
     # 読み上げ順は 問いかけ → (間) → 答え → 識別ポイント。
     run("audio", deck_id)
     spoken = [text for text, _ in tts.inputs]
-    expected = [t for q in questions for t in (q["prompt"], q["answer"], q["discrimination"])]
+    expected = [t for q in questions for t in (q["prompt"], _answer(q), q["discrimination"]["text"])]
     assert spoken[: len(expected)] == expected
 
     # 選択肢ラベルの4件並列提示は、記号・番号・かなのどれでも、セグメントを跨いでも非0終了して書かれない。
@@ -791,10 +800,10 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
     assert [q["id"] for track in parts for q in track["questions"]] == list(GROUPS["rds"])
     for track in parts:
         seconds = sum(
-            _seconds(q["prompt"] + q["answer"] + q["discrimination"]) + q["pause"] for q in track["questions"]
+            _seconds(q["prompt"] + _answer(q) + q["discrimination"]["text"]) + q["pause"] for q in track["questions"]
         )
         assert seconds <= 180
-        assert all(q["answer"] == drafts[q["id"]].answers[0].text for q in track["questions"])
+        assert all(q["answers"] == [drafts[q["id"]].answers[0].text] for q in track["questions"])
 
     # 1問だけで3分を超えるなら割れないので、そのクラスタを列挙して非0終了する。
     unsplittable = _deck(workspace, "script-unsplittable")
@@ -803,6 +812,98 @@ def test_c006_script_order_pause_and_no_label_enumeration(workspace: Path, capsy
     assert isinstance(error, ScriptTooLong)
     assert [c.local_id for c in error.cluster_ids] == ["c003"]
     assert _artifacts(workspace, unsplittable, "script") == []
+
+
+def _with_options(row: Mapping[str, Any], *extra: str) -> dict[str, Any]:
+    """`row` の選択肢を `extra` の分だけ増やした問題(M = 4 + len(extra))。正解は変えない。"""
+    return {**row, "options": [*row["options"], *extra]}
+
+
+def test_c006_label_enumeration_uses_the_smallest_m_in_the_track(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A-1: 系列の先頭から M 件(M はトラック内の問題の M の最小値)が揃う形だけを列挙として止める。"""
+    rows = {row["id"]: row for row in SUBSET_ROWS}
+    # ec2 クラスタ(c001 = q05・q06・q07)は1トラックに入る。q05 と q06 の識別ポイントにラベルを足す。
+    five = {q: _with_options(rows[q], "専有インスタンス") for q in GROUPS["ec2"]}
+    mixed = {
+        "q05": _with_options(rows["q05"], "専有インスタンス"),
+        "q06": _with_options(rows["q06"], "専有インスタンス", "Capacity Reservations"),
+    }
+
+    def run(name: str, changed: Mapping[str, dict[str, Any]], first: str, second: str) -> Path | SystemExit:
+        deck_id = _deck(workspace, name, [changed.get(row["id"], row) for row in SUBSET_ROWS])
+        drafts = {
+            **DRAFTS,
+            "q05": _discriminated(DRAFTS["q05"], f"{DRAFTS['q05'].discrimination.text}。{first}"),
+            "q06": _discriminated(DRAFTS["q06"], f"{DRAFTS['q06'].discrimination.text}。{second}"),
+        }
+        runner = CliRunner(workspace, capsys, _subset_llm(drafts=drafts), StubTts())
+        try:
+            return Path(runner("script", deck_id))
+        except SystemExit as error:
+            assert _artifacts(workspace, deck_id, "script") == []
+            return error
+
+    four_labels = {
+        "letter": ("A と B は高い", "C と D は中断されない"),
+        "number": ("1番と②は高い", "(３)と4番は中断されない"),
+        "kana": ("アとイは高い", "ウとエは中断されない"),
+    }
+    five_labels = {
+        "letter": ("A と B と C は高い", "D と E は中断されない"),
+        "number": ("1番と②と3番は高い", "(４)と⑤は中断されない"),
+        "kana": ("アとイとウは高い", "エとオは中断されない"),
+    }
+    for series in four_labels:
+        # M=5 のトラックでは、先頭から4件の言及は止まらず、5件が揃えば止まる。
+        assert isinstance(run(f"m5-four-{series}", five, *four_labels[series]), Path), series
+        stopped = run(f"m5-five-{series}", five, *five_labels[series])
+        assert isinstance(stopped, LabelEnumerationFound), series
+        assert [(t.cluster_id.local_id, t.part) for t in stopped.tracks] == [("c001", 0)]
+        # M の違う問題が混ざるトラック(4件・5件・6件)は最小の M=4 で判定する。
+        assert isinstance(run(f"mixed-four-{series}", mixed, *four_labels[series]), LabelEnumerationFound), series
+
+    # 6件の系列(全角の Ｆ・６ と丸数字 ⑥ を含む)。M=6 のトラックで、5件までは止まらず6件で止まる。
+    six = {q: _with_options(rows[q], "専有インスタンス", "Capacity Reservations") for q in GROUPS["ec2"]}
+    assert isinstance(run("m6-five", six, "A と B と C は高い", "D と E は中断されない"), Path)
+    assert isinstance(
+        run("m6-six-letter", six, "A と B と C は高い", "D と E とＦは中断されない"), LabelEnumerationFound
+    )
+    assert isinstance(
+        run("m6-six-number", six, "1番と2番と3番は高い", "④と5番と⑥は中断されない"), LabelEnumerationFound
+    )
+    assert isinstance(run("m6-six-kana", six, "アとイとウは高い", "エとオとカは中断されない"), LabelEnumerationFound)
+
+
+def test_c006_answer_mentions_every_correct_option(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A-2: N-of-M の問題の台本の答えは N 要素から組み立てられ、要素数が N と違えば止まる。"""
+    deck_id = _deck(workspace, "script-multi", MULTI_ROWS)
+    tts = StubTts()
+    run = CliRunner(workspace, capsys, _subset_llm(drafts={**DRAFTS, "q10": MULTI_DRAFT}), tts)
+    script = _load(run("script", deck_id))
+    (multi,) = [q for track in script["tracks"] for q in track["questions"] if q["id"] == "q10"]
+    # 正解 A・C の2要素が、選択肢の順でそれぞれ答えに入る。
+    assert multi["answers"] == [e.text for e in MULTI_DRAFT.answers]
+    # 読み上げは要素を番号なしで連結した1文。
+    run("audio", deck_id)
+    spoken = " ".join(e.text for e in MULTI_DRAFT.answers)
+    assert spoken in [text for text, _ in tts.inputs]
+    assert not re.search(r"(?:^|\s)(?:[1-6１-６]\s*[.．)）]|[(（][1-6１-６][)）]|[1-6１-６]番|[①-⑥])", spoken)
+
+    # 想起素材の成果物が N と違う要素数を持つ(壊れた・古い成果物)なら、台本の段は非0で止まって何も書かない。
+    broken = _deck(workspace, "script-multi-broken", MULTI_ROWS)
+    run = CliRunner(workspace, capsys, _subset_llm(drafts={**DRAFTS, "q10": MULTI_DRAFT}), StubTts())
+    recall_path = Path(run("recall", broken))
+    recall = _load(str(recall_path))
+    (row,) = [m for m in recall["materials"] if m["question"] == "q10"]
+    row["answers"] = row["answers"][:1]
+    recall_path.write_text(json.dumps(recall, ensure_ascii=False), encoding="utf-8")
+    error = _fails(run, "script", broken)
+    assert isinstance(error, MissingAnswerElement)
+    assert error.question_id.local_id == "q10"
+    assert MULTI_DRAFT.answers[0].text not in str(error.code)
+    assert _artifacts(workspace, broken, "script") == []
 
 
 # ---- C-013 ----
@@ -916,3 +1017,40 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
         error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
         assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED, name
         assert _artifacts(workspace, deck_id, "recall") == []
+
+
+def test_c013_script_discrimination_is_judged_against_its_distractors(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A-3: 台本の識別ポイントは distractor_ids を引き継ぎ、台本段の reference に参照先の誤答の本文が入る。"""
+    q11 = {row["id"]: row for row in SUBSET_ROWS}["q11"]
+    statement = DRAFTS["q11"].discrimination.text
+    deck_id = _deck(workspace, "c013-script-distractors")
+    llm = _subset_llm()
+    run = CliRunner(workspace, capsys, llm, StubTts())
+    run("recall", deck_id)
+    llm.judged.clear()
+    script = _load(run("script", deck_id))
+
+    # 成果物の識別ポイントは、想起素材の参照先(q11 は A = リードレプリカ)を引き継ぐ。
+    (question,) = [q for track in script["tracks"] for q in track["questions"] if q["id"] == "q11"]
+    assert question["discrimination"] == {"text": statement, "distractors": ["A"]}
+    # 台本段の reference は、参照先の誤答の本文だけを「正しくない記述」の節に置く。
+    (reference,) = [r for r, s in llm.judged if s == statement]
+    assert f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
+    assert not any(text in reference for text in _distractors(q11) if text != "リードレプリカ")
+    # 答えの reference には誤答の節が無い。
+    (answer_reference,) = [r for r, s in llm.judged if s == DRAFTS["q11"].answers[0].text]
+    assert DISTRACTOR_SECTION not in answer_reference
+
+    # 参照先の誤答の節を持つ reference とだけ矛盾と返す判定器では、台本の段で止まって台本は書かれない。
+    deck_id = _deck(workspace, "c013-script-distractors-contradicted")
+    llm = _subset_llm()
+    run = CliRunner(workspace, capsys, llm, StubTts())
+    run("recall", deck_id)
+    llm.contradicts = lambda reference, _: f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
+    llm.judged.clear()
+    error = _fails(run, "script", deck_id)
+    assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED
+    assert any(s == statement for _, s in llm.judged)
+    assert _artifacts(workspace, deck_id, "script") == []

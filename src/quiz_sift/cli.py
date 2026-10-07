@@ -295,8 +295,13 @@ def _script_json(scripts: ScriptSet) -> dict[str, Any]:
                         "id": q.question_id.local_id,
                         "prompt": q.prompt.text,
                         "pause": q.pause.seconds,
-                        "answer": q.answer.text,
-                        "discrimination": None if q.discrimination is None else q.discrimination.text,
+                        "answers": list(q.answer.texts),
+                        "discrimination": None
+                        if q.discrimination is None
+                        else {
+                            "text": q.discrimination.text,
+                            "distractors": [o.local_id for o in q.discrimination.distractor_ids],
+                        },
                     }
                     for q in t.questions
                 ],
@@ -304,6 +309,12 @@ def _script_json(scripts: ScriptSet) -> dict[str, Any]:
             for t in scripts.tracks
         ],
     }
+
+
+def _discrimination_from(row: dict[str, Any] | None, question_id: QuestionId) -> Discrimination | None:
+    if row is None:
+        return None
+    return Discrimination(row["text"], tuple(OptionId(question_id, o) for o in row["distractors"]))
 
 
 def _tracks_from(data: dict[str, Any], deck_id: DeckId) -> tuple[Track, ...]:
@@ -316,8 +327,8 @@ def _tracks_from(data: dict[str, Any], deck_id: DeckId) -> tuple[Track, ...]:
                     QuestionId(deck_id, q["id"]),
                     Prompt(q["prompt"]),
                     Pause(q["pause"]),
-                    Answer(q["answer"]),
-                    None if q["discrimination"] is None else Discrimination(q["discrimination"]),
+                    Answer(tuple(q["answers"])),
+                    _discrimination_from(q["discrimination"], QuestionId(deck_id, q["id"])),
                 )
                 for q in row["questions"]
             ),

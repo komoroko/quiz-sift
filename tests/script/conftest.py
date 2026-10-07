@@ -20,6 +20,8 @@ from quiz_sift.script.generate import ScriptSet
 from quiz_sift.script.segments import QuestionScript
 
 DECK = DeckId("aws-saa")
+WRONG = OptionId(QuestionId(DECK, "q01"), "C")
+"""テキストを直接与えて組む識別ポイントが参照する誤答の ID。"""
 
 # (id, 問題文, 選択肢, 正解の添字, 解説)
 ROWS = [
@@ -124,8 +126,8 @@ def qscript(local_id: str, prompt: str, answer: str, discrimination: str | None 
         QuestionId(DECK, local_id),
         Prompt(prompt),
         Pause(3.3),
-        Answer(answer),
-        None if discrimination is None else Discrimination(discrimination),
+        Answer((answer,)),
+        None if discrimination is None else Discrimination(discrimination, (WRONG,)),
     )
 
 
