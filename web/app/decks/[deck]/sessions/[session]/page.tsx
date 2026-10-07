@@ -7,12 +7,15 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type Graded, type PresentedQuestion } from "@/lib/api";
 
 // 出題・採点・記録はすべて API 側。この画面は API が返した選択肢の並びを表示し、
-// 選ばれた option_id を送るだけで、回答をブラウザ内に保存しない。
+// 選ばれた option_id の集合を送るだけで、回答をブラウザ内に保存しない。
+// 正解が1件の問題は選択肢を1クリックで送る。select_count が2以上の問題はチェックボックスで選び、
+// 選択がちょうど select_count 件のときだけ送信できる(D-199)。
 export default function SessionPage() {
   const { deck, session } = useParams<{ deck: string; session: string }>();
   const [remaining, setRemaining] = useState<string[] | null>(null);
   const [question, setQuestion] = useState<PresentedQuestion | null>(null);
   const [graded, setGraded] = useState<Graded | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const next = useCallback(async () => {
@@ -22,6 +25,7 @@ export default function SessionPage() {
       const rest = detail.question_ids.filter((id) => !answered.has(id));
       setRemaining(rest);
       setGraded(null);
+      setSelected([]);
       setQuestion(rest.length > 0 ? await api.present(deck, session, rest[0]) : null);
     } catch (e) {
       setError((e as Error).message);
@@ -32,36 +36,61 @@ export default function SessionPage() {
     void next();
   }, [next]);
 
-  async function choose(optionId: string) {
+  async function submit(chosen: string[]) {
     if (!question || graded) return;
     try {
-      setGraded(await api.submit(deck, session, question.question_id, [optionId]));
+      setGraded(await api.submit(deck, session, question.question_id, chosen));
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  function toggle(optionId: string) {
+    setSelected((current) =>
+      current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId],
+    );
   }
 
   if (error) return <p role="alert">{error}</p>;
   if (remaining === null) return <p>読み込み中…</p>;
   const back = <Link href={`/decks/${encodeURIComponent(deck)}`}>デッキへ戻る</Link>;
   if (!question) return <><p>このセッションの問題はすべて回答済みです。</p>{back}</>;
+  const multiple = question.select_count > 1;
   return (
     <>
       <p>残り {remaining.length} 問 · セッション {session}</p>
       <h2>{question.stem}</h2>
+      {multiple ? <p>{question.select_count} 個選択</p> : null}
       <ol type="A">
         {question.options.map((option) => {
           const mark = graded && graded.correct_option_ids.includes(option.option_id) ? " ✓" : "";
           return (
             <li key={option.option_id}>
-              <button disabled={graded !== null} onClick={() => choose(option.option_id)}>
-                {option.text}
-              </button>
+              {multiple ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    disabled={graded !== null}
+                    checked={selected.includes(option.option_id)}
+                    onChange={() => toggle(option.option_id)}
+                  />
+                  {option.text}
+                </label>
+              ) : (
+                <button disabled={graded !== null} onClick={() => void submit([option.option_id])}>
+                  {option.text}
+                </button>
+              )}
               {mark}
             </li>
           );
         })}
       </ol>
+      {multiple && !graded ? (
+        <button disabled={selected.length !== question.select_count} onClick={() => void submit(selected)}>
+          回答する
+        </button>
+      ) : null}
       {graded ? (
         <>
           <p role="status">{graded.correct ? "正解" : "不正解"}</p>
