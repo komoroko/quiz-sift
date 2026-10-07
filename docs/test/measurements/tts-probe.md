@@ -12,8 +12,9 @@
 
 ```yaml
 probe: tests/fixtures/tts-probe/probe.py
-started_at: '2026-10-07T15:42:12+00:00'
-commit: 68679acbd8666baa7b70b0c846fa22c021337ed6
+probe_sha256: 18ac1fbcce4d38ec793ff7d46f2a29273d207955ea450c77fbad5462c831415f
+started_at: '2026-10-07T16:13:20+00:00'
+commit: 9da500fb92b76c0cb1b848ae8e0298ca47109700
 python: 3.13.5
 torch_version: 2.10.0+cu128
 cuda_available: true
@@ -61,7 +62,6 @@ runs:
   start: 11.075
   seconds: 4.683
 has_pause_structure: true
-llm_calls: 0
 ```
 
 ## 結論
