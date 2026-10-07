@@ -62,9 +62,15 @@ def make_deck(deck_id: DeckId = DECK) -> Deck:
     return Deck(deck_id=deck_id, language=Language.JA, default_studied=None, questions=tuple(questions))
 
 
-def wrong_option(question: Question) -> OptionId:
-    """正解でない選択肢の ID。内容で同定するのではなく ID で選ぶ。"""
-    return next(o.option_id for o in question.options if o.option_id not in question.correct_option_ids)
+def right_answer(question: Question) -> frozenset[OptionId]:
+    """正解の集合そのもの。"""
+    return frozenset(question.correct_option_ids)
+
+
+def wrong_answer(question: Question) -> frozenset[OptionId]:
+    """正解の集合のうち1件を誤答選択肢1件に入れ替えた N 件の集合(D-202)。内容ではなく ID で選ぶ。"""
+    first_wrong = next(o.option_id for o in question.options if o.option_id not in question.correct_option_ids)
+    return frozenset(question.correct_option_ids[1:]) | {first_wrong}
 
 
 @pytest.fixture

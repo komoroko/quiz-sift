@@ -201,7 +201,7 @@ def _attempt(deck_id: DeckId, question: str, correct: bool, minutes: int) -> Att
     return AttemptRecord(
         session_id=SessionId(deck_id, "s1"),
         question_id=qid,
-        chosen=OptionId(qid, "A" if correct else "B"),
+        chosen=frozenset({OptionId(qid, "A" if correct else "B")}),
         correct=correct,
         elapsed_seconds=5.0,
         answered_at=T0 + timedelta(minutes=minutes),

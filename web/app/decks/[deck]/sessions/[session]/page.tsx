@@ -35,7 +35,7 @@ export default function SessionPage() {
   async function choose(optionId: string) {
     if (!question || graded) return;
     try {
-      setGraded(await api.submit(deck, session, question.question_id, optionId));
+      setGraded(await api.submit(deck, session, question.question_id, [optionId]));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -51,7 +51,7 @@ export default function SessionPage() {
       <h2>{question.stem}</h2>
       <ol type="A">
         {question.options.map((option) => {
-          const mark = graded && option.option_id === graded.correct_option_id ? " ✓" : "";
+          const mark = graded && graded.correct_option_ids.includes(option.option_id) ? " ✓" : "";
           return (
             <li key={option.option_id}>
               <button disabled={graded !== null} onClick={() => choose(option.option_id)}>

@@ -22,7 +22,9 @@ def test_concurrent_requests_do_not_raise(server: QuizServer, client: Client, ro
         statuses = []
         for qid, answer in QUESTIONS.items():
             statuses.append(client.request("GET", f"{base}/questions/{qid}")[0].status)
-            statuses.append(client.request("POST", f"{base}/answers", {"question_id": qid, "chosen": answer})[0].status)
+            statuses.append(
+                client.request("POST", f"{base}/answers", {"question_id": qid, "chosen": [answer]})[0].status
+            )
             statuses.append(client.request("GET", f"/api/decks/{DECK}/sessions")[0].status)
         return statuses
 

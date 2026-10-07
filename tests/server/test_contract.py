@@ -34,7 +34,7 @@ def _rows(root: Path) -> list[tuple[str, str, str, str, int]]:
     conn = sqlite3.connect(store_path(root))
     try:
         return conn.execute(
-            "SELECT deck_id, session_id, question_id, chosen_option_id, correct FROM attempts ORDER BY rowid"
+            "SELECT deck_id, session_id, question_id, chosen_option_ids, correct FROM attempts ORDER BY rowid"
         ).fetchall()
     finally:
         conn.close()
@@ -47,8 +47,8 @@ def _answer_all(client: Client, session: str, pick_correct: bool) -> None:
         ids = [option["option_id"] for option in presented["options"]]
         assert sorted(ids) == ["A", "B", "C", "D"]
         chosen = answer if pick_correct else next(i for i in ids if i != answer)
-        graded = client.json("POST", f"{base}/answers", {"question_id": qid, "chosen": chosen}, expect=201)
-        assert graded == {"correct": pick_correct, "correct_option_id": answer, "explanation": f"解説 {qid}"}
+        graded = client.json("POST", f"{base}/answers", {"question_id": qid, "chosen": [chosen]}, expect=201)
+        assert graded == {"correct": pick_correct, "correct_option_ids": [answer], "explanation": f"解説 {qid}"}
 
 
 def test_api_is_the_only_write_path(client: Client, root: Path) -> None:
@@ -69,12 +69,12 @@ def test_api_is_the_only_write_path(client: Client, root: Path) -> None:
     _answer_all(client, session, pick_correct=True)
     rows = _rows(root)
     assert [(r[0], r[1], r[2], r[3], r[4]) for r in rows] == [
-        (DECK, session, qid, answer, 1) for qid, answer in QUESTIONS.items()
+        (DECK, session, qid, json.dumps([answer]), 1) for qid, answer in QUESTIONS.items()
     ]
 
     # 同じ問題への2度目の回答は記録を増やさない(既存回答の上書き・重複の経路が無い)。
     response, _ = client.request(
-        "POST", f"/api/decks/{DECK}/sessions/{session}/answers", {"question_id": "q1", "chosen": "B"}
+        "POST", f"/api/decks/{DECK}/sessions/{session}/answers", {"question_id": "q1", "chosen": ["B"]}
     )
     assert response.status == 400
     assert len(_rows(root)) == len(QUESTIONS)
@@ -142,8 +142,8 @@ def test_llm_sdk_pattern_catches_imports() -> None:
     assert BROWSER_STORAGE.search("window.localStorage.setItem('a', 'b')")
 
 
-def test_multi_answer_question_is_refused_without_recording(tmp_path: Path) -> None:
-    """正解が複数ある問題は、応答の形(`correct_option_id` が1つ)で答えられないので記録せずに 400。"""
+def test_multi_answer_question_takes_exactly_n_choices(tmp_path: Path) -> None:
+    """正解が複数ある問題は、ちょうど N 件の選択だけを採点して記録し、応答は正解の集合を返す。"""
     root = write_root(tmp_path)
     row = {
         "id": "multi",
@@ -160,10 +160,13 @@ def test_multi_answer_question_is_refused_without_recording(tmp_path: Path) -> N
         client = Client(srv.server_port)
         session = client.json("POST", f"/api/decks/{DECK}/sessions", expect=201)["session_id"]
         base = f"/api/decks/{DECK}/sessions/{session}"
-        client.json("GET", f"{base}/questions/multi")
-        response, _ = client.request("POST", f"{base}/answers", {"question_id": "multi", "chosen": "A"})
+        assert client.json("GET", f"{base}/questions/multi")["select_count"] == 2
+        response, _ = client.request("POST", f"{base}/answers", {"question_id": "multi", "chosen": ["A"]})
         assert response.status == 400
         assert not store_path(root).exists() or _rows(root) == []
+        graded = client.json("POST", f"{base}/answers", {"question_id": "multi", "chosen": ["C", "A"]}, expect=201)
+        assert graded == {"correct": True, "correct_option_ids": ["A", "C"], "explanation": None}
+        assert _rows(root) == [(DECK, session, "multi", '["A", "C"]', 1)]
     finally:
         srv.shutdown()
         srv.server_close()

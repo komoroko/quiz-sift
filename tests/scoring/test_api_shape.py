@@ -1,4 +1,6 @@
-"""A-1: 回答の受け口は submit(session_id, question_id, chosen: OptionId) だけで、表示位置を受け取る API が無い。"""
+"""A-1: 回答の受け口は submit(session_id, question_id, chosen: frozenset[OptionId]) だけで、
+表示位置を受け取る API が無い。
+"""
 
 import inspect
 import typing
@@ -33,13 +35,13 @@ def _public_callables(module: ModuleType) -> list[tuple[str, typing.Any]]:
 
 
 def test_no_positional_index_api_exists(quizmaster: Quizmaster, deck: Deck) -> None:
-    # 受け口は submit ただ1つで、引数は (session_id, question_id, chosen: OptionId)。
+    # 受け口は submit ただ1つで、引数は (session_id, question_id, chosen: frozenset[OptionId])。
     submits = [name for module in MODULES for name, _ in _public_callables(module) if "submit" in name]
     assert submits == ["Quizmaster.submit"]
     hints = typing.get_type_hints(Quizmaster.submit)
     params = list(inspect.signature(Quizmaster.submit).parameters)
     assert params == ["self", "session_id", "question_id", "chosen"]
-    assert (hints["session_id"], hints["question_id"], hints["chosen"]) == (SessionId, QuestionId, OptionId)
+    assert (hints["session_id"], hints["question_id"], hints["chosen"]) == (SessionId, QuestionId, frozenset[OptionId])
 
     # scoring のどの公開 API も int を引数に取らず、index / position という名の引数も持たない。
     for module in MODULES:

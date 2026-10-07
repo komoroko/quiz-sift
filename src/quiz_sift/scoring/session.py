@@ -1,7 +1,7 @@
 """出題セッション(R-8)。
 
 出題は `PresentedQuestion` を返し、その `presentation` は選択肢 ID の並びである。回答の受け口は
-`Quizmaster.submit(session_id, question_id, chosen: OptionId)` だけで、表示位置を受け取る API は置かない。
+`Quizmaster.submit(session_id, question_id, chosen: frozenset[OptionId])` だけで、表示位置を受け取る API は置かない。
 
 シャッフルの seed は「セッション ID × 問題 ID」から導出する(AR-7)。問題 ID だけから導出すると、
 同じ問題はどのセッションでも同じ順列になり、事前テストで覚えた位置が事後テストでもそのまま当たる。
@@ -61,8 +61,8 @@ class Quizmaster:
         self._pending[(session_id, question_id)] = self._clock.monotonic()
         return PresentedQuestion(question_id, tuple(order))
 
-    def submit(self, session_id: SessionId, question_id: QuestionId, chosen: OptionId) -> AttemptRecord:
-        """回答を採点して学習記録へ追記し、その記録を返す。"""
+    def submit(self, session_id: SessionId, question_id: QuestionId, chosen: frozenset[OptionId]) -> AttemptRecord:
+        """選んだ選択肢の集合を採点して学習記録へ追記し、その記録を返す。"""
         question = self._question(session_id, question_id)
         correct = grade(question, chosen)
         started = self._pending.pop((session_id, question_id), None)

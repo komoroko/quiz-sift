@@ -5,6 +5,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from quiz_sift.domain.ids import DeckId
 from quiz_sift.safety.gitignore_guard import is_ignored, parse_gitignore
 from quiz_sift.store import location
@@ -75,3 +77,34 @@ def test_single_definition_of_location_and_schema(tmp_path: Path) -> None:
     finally:
         actual.close()
         reference.close()
+
+
+def test_store_version_is_checked_fail_closed(tmp_path: Path) -> None:
+    # 新しい所在(空のファイルを含む)には v2 を作る。
+    empty = tmp_path / "empty"
+    location.store_path(empty).parent.mkdir(parents=True)
+    location.store_path(empty).touch()
+    DeckScopedStore(DeckId("aws-saa"), empty).attempts()
+    conn = sqlite3.connect(location.store_path(empty))
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone() == (location.SCHEMA_VERSION,)
+    finally:
+        conn.close()
+
+    # テーブルが無くても版が 0 でも 2 でもなければ、知らない形式として止まる。
+    unknown = tmp_path / "unknown"
+    path = location.store_path(unknown)
+    path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA user_version = 3")
+    finally:
+        conn.close()
+    with pytest.raises(location.LegacyStoreError, match="user_version = 3"):
+        DeckScopedStore(DeckId("aws-saa"), unknown).attempts()
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone() == (3,)
+        assert conn.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
+    finally:
+        conn.close()
