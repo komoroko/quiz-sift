@@ -6,7 +6,7 @@
 
 - `python tests/measurements/test_full_run_logs.py exec --out-root <作業ルート> --deck <デッキ> --kind full
   cluster --fresh-run` は製品の CLI(`python -m quiz_sift.cli`)を子プロセスで1回走らせ、argv・実行時刻・
-  コミット ID・終了コード・`run_id` を `<作業ルート>/out/<デッキ>/t047/journal.jsonl` へ追記する。標準エラーは
+  コミット ID・終了コード・`run_id` を `<作業ルート>/out/<デッキ>/t071/journal.jsonl` へ追記する。標準エラーは
   同じディレクトリのファイルに置く(コミットしない)。フル処理の列は `--kind full` で `cluster --fresh-run`
   から始め、続く段と週次枠で止まった段を `--resume <run_id>` で足す。再現性の列は `--kind repro` で
   `cluster --fresh-run` を1回ずつ走らせる。
@@ -66,7 +66,8 @@ PARTIAL_ORIGINAL = ROOT / "docs" / "archive" / "2026-10-06-fisrt" / "test" / "me
 """前サイクルの途中までの記録の原本(D-164)。full-run.md の置き場所は T-071 の記録に空けた(T-070)。"""
 
 METER_LOG = "meter.jsonl"
-JOURNAL_DIR = "t047"
+JOURNAL_DIR = "t071"
+"""前サイクルの journal(`t047/`)と分ける。試行は、この journal の最初の実行より後の開始行で数える。"""
 JOURNAL = "journal.jsonl"
 
 MIN_QUESTIONS, MAX_QUESTIONS = 100, 200
@@ -399,11 +400,19 @@ def compression_metrics(clusters: Mapping[str, Sequence[str]]) -> dict[str, floa
     }
 
 
-def attempts_of(entries: Sequence[Mapping[str, Any]]) -> list[tuple[str, int, int]]:
-    """フル処理の列を run_id ごとに (run_id, `--fresh-run` の実行数, `--resume` の実行数) で数える(D-181)。"""
+def attempts_of(
+    meter: Sequence[tuple[str, dict[str, Any]]], since: datetime, repro: set[str]
+) -> list[tuple[str, int, int]]:
+    """列を run_id ごとに (run_id, `--fresh-run` の実行数, `--resume` の実行数) で数える(D-181)。
+
+    journal ではなく meter.jsonl の開始行から数えるので、exec を通さずに起動した実行も入る。数えるのは journal の
+    最初の実行の起動より後の開始行(それより前は前サイクルの行)で、journal で再現性の列とした run_id は除く。
+    """
     counts: dict[str, Counter[str]] = {}
-    for entry in entries:
-        counts.setdefault(entry["run_id"], Counter())[_cache_mode_of(entry)] += 1
+    for _, line in meter:
+        if line["record"] != "start" or line["run_id"] in repro or datetime.fromisoformat(line["started_at"]) < since:
+            continue
+        counts.setdefault(line["run_id"], Counter())[line["cache_mode"]] += 1
     return [(run_id, count["fresh"], count["resume"]) for run_id, count in counts.items()]
 
 
@@ -445,9 +454,9 @@ R-3・R-7・NFR-7・NFR-8(C-025、C-007)の実デッキのフル処理を、1つ
 
 ## {ATTEMPTS}
 
-journal のフル処理の列(`--kind full`)を run_id ごとに数えた。`--fresh-run` で始めた列1本を1回と数え、同じ列の
-`--resume` は数えない。再現性の列(`--kind repro`)は予算の外で、ここには入れない(D-181)。上限は
-{MAX_ATTEMPTS} 本。最後の行が上の列である。
+meter.jsonl の開始行のうち journal の最初の実行より後のものを run_id ごとに数えた(exec を通さずに起動した実行も
+入る)。`--fresh-run` で始めた列1本を1回と数え、同じ列の `--resume` は数えない。再現性の列(journal の
+`--kind repro`)は予算の外で、ここには入れない(D-181)。上限は {MAX_ATTEMPTS} 本。最後の行が上の列である。
 
 | run_id | --fresh-run | --resume |
 |---|---|---|
@@ -626,7 +635,9 @@ def render_records(out_root: Path, deck: str) -> tuple[str, str, str]:
     full_paired = _paired([e for e in full if e["run_id"] == run_id], meter)
     cluster_entry = next(e for e, _, _ in full_paired if _stage_of(e) == "cluster" and e["exit_code"] == 0)
     clusters = _clusters_of(cluster_entry["stdout"])
-    full_log = render_full_log(deck, run_id, full_paired, attempts_of(full), clusters, cluster_entry["cluster_summary"])
+    since = min(datetime.fromisoformat(e["started_at"]) for e in journal if e["entry"] == "execution")
+    attempts = attempts_of(meter, since, {e["run_id"] for e in executions if e["kind"] == "repro"})
+    full_log = render_full_log(deck, run_id, full_paired, attempts, clusters, cluster_entry["cluster_summary"])
 
     repro = [e for e in executions if e["kind"] == "repro" and e["exit_code"] == 0][-REPRO_SEQUENCES:]
     sequences = [(_paired([e], meter)[0], _clusters_of(e["stdout"])) for e in repro]
@@ -961,7 +972,6 @@ class _SyntheticRoot:
         quota: bool = True,
         rate_limited: bool = False,
         events_missing: int = 0,
-        meter: bool = True,
     ) -> None:
         """製品の CLI の1実行ぶんの journal の行と、meter.jsonl の開始行・終了行を書く。"""
         from quiz_sift.pipeline.run_sequence import aggregate
@@ -990,19 +1000,8 @@ class _SyntheticRoot:
             "stderr": stderr,
         }
         _append_journal(self.root, _DECK, entry)
-        if not meter:
-            return
-        execution_id = f"{run_id[:8]}-{self.number:03d}"
-        start = {
-            "record": "start",
-            "run_id": run_id,
-            "execution_id": execution_id,
-            "started_at": self._tick(),
-            "cache_mode": "fresh" if fresh else "resume",
-            "stage": stage,
-            "env_names": ["HOME", "LANG", "PATH"],
-            "metered_env_names": [],
-        }
+        start = self._start(run_id, stage, fresh=fresh)
+        execution_id = start["execution_id"]
         invocations = math.ceil(_N / CLASSIFY_BATCH_SIZE) + 2 * len(clusters) if stage == "cluster" and clusters else 3
         calls = 1 + 2 * len(clusters) if stage == "cluster" and clusters else 3
         window = {"status": "allowed", "utilization": 0.25, "resets_at": "2026-10-17T08:00:00+09:00"}
@@ -1038,12 +1037,32 @@ class _SyntheticRoot:
             "overage_check": "unknown" if events_missing else "passed",
             "stop": {"exit_code": exit_code, "kind": "completed" if exit_code == 0 else "error", "exit_reason": "ok"},
         }
-        lines = [*self.meter, start]
-        end["sequence"] = aggregate([*lines, end], run_id)
-        self.meter = [*lines, end]
+        end["sequence"] = aggregate([*self.meter, end], run_id)
+        self._write_meter(end)
+
+    def _start(self, run_id: str, stage: str, *, fresh: bool) -> dict[str, Any]:
+        start = {
+            "record": "start",
+            "run_id": run_id,
+            "execution_id": f"{run_id[:8]}-{len(self.meter):03d}",
+            "started_at": self._tick(),
+            "cache_mode": "fresh" if fresh else "resume",
+            "stage": stage,
+            "env_names": ["HOME", "LANG", "PATH"],
+            "metered_env_names": [],
+        }
+        self._write_meter(start)
+        return start
+
+    def _write_meter(self, line: dict[str, Any]) -> None:
+        self.meter.append(line)
         (self.root / "out" / _DECK / METER_LOG).write_text(
             "".join(json.dumps(line, ensure_ascii=False) + "\n" for line in self.meter), encoding="utf-8"
         )
+
+    def unjournaled_fresh_run(self, run_id: str) -> None:
+        """exec を通さずに起動した `cluster --fresh-run`。meter.jsonl に開始行だけがあり、journal には無い。"""
+        self._start(run_id, "cluster", fresh=True)
 
     def silence(self, clusters: Sequence[str]) -> None:
         files = [
@@ -1063,20 +1082,32 @@ class _SyntheticRoot:
 
 
 def _synthetic_records(
-    root: Path, *, earlier_attempts: int = 0, events_missing: int = 0, stopped: int = 0
+    root: Path,
+    *,
+    earlier_attempts: int = 0,
+    events_missing: int = 0,
+    stopped: int = 0,
+    unjournaled: int = 0,
+    previous_cycle: int = 0,
 ) -> tuple[str, str, str]:
     """合成の作業ルートを作って render する。
 
     本列の前に、止まった --fresh-run の列を `earlier_attempts` 本置く。本列は cluster --fresh-run の後、週次枠で
     止まった recall を `stopped` 回 --resume し、recall から audio までを --resume で通して completed にする。
+    `previous_cycle` 本は journal の最初の実行より前の、`unjournaled` 本は journal の実行の間の、exec を通さない
+    --fresh-run の開始行である。
     """
     synthetic = _SyntheticRoot(root)
+    for i in range(previous_cycle):
+        synthetic.unjournaled_fresh_run(f"{i + 1:x}" * 31 + "e")
     for i in range(earlier_attempts):
         prior = f"{i + 1:x}" * 32
-        synthetic.execute("full", "cluster", prior, fresh=True, exit_code=1, meter=False)
-        synthetic.execute("full", "cluster", prior, fresh=False, exit_code=1, meter=False)
+        synthetic.execute("full", "cluster", prior, fresh=True, exit_code=1)
+        synthetic.execute("full", "cluster", prior, fresh=False, exit_code=1)
     for i, clusters in enumerate(_ASSIGNMENTS):
         synthetic.execute("repro", "cluster", f"{'cd'[i]}" * 32, fresh=True, clusters=clusters)
+    for i in range(unjournaled):
+        synthetic.unjournaled_fresh_run(f"{i + 1:x}" * 31 + "f")
     main = "a" * 32
     synthetic.execute("full", "cluster", main, fresh=True, clusters=_ASSIGNMENTS[0], quota=False)
     for _ in range(stopped):
@@ -1124,6 +1155,11 @@ def test_full_run_judges_go_red_on_each_missing_item(tmp_path: Path) -> None:
     # 全クラスタの無音判定
     _red(check_audio_silence, silence.replace("| 真 |", "| 偽 |", 1))
     _red(check_audio_silence, re.sub(r"^\| `001_[^\n]*\n", "", silence, flags=re.MULTILINE))
+    # 一部のクラスタの mp3 しか判定しなかった記録(ファイル数は行の数と合っている)。
+    partial = re.sub(r"^\| `001_[^\n]*\n", "", silence, flags=re.MULTILINE).replace(
+        "| ファイル数 | 4 |", "| ファイル数 | 3 |"
+    )
+    _red(check_audio_silence, partial)
     # M/N・最大クラスタ比率・「その他」比率
     for key in ("M/N", "最大クラスタ比率", "「その他」比率"):
         _red(check_compression, re.sub(rf"^\| {re.escape(key)} \|.*\n", "", full, flags=re.MULTILINE))
@@ -1135,7 +1171,9 @@ def test_full_run_judges_go_red_on_each_missing_item(tmp_path: Path) -> None:
     )
     _red(check_no_metered_credentials, full.replace('"overage_invocations": 0', '"overage_invocations": 1'))
     # overage_check の passed/unknown
-    _red(check_overage_and_quota, full.replace('"overage_check": "passed"', '"overage_check": "failed"'))
+    # 表と終了行が同じ failed の記録(render はどちらも同じ値で書く)。
+    failed = full.replace('"overage_check": "passed"', '"overage_check": "failed"')
+    _red(check_overage_and_quota, failed.replace("| overage_check | `passed` |", "| overage_check | `failed` |"))
     _red(check_overage_and_quota, unknown[0].replace("| invocations_without_rate_limit_event |", "| x |"))
     _red(check_overage_and_quota, full.replace("| quota_missing.at_start | 1 |", "| quota_missing.at_start | 0 |"))
 
@@ -1151,6 +1189,10 @@ def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
 
     fourth, _, _ = _synthetic_records(tmp_path / "four", earlier_attempts=3)
     _red(check_attempt_budget, fourth)
+    # exec を通さずに起動した --fresh-run も試行に数える。前サイクルの開始行(journal の最初の実行より前)は数えない。
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "unjournaled", unjournaled=3)[0])
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "mixed", earlier_attempts=2, unjournaled=1)[0])
+    check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=2, previous_cycle=3)[0])
     _red(check_attempt_budget, full.replace("| 1 | 5 |", "| 1 | 4 |"))
     _red(check_attempt_budget, full.replace(f"| `{'1' * 32}` | 1 |", f"| `{'1' * 32}` | 2 |"))
 
