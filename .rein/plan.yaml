@@ -1272,6 +1272,7 @@ tasks:
     include:
     - tests/measurements/test_full_run_logs.py
     - docs/test/measurements/full-run.md
+    - tests/measurements/test_recall_rehearsal_logs.py
   acceptance:
   - id: A-1
     statement: 合成の記録に対して、列の completed、再現性の2列の割当一致率、全クラスタの無音判定、M/N・最大クラスタ比率・「その他」比率、metered 認証変数なしと overage
