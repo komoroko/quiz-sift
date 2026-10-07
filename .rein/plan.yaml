@@ -1216,6 +1216,8 @@ tasks:
     - tests/fixtures/tts-probe/
     - tests/measurements/test_tts_probe_logs.py
     - docs/test/measurements/tts-probe.md
+    - pyproject.toml
+    - uv.lock
   acceptance:
   - id: A-1
     statement: 文と間を含む合成の台本1本(教材を含まない)を、製品の audio 段と同じ経路(合成 → 間の挿入 → mp3 → 復号 → 無音判定)で実 CosyVoice に通し、無音判定が真になったことが
@@ -1256,6 +1258,7 @@ tasks:
       QUIZ_SIFT_TTS_MODEL: /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
     allow:
     - uv run --extra tts python tests/measurements/test_tts_probe_logs.py
+    - uv lock
 - id: T-070
   title: フル処理の判定の道具を元の T-047 の A-1〜A-6 に戻す(人が render した記録を判定する)
   kind: integration
