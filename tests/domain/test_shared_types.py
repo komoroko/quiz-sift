@@ -75,12 +75,12 @@ def test_shared_types_expose_downstream_fields() -> None:
     attempt = AttemptRecord(
         session_id=SessionId(DECK, "s1"),
         question_id=Q1,
-        chosen=OPTIONS[0].option_id,
+        chosen=frozenset({OPTIONS[0].option_id}),
         correct=True,
         elapsed_seconds=4.5,
         answered_at=datetime(2026, 9, 22, 10, 0, tzinfo=UTC),
     )
-    assert attempt.chosen == OPTIONS[0].option_id
+    assert attempt.chosen == frozenset({OPTIONS[0].option_id})
     assert attempt.correct is True
     assert attempt.elapsed_seconds == 4.5
     assert attempt.session_id == SessionId(DECK, "s1")
@@ -183,7 +183,7 @@ def test_invariants_refuse_impossible_values() -> None:
         AttemptRecord(
             session_id=SessionId(DECK, "s1"),
             question_id=Q1,
-            chosen=OptionId(QuestionId(DECK, "q2"), "A"),
+            chosen=frozenset({OptionId(QuestionId(DECK, "q2"), "A")}),
             correct=True,
             elapsed_seconds=1.0,
             answered_at=datetime(2026, 9, 22, tzinfo=UTC),
@@ -192,7 +192,7 @@ def test_invariants_refuse_impossible_values() -> None:
         AttemptRecord(
             session_id=SessionId(DeckId("deck-b"), "s1"),
             question_id=Q1,
-            chosen=OPTIONS[0].option_id,
+            chosen=frozenset({OPTIONS[0].option_id}),
             correct=True,
             elapsed_seconds=1.0,
             answered_at=datetime(2026, 9, 22, tzinfo=UTC),
@@ -201,7 +201,7 @@ def test_invariants_refuse_impossible_values() -> None:
         AttemptRecord(
             session_id=SessionId(DECK, "s1"),
             question_id=Q1,
-            chosen=OPTIONS[0].option_id,
+            chosen=frozenset({OPTIONS[0].option_id}),
             correct=True,
             elapsed_seconds=-0.1,
             answered_at=datetime(2026, 9, 22, tzinfo=UTC),

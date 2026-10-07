@@ -19,7 +19,7 @@ def attempt(question: str, correct: bool, minutes: int, deck: DeckId = DECK) -> 
     return AttemptRecord(
         session_id=SessionId(deck, "s1"),
         question_id=qid,
-        chosen=OptionId(qid, "A" if correct else "B"),
+        chosen=frozenset({OptionId(qid, "A" if correct else "B")}),
         correct=correct,
         elapsed_seconds=4.0,
         answered_at=T0 + timedelta(minutes=minutes),

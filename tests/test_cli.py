@@ -166,7 +166,9 @@ def test_every_stage_has_an_entry_point(
     # 学習記録に誤答が1件あれば、そのクラスタだけの復習系列ができる。
     question_id = QuestionId(DECK, "q03")
     DeckScopedStore(DECK, root).record_attempt(
-        AttemptRecord(SessionId(DECK, "s1"), question_id, OptionId(question_id, "A"), False, 2.0, datetime.now(UTC))
+        AttemptRecord(
+            SessionId(DECK, "s1"), question_id, frozenset({OptionId(question_id, "A")}), False, 2.0, datetime.now(UTC)
+        )
     )
     review = Path(run("review", DECK))
     assert review == out / "review" / "review.m3u"

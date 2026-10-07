@@ -11,9 +11,10 @@ export type SessionDetail = { session_id: string; question_ids: string[]; answer
 export type PresentedQuestion = {
   question_id: string;
   stem: string;
+  select_count: number;
   options: { option_id: string; text: string }[];
 };
-export type Graded = { correct: boolean; correct_option_id: string; explanation: string | null };
+export type Graded = { correct: boolean; correct_option_ids: string[]; explanation: string | null };
 export type Rate = { correct: number; answered: number; ratio: number | null };
 export type PrePost = { pre: Rate; post: Rate; delta: number | null };
 export type Report = {
@@ -47,7 +48,7 @@ export const api = {
     request<SessionDetail>(`/api/decks/${seg(deck)}/sessions/${seg(session)}`),
   present: (deck: string, session: string, question: string) =>
     request<PresentedQuestion>(`/api/decks/${seg(deck)}/sessions/${seg(session)}/questions/${seg(question)}`),
-  submit: (deck: string, session: string, question: string, chosen: string) =>
+  submit: (deck: string, session: string, question: string, chosen: string[]) =>
     request<Graded>(`/api/decks/${seg(deck)}/sessions/${seg(session)}/answers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

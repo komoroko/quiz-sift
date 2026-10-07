@@ -13,17 +13,21 @@ from quiz_sift.domain.ids import ClusterId, OptionId, QuestionId, SessionId
 
 @dataclass(frozen=True, slots=True)
 class AttemptRecord:
-    """1問への回答1件。"""
+    """1問への回答1件。`chosen` は選んだ選択肢の集合で、正答は正解の集合との完全一致(R-8)。"""
 
     session_id: SessionId
     question_id: QuestionId
-    chosen: OptionId
+    chosen: frozenset[OptionId]
     correct: bool
     elapsed_seconds: float
     answered_at: datetime
 
     def __post_init__(self) -> None:
-        if self.chosen.question_id != self.question_id:
+        if not isinstance(self.chosen, frozenset):
+            raise TypeError(f"chosen は OptionId の frozenset で与える: {type(self.chosen).__name__}")
+        if not self.chosen:
+            raise ValueError("選択肢を1つも選んでいない")
+        if any(option.question_id != self.question_id for option in self.chosen):
             raise ValueError("別の問題の選択肢を選んだことになっている")
         if self.session_id.deck_id != self.question_id.deck_id:
             raise ValueError("別デッキのセッションに記録しようとしている")

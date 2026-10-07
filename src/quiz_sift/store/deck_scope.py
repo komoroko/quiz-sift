@@ -5,6 +5,7 @@
 別デッキの記録を拒む。
 """
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -33,13 +34,13 @@ class DeckScopedStore:
             raise ValueError(f"別デッキの回答は記録しない: {attempt.session_id.deck_id}")
         with connect(self._root) as conn:
             conn.execute(
-                "INSERT INTO attempts (deck_id, session_id, question_id, chosen_option_id, correct,"
+                "INSERT INTO attempts (deck_id, session_id, question_id, chosen_option_ids, correct,"
                 " elapsed_seconds, answered_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     self.deck_id,
                     attempt.session_id.local_id,
                     attempt.question_id.local_id,
-                    attempt.chosen.local_id,
+                    json.dumps(sorted(option.local_id for option in attempt.chosen)),
                     int(attempt.correct),
                     attempt.elapsed_seconds,
                     _to_text(attempt.answered_at),
@@ -51,7 +52,7 @@ class DeckScopedStore:
         if session_id is not None and session_id.deck_id != self.deck_id:
             raise ValueError(f"別デッキのセッションは読まない: {session_id.deck_id}")
         query = (
-            "SELECT session_id, question_id, chosen_option_id, correct, elapsed_seconds, answered_at"
+            "SELECT session_id, question_id, chosen_option_ids, correct, elapsed_seconds, answered_at"
             " FROM attempts WHERE deck_id = ?"
         )
         params: tuple[str, ...] = (self.deck_id,)
@@ -67,7 +68,7 @@ class DeckScopedStore:
                 AttemptRecord(
                     session_id=SessionId(self.deck_id, session),
                     question_id=question_id,
-                    chosen=OptionId(question_id, chosen),
+                    chosen=frozenset(OptionId(question_id, local) for local in json.loads(chosen)),
                     correct=bool(correct),
                     elapsed_seconds=elapsed,
                     answered_at=datetime.fromisoformat(answered_at),
