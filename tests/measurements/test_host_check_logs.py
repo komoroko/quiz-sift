@@ -15,19 +15,21 @@
   (評価器を直したのに測り直していない記録、表だけ書き換えた記録)。
 - git が使える環境では、記録された git の判定が今 git に聞き直した結果と違う(作り話の記録)。
 
-**A-2(C-012 / R-12 / ADR-012)**: ブラウザからテストを実施し結果を閲覧した E2E の記録
-`docs/test/measurements/ui-e2e.md` を読む。node と Next.js はサンドボックスイメージに無いので、
-E2E はホストで1回走らせる(`run_ui_e2e`)。記録は
+**C-012(R-12 / ADR-012 / ADR-021)**: ブラウザからテストを実施し結果を閲覧した E2E の記録
+`docs/test/measurements/ui-e2e-nofm.md` を読む。E2E は5択2正解の問題を含み、その問題で選択が
+N−1 件・N+1 件のときは送信できず、ちょうど N 件で送信できたことを確かめる。
+node と Next.js はサンドボックスイメージに無いので、E2E はホストで1回走らせる(`run_ui_e2e`)。記録は
 `PYTHONPATH=src python tests/measurements/test_host_check_logs.py ui-e2e --node-modules <npm ci した node_modules>`
 で作り直す。ブラウザは Playwright が置いた chromium を、既存の `adapters/browser_cdp.CdpSession`
 で CDP 越しに操作する(Playwright の Node パッケージを依存に足さないため)。スクリーンショットは
-`docs/test/measurements/ui-e2e/` に書いてコミットする(D-080)。gitignore 対象の `out/` に置くと、
+`docs/test/measurements/ui-e2e-nofm/` に書いてコミットする(D-080)。gitignore 対象の `out/` に置くと、
 追跡ファイルだけのチェックアウトで走る worktree では実在せず、判定の緑が走る木に依存する。
 スクリーンショットが追跡対象になるので、E2E は使い捨ての作業ルートに置いた架空のデッキに対してだけ
 走らせる(D-081)。リポジトリの `data/`・`out/` は読まないので、実教材の本文が画像に写る経路は無い。
 テストは次のどれかで赤になる:
 
-- 記録された終了コードが 0 でない、または手順のどれかが ok でない(A-2 の本体)。
+- 記録された終了コードが 0 でない、または手順のどれかが ok でない(本体)。
+- 記録された `web/` の digest が今の `web/` と違う(UI を変えたのに測り直していない記録)。
 - 記録の手順・スクリーンショットの並びが、このファイルが宣言する E2E と違う(古い記録)。
 - 記録されたスクリーンショットのパスが実在しない、PNG でない、記録した digest と中身が違う。
 """
@@ -59,8 +61,8 @@ from quiz_sift.store.location import store_path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 GITIGNORE_LOG = ROOT / "docs" / "test" / "measurements" / "gitignore-equivalence.md"
-UI_E2E_LOG = ROOT / "docs" / "test" / "measurements" / "ui-e2e.md"
-SCREENSHOT_DIR = Path("docs") / "test" / "measurements" / "ui-e2e"
+UI_E2E_LOG = ROOT / "docs" / "test" / "measurements" / "ui-e2e-nofm.md"
+SCREENSHOT_DIR = Path("docs") / "test" / "measurements" / "ui-e2e-nofm"
 
 #: リポジトリの `.gitignore` に対する代表パス集合。書き出し先(data/・out/)の深い階層、
 #: 無視されないはずの追跡対象、拡張子パターン、ディレクトリ形式の規則に同名のファイルが
@@ -382,22 +384,42 @@ def test_the_git_side_of_the_harness_reads_verdicts(gitignore: str, path: str, i
 
 
 E2E_DECK = "e2e-deck"
-#: 架空の問題(NFR-2 の対象外)。値は正解の選択肢ラベル。
-E2E_QUESTIONS = {"q1": "A", "q2": "B", "q3": "C", "q4": "D"}
+#: 架空の問題(NFR-2 の対象外)。値は(選択肢ラベル, 正解の集合)。q5 は5択2正解(N-of-M)。
+E2E_QUESTIONS: dict[str, tuple[str, frozenset[str]]] = {
+    "q1": ("ABCD", frozenset("A")),
+    "q2": ("ABCD", frozenset("B")),
+    "q3": ("ABCD", frozenset("C")),
+    "q4": ("ABCD", frozenset("D")),
+    "q5": ("ABCDE", frozenset("BD")),
+}
+E2E_NOFM = "q5"
+#: 5択2正解の問題で送信を試す選択。N−1 件・N+1 件は送れず、N 件(正解)で送れる。
+E2E_NOFM_UNDER = ("B",)
+E2E_NOFM_OVER = ("B", "D", "E")
 E2E_STEM_PREFIX = "架空の問題 "
+E2E_SUBMIT = "回答する"
 
-#: 事前は全問「選択肢 A」で答えて 1/4、事後は全問正解で 4/4 になる。レポートにはその差が出る。
+#: 事前は全問を先頭から N 個の選択肢で答えて 1/5、事後は全問正解で 5/5 になる。レポートにはその差が出る。
 E2E_STEPS = (
     "デッキ一覧を開く",
     "デッキを開いて事前テストを始める",
-    "事前テストの全問に「選択肢 A」で答える",
+    "事前テストの全問に先頭から N 個の選択肢で答える",
     "デッキへ戻って事後テストを始める",
     "事後テストの全問に正解で答える",
+    "5択2正解の問題は「2 個選択」とチェックボックスで出題され、1件・3件では送れず2件で送れた(2度押しても送信は1回)",
     "事前・事後を選んでレポートを開く",
     "回答がブラウザ内ストレージでなくサーバ側のストアにある",
 )
-E2E_SCREENSHOTS = ("01-decks.png", "02-graded.png", "03-session-done.png", "04-report.png")
-E2E_REPORT_TEXTS = ("25.0% (1/4)", "100.0% (4/4)", "+75.0pt")
+E2E_SCREENSHOTS = (
+    "01-decks.png",
+    "02-graded.png",
+    "03-session-done.png",
+    "04-nofm-under.png",
+    "05-nofm-over.png",
+    "06-nofm-graded.png",
+    "07-report.png",
+)
+E2E_REPORT_TEXTS = ("20.0% (1/5)", "100.0% (5/5)", "+80.0pt")
 
 UI_E2E_HEADINGS = ("## 実行条件", "## 終了コード", "## 手順", "## スクリーンショット")
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -424,6 +446,7 @@ class E2eRun:
     screenshots: tuple[Path, ...]
     browser: str
     next_build: str
+    web_digest: str
 
 
 def _free_port() -> int:
@@ -431,6 +454,34 @@ def _free_port() -> int:
         sock.bind(("127.0.0.1", 0))
         port: int = sock.getsockname()[1]
         return port
+
+
+WEB_DIGEST_ROW = "web/ の digest"
+
+
+def _web_digest(root: Path) -> str:
+    """`root/web` のうち `web/.gitignore` で無視されないファイルの、相対パスと中身の digest。
+
+    E2E はこの木の `web/` を写して建てるので、記録をこの値で今の UI に結びつける。
+    `node_modules/`・`.next/`・`*.tsbuildinfo` のような手元の生成物は UI の版ではないので含めない。
+    """
+    web = root / "web"
+    rules = parse_gitignore((web / ".gitignore").read_text(encoding="utf-8"))
+    digest = hashlib.sha256()
+    pending = [web]
+    files = []
+    while pending:
+        for path in sorted(pending.pop().iterdir()):
+            relative = path.relative_to(web).as_posix()
+            if is_ignored(relative, rules, is_dir=path.is_dir()):
+                continue
+            if path.is_dir():
+                pending.append(path)
+            else:
+                files.append((relative, path))
+    for relative, path in sorted(files):
+        digest.update(relative.encode("utf-8") + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _wait_http(url: str, timeout: float = 60.0) -> bytes:
@@ -471,11 +522,11 @@ def _write_e2e_root(root: Path) -> None:
         {
             "id": qid,
             "stem": f"{E2E_STEM_PREFIX}{qid}",
-            "options": [{"id": label, "text": f"選択肢 {label}"} for label in "ABCD"],
-            "answers": [answer],
+            "options": [{"id": label, "text": f"選択肢 {label}"} for label in labels],
+            "answers": sorted(answers),
             "explanation": f"解説 {qid}",
         }
-        for qid, answer in E2E_QUESTIONS.items()
+        for qid, (labels, answers) in E2E_QUESTIONS.items()
     ]
     (deck_dir / "q.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", "utf-8")
 
@@ -516,6 +567,50 @@ class _Page:
             f"(() => {{ const el = {found}; if (!el) return false; el.click(); return true; }})()", f"「{label}」"
         )
 
+    def set_checked(self, labels: tuple[str, ...]) -> None:
+        """チェックボックスの選択を `labels`(選択肢ラベル)の集合にする。React が拾うようにクリックで切り替える。"""
+        wanted = json.dumps([f"選択肢 {label}" for label in labels])
+        script = (
+            f"(() => {{ const want = new Set({wanted});"
+            " for (const l of document.querySelectorAll('label')) {"
+            " const box = l.querySelector('input[type=checkbox]');"
+            " if (box && box.checked !== want.has(l.textContent.trim())) { box.click(); }"
+            " } return true; })()"
+        )
+        self.eval(script)
+        checked = (
+            "[...document.querySelectorAll('label')]"
+            ".filter((l) => l.querySelector('input[type=checkbox]:checked')).map((l) => l.textContent.trim()).sort()"
+        )
+        expected = json.dumps(sorted(f"選択肢 {label}" for label in labels), separators=(",", ":"), ensure_ascii=False)
+        self.wait(f"JSON.stringify({checked}) === {json.dumps(expected)}", f"選択 {list(labels)}")
+
+    def submit_enabled(self) -> bool:
+        """「回答する」ボタンが押せる状態か。ボタンが無ければ E2eFailure。"""
+        state = self.eval(
+            f"(() => {{ const b = [...document.querySelectorAll('button')]"
+            f".find((el) => el.textContent.trim() === {json.dumps(E2E_SUBMIT)});"
+            " return b ? (b.disabled ? 'disabled' : 'enabled') : 'missing'; })()"
+        )
+        if state == "missing":
+            raise E2eFailure(f"「{E2E_SUBMIT}」ボタンが無い")
+        return state == "enabled"
+
+    def double_submit(self) -> None:
+        """「回答する」を再描画を挟まずに2度 click() する(応答待ちの間の2度押し)。"""
+        self.eval(
+            f"(() => {{ const b = [...document.querySelectorAll('button')]"
+            f".find((el) => el.textContent.trim() === {json.dumps(E2E_SUBMIT)});"
+            " b.click(); b.click(); return true; })()"
+        )
+
+    def force_submit(self) -> None:
+        """押せない状態の「回答する」も DOM から click() する。押せないなら何も送られないはず。"""
+        self.eval(
+            f"[...document.querySelectorAll('button')].find((el) => el.textContent.trim() === {json.dumps(E2E_SUBMIT)})"
+            "?.click()"
+        )
+
     def path(self) -> str:
         return str(self.eval("location.pathname"))
 
@@ -527,17 +622,79 @@ class _Page:
         return target
 
 
-def _answer_all(page: _Page, choose: Callable[[str], str], graded_shot: Path | None) -> list[str]:
-    """セッション画面で全問に答え、各問の採点表示(正解 / 不正解)を問題の順に返す。"""
+def _checkboxes(page: _Page) -> int:
+    return int(str(page.eval("document.querySelectorAll('input[type=checkbox]').length")))
+
+
+def _try_refused(page: _Page, labels: tuple[str, ...], shot: Path, answered: Callable[[], int]) -> str:
+    """`labels` を選んだ状態で送信できない(ボタンが押せず、押しても記録が増えない)ことを確かめる。"""
+    before = answered()
+    page.set_checked(labels)
+    if page.submit_enabled():
+        raise E2eFailure(f"{len(labels)} 件の選択で「{E2E_SUBMIT}」が押せる")
+    page.screenshot(shot)
+    page.force_submit()
+    time.sleep(1.0)
+    if page.eval("document.querySelector('[role=status]') !== null") or answered() != before:
+        raise E2eFailure(f"{len(labels)} 件の選択で回答が送られた")
+    return f"{len(labels)} 件: 送信不可"
+
+
+def _answer_all(
+    page: _Page,
+    choose: Callable[[str], frozenset[str]],
+    graded_shot: Path | None,
+    nofm: tuple[Path, Path, Path, Callable[[], int]] | None = None,
+) -> tuple[list[str], str]:
+    """セッション画面で全問に答え、各問の採点表示(正解 / 不正解)を問題の順に返す。
+
+    正解1件の問題は選択肢のボタンを1クリックで送り、チェックボックスが無いことを確かめる。
+    複数正解の問題は「N 個選択」の表示とチェックボックスを確かめ、N 件を選んで「回答する」で送る。
+    `nofm`(N−1 件・N+1 件・N 件のスクリーンショットと回答数の読み出し)を渡すと、5択2正解の問題で
+    N−1 件・N+1 件では送れないことを先に確かめ、その経過を2つ目の戻り値で返す。
+    """
     verdicts = []
+    nofm_detail = ""
     for _ in E2E_QUESTIONS:
         stem = str(page.wait("document.querySelector('h2')?.textContent", "問題文"))
         qid = stem.removeprefix(E2E_STEM_PREFIX)
         if qid not in E2E_QUESTIONS:
             raise E2eFailure(f"知らない問題が出た: {stem!r}")
-        page.click("button", f"選択肢 {choose(qid)}")
+        labels, answers = E2E_QUESTIONS[qid]
+        chosen = choose(qid)
+        if len(answers) == 1:
+            page.wait("document.querySelector('ol button') !== null", "選択肢のボタン")
+            if _checkboxes(page) != 0:
+                raise E2eFailure(f"正解1件の {qid} にチェックボックスがある")
+            (label,) = chosen
+            page.click("button", f"選択肢 {label}")
+        else:
+            page.wait(f"document.body?.innerText.includes('{len(answers)} 個選択')", f"「{len(answers)} 個選択」の表示")
+            if _checkboxes(page) != len(labels):
+                raise E2eFailure(f"{qid} のチェックボックスが {_checkboxes(page)} 個(選択肢は {len(labels)} 個)")
+            if nofm is not None and qid == E2E_NOFM:
+                under, over, graded, answered = nofm
+                refused = [_try_refused(page, E2E_NOFM_UNDER, under, answered)]
+                refused.append(_try_refused(page, E2E_NOFM_OVER, over, answered))
+                page.set_checked(tuple(sorted(chosen)))
+                if not page.submit_enabled():
+                    raise E2eFailure(f"{len(chosen)} 件の選択で「{E2E_SUBMIT}」が押せない")
+                before = answered()
+                page.double_submit()
+                page.wait("document.querySelector('[role=status]') !== null", "採点結果")
+                time.sleep(1.0)
+                alert = page.eval("document.querySelector('[role=alert]')?.textContent ?? ''")
+                if alert or answered() != before + 1:
+                    raise E2eFailure(f"2度押しで回答数が {answered() - before} 件増えた(表示: {alert!r})")
+                page.screenshot(graded)
+                nofm_detail = f"「{len(answers)} 個選択」・チェックボックス {len(labels)} 個、" + "、".join(
+                    [*refused, f"{len(chosen)} 件: 2度押しで送信して記録は1件"]
+                )
+            else:
+                page.set_checked(tuple(sorted(chosen)))
+                page.click("button", E2E_SUBMIT)
         verdict = str(page.wait("document.querySelector('[role=status]')?.textContent", "採点結果"))
-        expected = "正解" if choose(qid) == E2E_QUESTIONS[qid] else "不正解"
+        expected = "正解" if chosen == answers else "不正解"
         if verdict != expected:
             raise E2eFailure(f"{qid} の採点表示が {verdict!r}(期待は {expected!r})")
         verdicts.append(f"{qid}:{verdict}")
@@ -551,7 +708,7 @@ def _answer_all(page: _Page, choose: Callable[[str], str], graded_shot: Path | N
             "次の問題",
         )
     page.wait("document.body?.innerText.includes('すべて回答済み')", "全問回答済みの表示")
-    return verdicts
+    return verdicts, nofm_detail
 
 
 def _start_session(page: _Page) -> str:
@@ -610,6 +767,7 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
     steps: list[E2eStep] = []
     taken: list[Path] = []
     browser = next_build = "-"
+    web_digest = _web_digest(ROOT)
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         root = work / "root"
@@ -668,7 +826,9 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
                     step(f"セッション {pre} の画面へ遷移した")
 
                     graded = shots / E2E_SCREENSHOTS[1]
-                    verdicts = _answer_all(page, lambda _qid: "A", graded)
+                    verdicts, _ = _answer_all(
+                        page, lambda qid: frozenset(E2E_QUESTIONS[qid][0][: len(E2E_QUESTIONS[qid][1])]), graded
+                    )
                     taken.append(graded)
                     taken.append(page.screenshot(shots / E2E_SCREENSHOTS[2]))
                     step("採点表示 " + ", ".join(verdicts))
@@ -678,8 +838,17 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
                     post = _start_session(page)
                     step(f"セッション {post} の画面へ遷移した")
 
-                    verdicts = _answer_all(page, lambda qid: E2E_QUESTIONS[qid], None)
+                    def answered_in_post() -> int:
+                        listed = json.loads(_wait_http(f"{api}/api/decks/{E2E_DECK}/sessions"))
+                        return sum(int(s["answered"]) for s in listed if s["session_id"] == post)
+
+                    nofm_shots = (shots / E2E_SCREENSHOTS[3], shots / E2E_SCREENSHOTS[4], shots / E2E_SCREENSHOTS[5])
+                    verdicts, nofm_detail = _answer_all(
+                        page, lambda qid: E2E_QUESTIONS[qid][1], None, (*nofm_shots, answered_in_post)
+                    )
+                    taken.extend(nofm_shots)
                     step("採点表示 " + ", ".join(verdicts))
+                    step(nofm_detail)
 
                     page.click("a", "デッキへ戻る")
                     _select_sessions(page, pre, post)
@@ -688,7 +857,7 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
                     missing = [t for t in E2E_REPORT_TEXTS if t not in page.text()]
                     if missing:
                         raise E2eFailure(f"レポートに {missing} が無い(画面: {page.text()[:300]!r})")
-                    taken.append(page.screenshot(shots / E2E_SCREENSHOTS[3]))
+                    taken.append(page.screenshot(shots / E2E_SCREENSHOTS[6]))
                     step("レポートに " + ", ".join(E2E_REPORT_TEXTS) + " が出た")
 
                     in_browser = page.eval("localStorage.length + sessionStorage.length")
@@ -710,7 +879,7 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
             steps.append(E2eStep(pending.pop(0), FAILED, f"{type(failure).__name__}: {failure}"))
             steps.extend(E2eStep(name, NOT_RUN, "-") for name in pending)
     exit_code = 0 if all(s.result == OK for s in steps) and len(steps) == len(E2E_STEPS) else 1
-    return E2eRun(exit_code, tuple(steps), tuple(taken), browser, next_build)
+    return E2eRun(exit_code, tuple(steps), tuple(taken), browser, next_build, web_digest)
 
 
 def _cell(text: str) -> str:
@@ -728,13 +897,15 @@ def render_ui_e2e_log(run: E2eRun, node_modules: Path, argv: list[str], commit: 
     )
     return f"""# 実測ログ: ブラウザからのテスト実施と結果閲覧(E2E)
 
-R-12(C-012)の「ローカル起動した Web UI からテストを実施し、結果を閲覧できる」ことを、実際の
-ブラウザで通しで操作して確かめた記録(ADR-012、受入基準 A-2)。node と Next.js はサンドボックス
-イメージに無いので、ホストで1回走らせた。`tests/measurements/test_host_check_logs.py` がこの記録を
-機械判定する。
+R-12(C-012)の「ローカル起動した Web UI からテストを実施し、結果を閲覧でき、N-of-M の問題は
+ちょうど N 件のときだけ送れる」ことを、実際のブラウザで通しで操作して確かめた記録(ADR-012)。
+node と Next.js はサンドボックスイメージに無いので、ホストで1回走らせた。
+`tests/measurements/test_host_check_logs.py` がこの記録を機械判定する。
 
-ローカル API(`python -m quiz_sift.server`)は使い捨ての作業ルートに空きポートで立て、架空の4問の
-デッキ(NFR-2 の対象外)を出題させた。Next.js はこの木の `web/` を一時ディレクトリへ写し、
+ローカル API(`python -m quiz_sift.server`)は使い捨ての作業ルートに空きポートで立て、架空の5問の
+デッキ(NFR-2 の対象外。q5 は5択2正解)を出題させた。5択2正解の問題では、選択が1件・3件のとき
+「回答する」が押せず、押しても記録が増えないこと、2件で送れたことを確かめた(ADR-021)。
+Next.js はこの木の `web/` を一時ディレクトリへ写し、
 `QUIZ_SIFT_API` をその API に向けて `next build` してから `next start` で立てた(rewrites は
 ビルド時に固定されるため)。
 ブラウザは Playwright が置いた chromium をヘッドレスで起動し、`adapters/browser_cdp.CdpSession`
@@ -751,6 +922,7 @@ R-12(C-012)の「ローカル起動した Web UI からテストを実施し、�
 | コミット | `{commit}` |
 | ブラウザ | {run.browser} |
 | Next.js | {next_version}(この木の `web/` を写して `next build`、BUILD_ID `{run.next_build}`) |
+| {WEB_DIGEST_ROW} | `{run.web_digest}` |
 | 実行環境 | ホスト({platform.system()} {platform.release()}) |
 
 ## 終了コード
@@ -777,9 +949,11 @@ def _table_body(section: str) -> list[list[str]]:
 
 
 def check_ui_e2e_log(text: str, root: Path) -> None:
-    """A-2 の判定。記録が終了コード 0・全手順 ok で、スクリーンショットが実在して記録と一致すること。"""
+    """記録が終了コード 0・全手順 ok で、スクリーンショットが実在して記録と一致すること。"""
     for heading in UI_E2E_HEADINGS:
         assert heading in text, f"規定の見出しが無い: {heading}"
+    conditions = {row[0]: row[1] for row in _table_body(_section(text, "## 実行条件"))}
+    assert conditions.get(WEB_DIGEST_ROW) == _web_digest(root), "記録後に web/ が変わっている — 測り直すこと"
     exit_code = _section(text, "## 終了コード").strip().strip("`")
     assert exit_code == "0", f"記録された E2E の終了コードが 0 でない: {exit_code}"
 
@@ -799,29 +973,36 @@ def check_ui_e2e_log(text: str, root: Path) -> None:
         assert digest == f"sha256:{hashlib.sha256(data).hexdigest()}", f"記録後に差し替わっている: {relative}"
 
 
-def test_ui_e2e_passed_and_screenshots_exist() -> None:
-    """A-2: 記録された E2E の終了コードが 0 で、スクリーンショットのパスが実在すること。"""
+def test_ui_e2e_nofm_record_shows_exactly_n_submission() -> None:
+    """記録された E2E(5択2正解で N−1・N+1 件は送れず N 件で送れた手順を含む)の終了コードが 0 で、
+    全手順が ok、スクリーンショットのパスが実在して記録と一致すること。"""
     assert UI_E2E_LOG.is_file(), f"実測ログが無い: {UI_E2E_LOG.relative_to(ROOT)}"
     check_ui_e2e_log(UI_E2E_LOG.read_text(encoding="utf-8"), ROOT)
 
 
 def _good_e2e_log(root: Path) -> str:
+    (root / "web" / "app").mkdir(parents=True)
+    (root / "web" / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    (root / "web" / "app" / "page.tsx").write_text("export default 1;\n", encoding="utf-8")
     shots_dir = root / SCREENSHOT_DIR
     shots_dir.mkdir(parents=True)
     shots = []
     for name in E2E_SCREENSHOTS:
         (shots_dir / name).write_bytes(PNG_MAGIC + name.encode())
         shots.append(shots_dir / name)
-    run = E2eRun(0, tuple(E2eStep(name, OK, "-") for name in E2E_STEPS), tuple(shots), "-", "-")
+    run = E2eRun(0, tuple(E2eStep(name, OK, "-") for name in E2E_STEPS), tuple(shots), "-", "-", _web_digest(root))
     node_modules = root / "node_modules"
     (node_modules / "next").mkdir(parents=True)
     (node_modules / "next" / "package.json").write_text('{"version": "0"}', encoding="utf-8")
     return render_ui_e2e_log(run, node_modules, ["e2e"], "-", root)
 
 
-@pytest.mark.parametrize("breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot"])
+@pytest.mark.parametrize(
+    "breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot", "changed-web"]
+)
 def test_ui_e2e_check_goes_red(tmp_path: Path, breaks: str) -> None:
-    """A-2 の判定が、非0終了・失敗した / 欠けた手順・実在しない / 差し替わったスクリーンショットで赤になること。"""
+    """E2E の記録の判定が、非0終了・失敗した / 欠けた手順・実在しない / 差し替わったスクリーンショット・
+    記録後に変わった web/ で赤になる。"""
     text = _good_e2e_log(tmp_path)
     check_ui_e2e_log(text, tmp_path)
     shots = tmp_path / SCREENSHOT_DIR
@@ -831,6 +1012,8 @@ def test_ui_e2e_check_goes_red(tmp_path: Path, breaks: str) -> None:
         text = text.replace(f" | {OK} |", f" | {FAILED} |", 1)
     elif breaks == "missing-step":
         text = text.replace(f"| 1 | {E2E_STEPS[0]} | {OK} | - |\n", "")
+    elif breaks == "changed-web":
+        (tmp_path / "web" / "app" / "page.tsx").write_text("export default 2;\n", encoding="utf-8")
     elif breaks == "missing-shot":
         (shots / E2E_SCREENSHOTS[0]).unlink()
     else:
@@ -843,7 +1026,7 @@ def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tests/measurements/test_host_check_logs.py")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("gitignore", help="gitignore 等価性を測り直す(A-1)")
-    e2e = commands.add_parser("ui-e2e", help="ブラウザの E2E を走らせて記録する(A-2)")
+    e2e = commands.add_parser("ui-e2e", help="ブラウザの E2E を走らせて記録する(C-012)")
     e2e.add_argument(
         "--node-modules", type=Path, default=ROOT / "web" / "node_modules", help="web/ で npm ci した node_modules"
     )
