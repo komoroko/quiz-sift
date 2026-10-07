@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-08T00:23:09+09:00'
+updated_at: '2026-10-08T01:25:21+09:00'
 gates:
   mandate:
     status: approved
@@ -806,95 +806,49 @@ tasks:
       tree: sha256:a3a8488a0153b7d8fc27ffbc7c811d66e0e7dae26222911b4e280e7953641929
       updated_at: '2026-10-07T06:10:42+09:00'
   T-069:
-    status: todo
-    attempts: 14
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 4cf569d8-c65c-4822-b6c8-43e0082ac524
-        output_tail: 'T-069 は止めました。人の判断が要るので、`needs-revision` と knowledge-gap(risk: high)を記録してあります。
-
-
-          **原因**: 実 CosyVoice を読み込む段階でプローブが落ちました。製品の audio 段も同じ理由で動かない状態です。
-
-          - pyproject の `constraint-dependencies = ["setuptools>=83"]`(D-165、PYSEC-2026-3447 への対策)により、venv
-          の setuptools は 84.0.0 です。この版には `pkg_resources` がありません。
-
-          - CosyVoice の `cosyvoice/dataset/processor.py` は `pyworld` を読み込み、`pyworld` 0.3.5(uv.lock の版)は冒頭で
-          `import pkg_resources` を実行します。ここで `ModuleNotFoundError` になります。
-
-          - torch 2.10.0+cu128、CUDA、重み、CosyVoice のチェックアウトは揃っています。止まった原因は依存の組み合わせだけです。
-
-
-          **判断が要る点**: 直すには依存の変更が要り、T-069 の scope(プローブの道具、記録、テスト)の外です。選択肢は3つあります。
-
-          1. `pkg_resources` を使わない pyworld に替える。0.3.5 より新しい版があるかは確認していません。無ければフォークか別の実装になります。
-
-          2. setuptools を `pkg_resources` のある版に戻す。D-165 のセキュリティ判断を覆すことになります。
-
-          3. CosyVoice 側で pyworld を読み込まないようにする。
-
-
-          プローブだけに `pkg_resources` の代わりを足せば記録は通せますが、製品の audio 段が壊れたまま緑になるので、その方法は採りませんでした。
-
-
-          **現状**: 前回の中断分(`probe.py`、`script.json`、`test_tts_probe_logs.py`)は変更なしで残っています。このセッションで変えたものはありません。記録
-          `docs/test/measurements/tts-probe.md` はまだ無いため、A-1・A-2 は赤のままです。依存が直れば、次のコマンドで記録を書けます。
-
-
-          ```
-
-          PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS .venv/bin/python
-          tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
-          --out /tmp/tts-probe
-
-          ```
-
-
-          T-069 はフル処理(T-071)のリハーサルにあたるので、この問題を解くまでフル処理には進めません。'
-        at: '2026-10-07T19:09:09+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-069: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 7pm (Asia/Tokyo)
-        at: '2026-10-07T18:48:37+09:00'
-      updated_at: '2026-10-07T19:09:12+09:00'
-      salvage_branch: build/quiz-sift-T-069-salvage-20261007-100342
-      salvage_state: restored
-      report:
-        outcome: needs-revision
-        summary: 'ロックされた環境では CosyVoice が import できず、製品の audio 段(adapters/tts_cosyvoice)が動かない。pyproject
-          の constraint-dependencies setuptools>=83(D-165、PYSEC-2026-3447 対策)で venv の setuptools は 84.0.0
-          になり pkg_resources が無い。CosyVoice の cosyvoice/dataset/processor.py が import する pyworld 0.3.5(uv.lock
-          の版、pyworld>=0.3.4)は __init__ で import pkg_resources するので ModuleNotFoundError で落ちる。torch 2.10.0+cu128・CUDA・重み・チェックアウトは揃っている。直すには依存の判断が要り、T-069
-          の scope(tests/fixtures/tts-probe/、記録、テスト)の外: (1) pkg_resources を使わない pyworld に上げる(0.3.5 が最新ならフォーク/別実装)、(2)
-          setuptools を pkg_resources のある版に戻す(D-165 のセキュリティ判断を覆す)、(3) CosyVoice 側で pyworld の import を避ける、のいずれか。プローブだけに
-          pkg_resources のシムを足して通すことは、製品の経路が壊れたまま記録を緑にするので採らなかった。 前回の中断分(87abd0e: probe.py・script.json・test_tts_probe_logs.py)はそのまま残っており、依存が直れば同じコマンド(PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS
-          .venv/bin/python tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
-          --out /tmp/tts-probe)で記録 docs/test/measurements/tts-probe.md を書ける。このセッションでは何も変更していない(記録は未作成なので
-          A-1・A-2 は赤)。'
-        at: '2026-10-07T19:08:59+09:00'
-        touched:
-        - tests/fixtures/tts-probe/probe.py
-        - tests/fixtures/tts-probe/script.json
-        - tests/measurements/test_tts_probe_logs.py
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-069: the implementer reported needs-revision — ロックされた環境では CosyVoice が import できず、製品の
-          audio 段(adapters/tts_cosyvoice)が動かない。pyproject の constraint-dependencies setuptools>=83(D-165、PYSEC-2026-3447
-          対策)で venv の setuptools は 84.0.0 になり pkg_resources が無い。CosyVoice の cosyvoice/dataset/processor.py
-          が import する pyworld 0.3.5(uv.lock の版、pyworld>=0.3.4)は __init__ で import pkg_resources するので ModuleNotFoundError
-          で落ちる。torch 2.10.0+cu128・CUDA・重み・チェックアウトは揃っている。直すには依存の判断が要り、T-069 の scope(tests/fixtures/tts-probe/、記録、テスト)の外:
-          (1) pkg_resources を使わない pyworld に上げる(0.3.5 が最新ならフォーク/別実装)、(2) setuptools を pkg_resources のある版に戻す(D-165
-          のセキュリティ判断を覆す)、(3) CosyVoice 側で pyworld の import を避ける、のいずれか。プローブだけに pkg_resources のシムを足して通すことは、製品の経路が壊れたまま記録を緑にするので採らなかった。
-          前回の中断分(87abd0e: probe.py・script.json・test_tts_probe_logs.py)はそのまま残っており、依存が直れば同じコマンド(PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS
-          .venv/bin/python tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
-          --out /tmp/tts-probe)で記録 docs/test/measurements/tts-probe.md を書ける。このセッションでは何も変更していない(記録は未作成なので
-          A-1・A-2 は赤)。'
-        tree: sha256:78558b2dd6fe26e1597637d0f2233139bda75f3b20647a034f4ffd123e649113
+    status: done
+    attempts: 15
+    completed_commit: ad5dff9f52b053c2113ab7a3f9f0ace552a4b9ac
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: a0e1ed6b2a250b43d25c2118d229c3ebc81ad4c4
+        step: test
+      tree: sha256:a9fb18c405bd0922f5d73cacd57c87559f1dcc03ab69bf025433bba89e23e90e
+      updated_at: '2026-10-08T01:25:21+09:00'
   T-070:
     status: done
     attempts: 2
