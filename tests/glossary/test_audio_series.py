@@ -6,7 +6,7 @@ from pathlib import Path
 
 from quiz_sift.audio.naming import track_path
 from quiz_sift.audio.synthesize import synthesize_tracks
-from quiz_sift.domain.ids import ClusterId, DeckId, QuestionId
+from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.glossary.audio_series import glossary_dir, write_glossary_audio
@@ -16,6 +16,8 @@ from quiz_sift.ports.tts import PcmAudio
 from quiz_sift.script.segments import QuestionScript, Track
 
 DECK = DeckId("aws-saa")
+WRONG = OptionId(QuestionId(DECK, "q01"), "C")
+"""テキストを直接与えて組む識別ポイントが参照する誤答の ID。"""
 RATE = 16000
 
 
@@ -36,7 +38,7 @@ class StubTts:
 def _cluster_track(cluster: str) -> Track:
     qid = QuestionId(DECK, f"{cluster}-q")
     script = QuestionScript(
-        qid, Prompt("S3 のストレージクラスは"), Pause(3.3), Answer("S3 標準-IA"), Discrimination("違い")
+        qid, Prompt("S3 のストレージクラスは"), Pause(3.3), Answer(("S3 標準-IA",)), Discrimination("違い", (WRONG,))
     )
     return Track(ClusterId(DECK, cluster), 0, (script,))
 

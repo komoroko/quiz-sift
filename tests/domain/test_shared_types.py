@@ -98,7 +98,12 @@ def test_shared_types_expose_downstream_fields() -> None:
     assert ClusterStat(cluster_id=ClusterId(DECK, "c2"), presented=0, wrong=0, last_studied_at=None)
 
     # ScriptSegment — Prompt / Pause(seconds) / Answer / Discrimination。
-    segments = [Prompt("問いかけ"), Pause(3.3), Answer("答え"), Discrimination("識別ポイント")]
+    segments = [
+        Prompt("問いかけ"),
+        Pause(3.3),
+        Answer(("答え",)),
+        Discrimination("識別ポイント", (OPTIONS[1].option_id,)),
+    ]
     assert [type(segment).__name__ for segment in segments] == ["Prompt", "Pause", "Answer", "Discrimination"]
     assert segments[1] == Pause(seconds=3.3)
     assert field_names(Pause) == ["seconds"]
@@ -121,8 +126,8 @@ def test_text_bearing_types_keep_their_body_out_of_repr() -> None:
         make_question(explanation=secret),
         Option(OPTIONS[0].option_id, secret),
         Prompt(secret),
-        Answer(secret),
-        Discrimination(secret),
+        Answer((secret,)),
+        Discrimination(secret, (OPTIONS[1].option_id,)),
         RecallKey(terms=(secret,)),
         IngestOk(question=make_question(explanation=secret)),
     ]
