@@ -10,7 +10,8 @@
   へ追記する。標準エラーは同じディレクトリのファイルに置き、render は読まない。
 - `... render --out-root <作業ルート>` は journal・`meter.jsonl`・recall の成果物の `report` から
   `docs/test/measurements/recall-rehearsal.md` を書く。LLM は呼ばない。開始行と終了行は加工せずに写す。
-  レート枠の推定に使う前サイクルの列は `docs/test/measurements/full-run.md` の終了行から読む。
+  レート枠の推定に使う前サイクルの列は、書庫の原本 `docs/archive/2026-10-06-fisrt/test/measurements/full-run.md` の
+  終了行から読む(書庫は読むだけ)。
 
 レート枠の使用率は utilization の差分から外挿しない(小数2桁に量子化されるので、10〜20 問の差分は 0 か過大に
 なる。D-218)。呼び出し数とトークン数を 190 問に外挿し、前サイクルの列の「utilization の増分 / トークン数」を
@@ -43,7 +44,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent.parent
 MEASUREMENTS = ROOT / "docs" / "test" / "measurements"
 REHEARSAL_LOG = MEASUREMENTS / "recall-rehearsal.md"
-FULL_LOG = MEASUREMENTS / "full-run.md"
+FULL_LOG = ROOT / "docs" / "archive" / "2026-10-06-fisrt" / "test" / "measurements" / "full-run.md"
+"""前サイクルの途中までの記録の原本。docs/test/measurements/full-run.md は T-071 の記録の置き場所(T-070)。"""
 FIXTURE = ROOT / "tests" / "fixtures" / "decks" / "synthetic-nofm"
 
 DECK = "synthetic-nofm"
