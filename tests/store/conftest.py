@@ -33,7 +33,7 @@ def _log(deck_id: DeckId, correct_in_s1: bool, tz: timezone) -> DeckLog:
                 AttemptRecord(
                     session_id=SessionId(deck_id, session),
                     question_id=question_id,
-                    chosen=OptionId(question_id, chosen),
+                    chosen=frozenset({OptionId(question_id, chosen)}),
                     correct=correct_in_s1 if session == "s1" else not correct_in_s1,
                     elapsed_seconds=3.25 + question_n,
                     answered_at=start + timedelta(days=session_n, seconds=30 * question_n),

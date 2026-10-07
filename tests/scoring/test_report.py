@@ -12,7 +12,7 @@ from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.scoring.report import LIMITS_DISCLOSURE, PrePost, Rate, build_report, render_report
 from quiz_sift.store.deck_scope import DeckScopedStore
 
-from .conftest import DECK, OTHER_DECK, POST, PRE, make_deck, wrong_option
+from .conftest import DECK, OTHER_DECK, POST, PRE, make_deck, right_answer, wrong_answer
 
 AT = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
 
@@ -23,7 +23,7 @@ def _log(deck: Deck, session: SessionId, correct_ids: set[str]) -> list[AttemptR
         AttemptRecord(
             session_id=session,
             question_id=q.question_id,
-            chosen=q.correct_option_ids[0] if q.question_id.local_id in correct_ids else wrong_option(q),
+            chosen=right_answer(q) if q.question_id.local_id in correct_ids else wrong_answer(q),
             correct=q.question_id.local_id in correct_ids,
             elapsed_seconds=4.0,
             answered_at=AT,

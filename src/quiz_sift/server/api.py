@@ -99,7 +99,7 @@ class QuizApi:
         }
 
     def present(self, deck_id: str, session_id: str, question_id: str) -> dict[str, Any]:
-        """問題を出題する。選択肢は `presentation` の順に、ID と本文の組で返す。"""
+        """問題を出題する。選択肢は `presentation` の順に、ID と本文の組で返す。`select_count` は選ぶ数 N。"""
         loaded = self._load(deck_id)
         session = self._session_id(loaded, session_id)
         question = self._question(loaded, question_id)
@@ -109,30 +109,33 @@ class QuizApi:
         return {
             "question_id": question.question_id.local_id,
             "stem": question.stem,
+            "select_count": question.answer_count,
             "options": [
                 {"option_id": option_id.local_id, "text": texts[option_id]} for option_id in presented.presentation
             ],
         }
 
     def submit(self, deck_id: str, session_id: str, question_id: str, chosen: object) -> dict[str, Any]:
-        """回答を採点して学習記録へ追記する。`chosen` は選択肢 ID の文字列だけを受け取る。"""
-        if not isinstance(chosen, str):
-            raise ValueError(f"chosen は選択肢 ID の文字列で与える: {type(chosen).__name__}")
+        """回答を採点して学習記録へ追記する。`chosen` は選択肢 ID の文字列の配列だけを受け取る。
+
+        型違い・重複・N 件以外・未知 ID は ValueError(ハンドラが 400 にする)で、記録しない。
+        """
+        if not isinstance(chosen, list) or not all(isinstance(item, str) for item in chosen):
+            raise ValueError(f"chosen は選択肢 ID の文字列の配列で与える: {type(chosen).__name__}")
+        if len(set(chosen)) != len(chosen):
+            raise ValueError("chosen に同じ選択肢 ID が重複している")
         loaded = self._load(deck_id)
         session = self._session_id(loaded, session_id)
         question = self._question(loaded, question_id)
-        if question.answer_count != 1:
-            # 応答の形(`correct_option_id` が1つ)は正解1件の問題にしか答えられない。複数正解は T-065 で受ける。
-            raise ValueError("正解が複数ある問題の回答はまだ受け付けない")
-        (correct,) = question.correct_option_ids
+        selected = frozenset(OptionId(question.question_id, item) for item in chosen)
         with loaded.lock:
             # 再起動で出題状態が消えても、同じセッションで同じ問題に2度答えた記録は作らない。
             if any(a.question_id == question.question_id for a in loaded.store.attempts(session)):
                 raise ValueError("このセッションで回答済みの問題")
-            attempt = loaded.quizmaster.submit(session, question.question_id, OptionId(question.question_id, chosen))
+            attempt = loaded.quizmaster.submit(session, question.question_id, selected)
         return {
             "correct": attempt.correct,
-            "correct_option_id": correct.local_id,
+            "correct_option_ids": [option.local_id for option in question.correct_option_ids],
             "explanation": question.explanation,
         }
 

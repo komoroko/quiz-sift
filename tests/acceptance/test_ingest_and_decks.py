@@ -445,7 +445,7 @@ class MixingLlm(StubLlm):
 
 def _attempt(deck_id: DeckId, session: str, qid: str, correct: bool) -> AttemptRecord:
     question_id = QuestionId(deck_id, qid)
-    chosen = OptionId(question_id, "A" if correct else "B")
+    chosen = frozenset({OptionId(question_id, "A" if correct else "B")})
     return AttemptRecord(SessionId(deck_id, session), question_id, chosen, correct, 2.0, datetime.now(UTC))
 
 

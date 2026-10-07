@@ -14,7 +14,7 @@ from .conftest import DeckLog
 
 DOWNSTREAM_COLUMNS = {
     # 選択した選択肢・正誤・所要時間・セッション ID(R-8)
-    "attempts": {"deck_id", "session_id", "question_id", "chosen_option_id", "correct", "elapsed_seconds"},
+    "attempts": {"deck_id", "session_id", "question_id", "chosen_option_ids", "correct", "elapsed_seconds"},
     # 最終学習日時・クラスタ別誤答回数(R-10)
     "cluster_stats": {"deck_id", "cluster_id", "presented", "wrong", "last_studied_at"},
 }

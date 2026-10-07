@@ -11,7 +11,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import SessionId
 from quiz_sift.scoring.session import Quizmaster, shuffle_seed
 
-from .conftest import OTHER_DECK, POST, PRE, FakeClock, wrong_option
+from .conftest import OTHER_DECK, POST, PRE, FakeClock, wrong_answer
 
 
 def test_same_question_differs_across_sessions(quizmaster: Quizmaster, deck: Deck) -> None:
@@ -43,7 +43,7 @@ def test_elapsed_time_is_measured_by_the_clock(quizmaster: Quizmaster, deck: Dec
     question = deck.questions[2]
     quizmaster.present(PRE, question.question_id)
     clock.seconds += 7.5
-    attempt = quizmaster.submit(PRE, question.question_id, wrong_option(question))
+    attempt = quizmaster.submit(PRE, question.question_id, wrong_answer(question))
     assert attempt.elapsed_seconds == 7.5
     assert attempt.correct is False
     assert attempt.answered_at == clock.now()
