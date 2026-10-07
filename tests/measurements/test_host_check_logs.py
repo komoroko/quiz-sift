@@ -29,6 +29,7 @@ node と Next.js はサンドボックスイメージに無いので、E2E は�
 テストは次のどれかで赤になる:
 
 - 記録された終了コードが 0 でない、または手順のどれかが ok でない(本体)。
+- 記録された `web/` の digest が今の `web/` と違う(UI を変えたのに測り直していない記録)。
 - 記録の手順・スクリーンショットの並びが、このファイルが宣言する E2E と違う(古い記録)。
 - 記録されたスクリーンショットのパスが実在しない、PNG でない、記録した digest と中身が違う。
 """
@@ -405,7 +406,7 @@ E2E_STEPS = (
     "事前テストの全問に先頭から N 個の選択肢で答える",
     "デッキへ戻って事後テストを始める",
     "事後テストの全問に正解で答える",
-    "5択2正解の問題は「2 個選択」とチェックボックスで出題され、1件・3件では送れず2件で送れた",
+    "5択2正解の問題は「2 個選択」とチェックボックスで出題され、1件・3件では送れず2件で送れた(2度押しても送信は1回)",
     "事前・事後を選んでレポートを開く",
     "回答がブラウザ内ストレージでなくサーバ側のストアにある",
 )
@@ -445,6 +446,7 @@ class E2eRun:
     screenshots: tuple[Path, ...]
     browser: str
     next_build: str
+    web_digest: str
 
 
 def _free_port() -> int:
@@ -452,6 +454,34 @@ def _free_port() -> int:
         sock.bind(("127.0.0.1", 0))
         port: int = sock.getsockname()[1]
         return port
+
+
+WEB_DIGEST_ROW = "web/ の digest"
+
+
+def _web_digest(root: Path) -> str:
+    """`root/web` のうち `web/.gitignore` で無視されないファイルの、相対パスと中身の digest。
+
+    E2E はこの木の `web/` を写して建てるので、記録をこの値で今の UI に結びつける。
+    `node_modules/`・`.next/`・`*.tsbuildinfo` のような手元の生成物は UI の版ではないので含めない。
+    """
+    web = root / "web"
+    rules = parse_gitignore((web / ".gitignore").read_text(encoding="utf-8"))
+    digest = hashlib.sha256()
+    pending = [web]
+    files = []
+    while pending:
+        for path in sorted(pending.pop().iterdir()):
+            relative = path.relative_to(web).as_posix()
+            if is_ignored(relative, rules, is_dir=path.is_dir()):
+                continue
+            if path.is_dir():
+                pending.append(path)
+            else:
+                files.append((relative, path))
+    for relative, path in sorted(files):
+        digest.update(relative.encode("utf-8") + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _wait_http(url: str, timeout: float = 60.0) -> bytes:
@@ -566,6 +596,14 @@ class _Page:
             raise E2eFailure(f"「{E2E_SUBMIT}」ボタンが無い")
         return state == "enabled"
 
+    def double_submit(self) -> None:
+        """「回答する」を再描画を挟まずに2度 click() する(応答待ちの間の2度押し)。"""
+        self.eval(
+            f"(() => {{ const b = [...document.querySelectorAll('button')]"
+            f".find((el) => el.textContent.trim() === {json.dumps(E2E_SUBMIT)});"
+            " b.click(); b.click(); return true; })()"
+        )
+
     def force_submit(self) -> None:
         """押せない状態の「回答する」も DOM から click() する。押せないなら何も送られないはず。"""
         self.eval(
@@ -641,11 +679,16 @@ def _answer_all(
                 page.set_checked(tuple(sorted(chosen)))
                 if not page.submit_enabled():
                     raise E2eFailure(f"{len(chosen)} 件の選択で「{E2E_SUBMIT}」が押せない")
-                page.click("button", E2E_SUBMIT)
+                before = answered()
+                page.double_submit()
                 page.wait("document.querySelector('[role=status]') !== null", "採点結果")
+                time.sleep(1.0)
+                alert = page.eval("document.querySelector('[role=alert]')?.textContent ?? ''")
+                if alert or answered() != before + 1:
+                    raise E2eFailure(f"2度押しで回答数が {answered() - before} 件増えた(表示: {alert!r})")
                 page.screenshot(graded)
                 nofm_detail = f"「{len(answers)} 個選択」・チェックボックス {len(labels)} 個、" + "、".join(
-                    [*refused, f"{len(chosen)} 件: 送信して記録された"]
+                    [*refused, f"{len(chosen)} 件: 2度押しで送信して記録は1件"]
                 )
             else:
                 page.set_checked(tuple(sorted(chosen)))
@@ -724,6 +767,7 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
     steps: list[E2eStep] = []
     taken: list[Path] = []
     browser = next_build = "-"
+    web_digest = _web_digest(ROOT)
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         root = work / "root"
@@ -835,7 +879,7 @@ def run_ui_e2e(node_modules: Path, chrome: Path, shots: Path) -> E2eRun:
             steps.append(E2eStep(pending.pop(0), FAILED, f"{type(failure).__name__}: {failure}"))
             steps.extend(E2eStep(name, NOT_RUN, "-") for name in pending)
     exit_code = 0 if all(s.result == OK for s in steps) and len(steps) == len(E2E_STEPS) else 1
-    return E2eRun(exit_code, tuple(steps), tuple(taken), browser, next_build)
+    return E2eRun(exit_code, tuple(steps), tuple(taken), browser, next_build, web_digest)
 
 
 def _cell(text: str) -> str:
@@ -878,6 +922,7 @@ Next.js はこの木の `web/` を一時ディレクトリへ写し、
 | コミット | `{commit}` |
 | ブラウザ | {run.browser} |
 | Next.js | {next_version}(この木の `web/` を写して `next build`、BUILD_ID `{run.next_build}`) |
+| {WEB_DIGEST_ROW} | `{run.web_digest}` |
 | 実行環境 | ホスト({platform.system()} {platform.release()}) |
 
 ## 終了コード
@@ -907,6 +952,8 @@ def check_ui_e2e_log(text: str, root: Path) -> None:
     """記録が終了コード 0・全手順 ok で、スクリーンショットが実在して記録と一致すること。"""
     for heading in UI_E2E_HEADINGS:
         assert heading in text, f"規定の見出しが無い: {heading}"
+    conditions = {row[0]: row[1] for row in _table_body(_section(text, "## 実行条件"))}
+    assert conditions.get(WEB_DIGEST_ROW) == _web_digest(root), "記録後に web/ が変わっている — 測り直すこと"
     exit_code = _section(text, "## 終了コード").strip().strip("`")
     assert exit_code == "0", f"記録された E2E の終了コードが 0 でない: {exit_code}"
 
@@ -934,22 +981,28 @@ def test_ui_e2e_nofm_record_shows_exactly_n_submission() -> None:
 
 
 def _good_e2e_log(root: Path) -> str:
+    (root / "web" / "app").mkdir(parents=True)
+    (root / "web" / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    (root / "web" / "app" / "page.tsx").write_text("export default 1;\n", encoding="utf-8")
     shots_dir = root / SCREENSHOT_DIR
     shots_dir.mkdir(parents=True)
     shots = []
     for name in E2E_SCREENSHOTS:
         (shots_dir / name).write_bytes(PNG_MAGIC + name.encode())
         shots.append(shots_dir / name)
-    run = E2eRun(0, tuple(E2eStep(name, OK, "-") for name in E2E_STEPS), tuple(shots), "-", "-")
+    run = E2eRun(0, tuple(E2eStep(name, OK, "-") for name in E2E_STEPS), tuple(shots), "-", "-", _web_digest(root))
     node_modules = root / "node_modules"
     (node_modules / "next").mkdir(parents=True)
     (node_modules / "next" / "package.json").write_text('{"version": "0"}', encoding="utf-8")
     return render_ui_e2e_log(run, node_modules, ["e2e"], "-", root)
 
 
-@pytest.mark.parametrize("breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot"])
+@pytest.mark.parametrize(
+    "breaks", ["exit", "failed-step", "missing-step", "missing-shot", "replaced-shot", "changed-web"]
+)
 def test_ui_e2e_check_goes_red(tmp_path: Path, breaks: str) -> None:
-    """E2E の記録の判定が、非0終了・失敗した / 欠けた手順・実在しない / 差し替わったスクリーンショットで赤になる。"""
+    """E2E の記録の判定が、非0終了・失敗した / 欠けた手順・実在しない / 差し替わったスクリーンショット・
+    記録後に変わった web/ で赤になる。"""
     text = _good_e2e_log(tmp_path)
     check_ui_e2e_log(text, tmp_path)
     shots = tmp_path / SCREENSHOT_DIR
@@ -959,6 +1012,8 @@ def test_ui_e2e_check_goes_red(tmp_path: Path, breaks: str) -> None:
         text = text.replace(f" | {OK} |", f" | {FAILED} |", 1)
     elif breaks == "missing-step":
         text = text.replace(f"| 1 | {E2E_STEPS[0]} | {OK} | - |\n", "")
+    elif breaks == "changed-web":
+        (tmp_path / "web" / "app" / "page.tsx").write_text("export default 2;\n", encoding="utf-8")
     elif breaks == "missing-shot":
         (shots / E2E_SCREENSHOTS[0]).unlink()
     else:

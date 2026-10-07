@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Graded, type PresentedQuestion } from "@/lib/api";
 
@@ -16,6 +16,10 @@ export default function SessionPage() {
   const [question, setQuestion] = useState<PresentedQuestion | null>(null);
   const [graded, setGraded] = useState<Graded | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  // 応答を待つ間に2度目の送信を出さない。2度目はサーバが回答済みとして拒み、1度目の採点表示を潰す。
+  // 再描画前に続けて届いたクリックは古い state を見るので、判定は ref で行い、state はボタンの無効化に使う。
+  const sending = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const next = useCallback(async () => {
@@ -37,11 +41,16 @@ export default function SessionPage() {
   }, [next]);
 
   async function submit(chosen: string[]) {
-    if (!question || graded) return;
+    if (!question || graded || sending.current) return;
+    sending.current = true;
+    setSubmitting(true);
     try {
       setGraded(await api.submit(deck, session, question.question_id, chosen));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      sending.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -70,14 +79,14 @@ export default function SessionPage() {
                 <label>
                   <input
                     type="checkbox"
-                    disabled={graded !== null}
+                    disabled={graded !== null || submitting}
                     checked={selected.includes(option.option_id)}
                     onChange={() => toggle(option.option_id)}
                   />
                   {option.text}
                 </label>
               ) : (
-                <button disabled={graded !== null} onClick={() => void submit([option.option_id])}>
+                <button disabled={graded !== null || submitting} onClick={() => void submit([option.option_id])}>
                   {option.text}
                 </button>
               )}
@@ -87,7 +96,9 @@ export default function SessionPage() {
         })}
       </ol>
       {multiple && !graded ? (
-        <button disabled={selected.length !== question.select_count} onClick={() => void submit(selected)}>
+        <button
+          disabled={submitting || selected.length !== question.select_count}
+          onClick={() => void submit(selected)}>
           回答する
         </button>
       ) : null}
