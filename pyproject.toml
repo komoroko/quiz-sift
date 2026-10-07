@@ -74,6 +74,10 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
+# PyPI の pyworld 0.3.5 は `import pkg_resources` するので、setuptools>=83(D-165)の環境では import できず、
+# CosyVoice(cosyvoice/dataset/processor.py)ごと落ちる。上流は v0.3.6 で importlib.metadata に直したが、
+# PyPI の 0.3.6 には Linux の配布物が無い。そこで上流の git タグに固定し、sdist としてビルドする。
+pyworld = { git = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder", tag = "v0.3.6" }
 
 [tool.uv]
 # アップロードから1週間以内の新しいバージョンはインストール対象から除外する。

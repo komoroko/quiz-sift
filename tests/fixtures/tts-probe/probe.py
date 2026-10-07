@@ -103,7 +103,7 @@ def main() -> int:
         "started_at": started,
         "commit": _git(ROOT, "rev-parse", "HEAD"),
         "python": sys.version.split()[0],
-        "torch_version": torch.__version__,
+        "torch_version": str(torch.__version__),
         "cuda_available": torch.cuda.is_available(),
         "cosyvoice_root": str(cosyvoice_root),
         "cosyvoice_commit": _git(cosyvoice_root, "rev-parse", "HEAD"),
