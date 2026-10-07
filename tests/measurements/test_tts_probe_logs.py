@@ -10,6 +10,7 @@ import ast
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 RECORD = ROOT / "docs" / "test" / "measurements" / "tts-probe.md"
 FIXTURE = ROOT / "tests" / "fixtures" / "tts-probe"
 PROBE = "tests/fixtures/tts-probe/probe.py"
+PYWORLD_GIT = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder"
 
 
 def record_text() -> str:
@@ -107,3 +109,16 @@ def test_probe_record_names_torch_and_cosyvoice() -> None:
     assert isinstance(record["cosyvoice_dirty"], bool)
     assert Path(record["model_dir"]).name == "CosyVoice-300M-SFT"
     assert re.fullmatch(r"[0-9a-f]{40}", record["commit"])
+
+
+def test_lock_pins_pyworld_to_the_upstream_tag_without_pkg_resources() -> None:
+    # PyPI の pyworld 0.3.5 は `import pkg_resources` し、setuptools>=83(D-165)では CosyVoice ごと import できない。
+    # プローブが走った環境は、上流の git タグ v0.3.6(importlib.metadata 版)に固定した lock から作ったもの。
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["tool"]["uv"]["sources"]["pyworld"] == {"git": PYWORLD_GIT, "tag": "v0.3.6"}
+
+    packages = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
+    pyworld = [package for package in packages if package["name"] == "pyworld"]
+    assert len(pyworld) == 1, pyworld
+    assert pyworld[0]["version"] == "0.3.6"
+    assert re.fullmatch(re.escape(PYWORLD_GIT) + r"\?tag=v0\.3\.6#[0-9a-f]{40}", pyworld[0]["source"]["git"])
