@@ -7,12 +7,14 @@
 import math
 from array import array
 
-from quiz_sift.domain.ids import ClusterId, DeckId, QuestionId
+from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.ports.tts import PcmAudio
 from quiz_sift.script.segments import QuestionScript, Track
 
 DECK = DeckId("aws-saa")
+WRONG = OptionId(QuestionId(DECK, "q01"), "C")
+"""テキストを直接与えて組む識別ポイントが参照する誤答の ID。"""
 RATE = 16000
 
 
@@ -43,8 +45,8 @@ def question(local_id: str, prompt: str = "S3 のストレージクラスを思�
         QuestionId(DECK, local_id),
         Prompt(prompt),
         Pause(3.3),
-        Answer("S3 標準-IA"),
-        Discrimination("Glacier は取り出しに時間がかかる"),
+        Answer(("S3 標準-IA",)),
+        Discrimination("Glacier は取り出しに時間がかかる", (WRONG,)),
     )
 
 

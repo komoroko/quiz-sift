@@ -7,6 +7,8 @@
 
 from dataclasses import dataclass
 
+from quiz_sift.domain.ids import OptionId
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Prompt:
@@ -26,18 +28,40 @@ class Pause:
             raise ValueError("間の長さは正でなければならない")
 
 
+ANSWER_SEPARATOR = " "
+"""N 要素の答えを読み上げの1文にするときの区切り。番号(「1.」「(1)」「1番」)を使わない(R-6)。"""
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class Answer:
-    """答え。"""
+    """答え。正解 N 件に1要素ずつ対応する本文を、選択肢の順で持つ(ADR-022)。"""
 
-    text: str
+    texts: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.texts, tuple) or not self.texts or not all(isinstance(t, str) for t in self.texts):
+            raise TypeError("答えは1要素以上の文字列の tuple でなければならない")
+
+    @property
+    def text(self) -> str:
+        """読み上げる本文。要素を `ANSWER_SEPARATOR` で連結する。"""
+        return ANSWER_SEPARATOR.join(self.texts)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Discrimination:
-    """識別ポイント — 似た選択肢との切り分け。1問につき任意。"""
+    """識別ポイント — 似た選択肢との切り分け。1問につき任意。
+
+    参照する誤答選択肢を想起素材から `distractor_ids` で引き継ぐ。台本段の含意判定は、その誤答の本文を
+    「正しくない記述」として reference に入れる(NFR-1)。
+    """
 
     text: str
+    distractor_ids: tuple[OptionId, ...]
+
+    def __post_init__(self) -> None:
+        if not self.distractor_ids:
+            raise ValueError("識別ポイントは参照する誤答選択肢を1件以上持たなければならない")
 
 
 ScriptSegment = Prompt | Pause | Answer | Discrimination
