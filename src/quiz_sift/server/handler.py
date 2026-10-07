@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from quiz_sift.ports.clock import Clock, SystemClock
 from quiz_sift.server.api import NotFoundError, QuizApi
 from quiz_sift.server.files import NotServableError, resolve_artifact
+from quiz_sift.store.location import LegacyStoreError
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -94,6 +95,9 @@ class QuizHandler(BaseHTTPRequestHandler):
             payload = action()
         except NotFoundError as exc:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
+        except LegacyStoreError as exc:
+            # 旧形式のストアは人が退避するまで使えない。所在・版・退避の案内を本文で UI へ届ける(D-203)。
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         except ValueError as exc:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         else:

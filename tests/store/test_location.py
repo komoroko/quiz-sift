@@ -108,3 +108,25 @@ def test_store_version_is_checked_fail_closed(tmp_path: Path) -> None:
         assert conn.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
     finally:
         conn.close()
+
+
+def test_schema_and_version_are_written_in_one_transaction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 作成の途中で失敗したら、テーブルだけ残って版 0 のファイル(=旧形式と誤判定される)を残さない(D-222)。
+    monkeypatch.setattr(location, "SCHEMA", location.SCHEMA + "\nTHIS IS NOT SQL;")
+    with pytest.raises(sqlite3.OperationalError):
+        DeckScopedStore(DeckId("aws-saa"), tmp_path).attempts()
+    conn = sqlite3.connect(location.store_path(tmp_path))
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
+    finally:
+        conn.close()
+
+    # 失敗した所在は初期化済みにならず、次の接続で v2 が作られる。
+    monkeypatch.undo()
+    assert DeckScopedStore(DeckId("aws-saa"), tmp_path).attempts() == ()
+    conn = sqlite3.connect(location.store_path(tmp_path))
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone() == (location.SCHEMA_VERSION,)
+    finally:
+        conn.close()

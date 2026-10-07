@@ -171,3 +171,25 @@ def test_multi_answer_question_takes_exactly_n_choices(tmp_path: Path) -> None:
         srv.shutdown()
         srv.server_close()
         thread.join(timeout=5)
+
+
+def test_legacy_store_is_reported_not_dropped(root: Path, client: Client) -> None:
+    # 旧形式(v1: chosen_option_id、user_version = 0)のストアの上では、要求は接続を切らずに
+    # 所在・版・退避の案内を本文に載せた 503 で答え、ストアを書き換えない(D-203)。
+    path = store_path(root)
+    path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE attempts (deck_id TEXT, chosen_option_id TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+    before = path.read_bytes()
+
+    for method, url in (("GET", f"/api/decks/{DECK}/sessions"), ("POST", f"/api/decks/{DECK}/sessions/s1/answers")):
+        body = {"question_id": "q1", "chosen": ["A"]} if method == "POST" else None
+        response, data = client.request(method, url, body)
+        assert response.status == 503, (method, response.status, data)
+        message = json.loads(data)["error"]
+        assert str(path) in message and "user_version = 0" in message and "退避" in message
+    assert path.read_bytes() == before
