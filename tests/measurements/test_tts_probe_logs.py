@@ -60,7 +60,7 @@ def test_c007_probe_script_passes_the_silence_check() -> None:
     # 記録を書いたのは今のプローブで、通した台本は今の合成フィクスチャ。
     assert record["probe"] == PROBE
     probe = ROOT / PROBE
-    assert probe.is_file()
+    assert record["probe_sha256"] == hashlib.sha256(probe.read_bytes()).hexdigest()
     script = FIXTURE / "script.json"
     assert record["script_sha256"] == hashlib.sha256(script.read_bytes()).hexdigest()
     spec = json.loads(script.read_text(encoding="utf-8"))
@@ -75,7 +75,6 @@ def test_c007_probe_script_passes_the_silence_check() -> None:
     assert "quiz_sift.adapters.tts_cosyvoice" in modules
     assert not {m for m in modules if "llm" in m or m in {"quiz_sift.cli", "quiz_sift.composition", "anthropic"}}
     assert "synthesize_tracks(" in probe.read_text(encoding="utf-8")
-    assert record["llm_calls"] == 0
 
     # 文と間を含む: 問いかけ → 間 → 答え → 識別ポイントで、読み上げは間を除く3回。
     assert record["segments"] == ["Prompt", "Pause", "Answer", "Discrimination"]
@@ -106,7 +105,8 @@ def test_probe_record_names_torch_and_cosyvoice() -> None:
     record = probe_record()
     assert re.fullmatch(r"2\.10\.\d+(?:\+\w+)?", record["torch_version"]), record["torch_version"]
     assert re.fullmatch(r"[0-9a-f]{40}", record["cosyvoice_commit"]), record["cosyvoice_commit"]
-    assert isinstance(record["cosyvoice_dirty"], bool)
+    # 作業ツリーが clean でなければ、コミットは走ったコードを特定しない。
+    assert record["cosyvoice_dirty"] is False
     assert Path(record["model_dir"]).name == "CosyVoice-300M-SFT"
     assert re.fullmatch(r"[0-9a-f]{40}", record["commit"])
 

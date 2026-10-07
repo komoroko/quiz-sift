@@ -100,6 +100,7 @@ def main() -> int:
 
     record = {
         "probe": PROBE,
+        "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "started_at": started,
         "commit": _git(ROOT, "rev-parse", "HEAD"),
         "python": sys.version.split()[0],
@@ -121,7 +122,6 @@ def main() -> int:
         "track_seconds": round(written.seconds, 3),
         "runs": [{"voiced": r.voiced, "start": round(r.start, 3), "seconds": round(r.seconds, 3)} for r in runs],
         "has_pause_structure": has_pause_structure(runs),
-        "llm_calls": 0,
     }
     RECORD.write_text(render(record), encoding="utf-8")
     print(RECORD)
