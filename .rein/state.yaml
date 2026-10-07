@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-07T14:50:50+09:00'
+updated_at: '2026-10-08T00:08:27+09:00'
 gates:
   mandate:
     status: approved
@@ -19,11 +19,27 @@ gates:
     status: pending
     receipt: null
   T-059:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-059-1CA1334D
+      confirmed_at: '2026-10-08T00:08:22+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:16445caea0bd097c19536bbce14e35858e78366c16cc90643fba53e63b6511aa
+      crossing_digest: sha256:fc326ab80b51c38187b610b0236621e6968d7f8a912bae0c3c844bbdee5aabf8
+      environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
+      validation_digest: sha256:5c047a1e231d2cbe7d84a2d459d8274642e611812894edbe0166e3ae11cba6c0
+      attested_chain_root: sha256:5cbad4533e39819575ab0ce55c48684a394f96b1f9f42fbb0f4041d428cff652
   T-071:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-T-071-EA225081
+      confirmed_at: '2026-10-08T00:08:27+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:e772d16a2e469a0462b3ebee790822cadf35a89bc9609a6a58ac80cabcec77df
+      crossing_digest: sha256:863de0828d534036acd38f3ea85fc432785ca8ca70f189e66d48fc640e2ebcad
+      environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
+      validation_digest: sha256:4dce23b2278451f45a763b729b8e804f2d270dd72d349f17a05506c0ec24b2e3
+      attested_chain_root: sha256:16445caea0bd097c19536bbce14e35858e78366c16cc90643fba53e63b6511aa
 plan:
   status: frozen
   digest: sha256:f81f68ae11aaff6ce592bc01e950951789e405b3cfcad54c683693ffb23f8d65
@@ -590,57 +606,55 @@ tasks:
       tree: sha256:ce3632b7379adf1050ca7f74615f6f910b7f405ac1df71eeaa565cdfac464304
       updated_at: '2026-10-07T01:32:23+09:00'
   T-064:
-    status: todo
-    attempts: 18
-    handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 0b194f55-cb78-4277-8527-0cccaaad0829
-        output_tail: 'T-064 の続きはまだ完了していません。中断した前回の作業(WIP)はマージ済みで、ゲートの全体テストがバックグラウンドで走っています。
-
-
-          - **今回の状態**: 前回止まった原因は scope 外のテスト3ファイルでしたが、/revise で scope に入りました。WIP を読んだかぎり、ソースもテストもチケットの
-          To do をすべて含んでいます。
-
-          - **通過済みのゲート**: lint、format、types。
-
-          - **未実施のゲート**: test は実行中です。docs と smoke はまだ走らせていません。
-
-
-          test が終わったら結果を見て、赤があれば直します。そのあと docs と smoke を走らせ、コミットして `rein report` で報告します。'
-        at: '2026-10-07T14:09:40+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-064: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 10:20am (Asia/Tokyo)
-        at: '2026-10-07T09:07:40+09:00'
-      updated_at: '2026-10-07T14:44:44+09:00'
-      report:
-        outcome: needs-revision
-        summary: 'T-064 の scope が、設計(docs/20-design.md R-6)の型変更が必ず触るテストを含まない。設計は Answer(texts: tuple[str,
-          ...]) と、Discrimination に distractor_ids を足すことを求めるが、scope 外の tests/audio/conftest.py:46-47、tests/domain/test_shared_types.py:101,124-125、tests/glossary/test_audio_series.py:39
-          が Answer("…") / Discrimination("…") を1引数の文字列で直接組み立てている。設計どおりに変えると、この3ファイルが mypy(gate.sh types)と
-          pytest で赤になる。直すには scope 外への書き込みが要る。rein task scope-add は『guard.scope_additions が未設定』として拒否した。scope
-          を広げずに通す手段は2つあるが、どちらも採らなかった。(a) Discrimination.distractor_ids に既定値 () を置く: 互換シムで、ID の無い識別ポイントを型として許してしまう。(b)
-          台本の Discrimination に ID を持たせず、generate_scripts の中で RecallSet から引く: 設計の『Discrimination に distractor_ids
-          を引き継ぐ』から外れる。依頼: /revise で T-064 の scope に上の3ファイルを足すこと。足せば受入基準 A-1〜A-3 はこのまま実装できる。何も変更していない。'
-        at: '2026-10-07T05:27:34+09:00'
-      salvage_branch: build/quiz-sift-T-064-salvage-20261007-050547
-      salvage_state: restored
-      escalation:
-        kind: agent_needs_revision
-        message: 'T-064: the implementer reported needs-revision — T-064 の scope が、設計(docs/20-design.md
-          R-6)の型変更が必ず触るテストを含まない。設計は Answer(texts: tuple[str, ...]) と、Discrimination に distractor_ids を足すことを求めるが、scope
-          外の tests/audio/conftest.py:46-47、tests/domain/test_shared_types.py:101,124-125、tests/glossary/test_audio_series.py:39
-          が Answer("…") / Discrimination("…") を1引数の文字列で直接組み立てている。設計どおりに変えると、この3ファイルが mypy(gate.sh types)と
-          pytest で赤になる。直すには scope 外への書き込みが要る。rein task scope-add は『guard.scope_additions が未設定』として拒否した。scope
-          を広げずに通す手段は2つあるが、どちらも採らなかった。(a) Discrimination.distractor_ids に既定値 () を置く: 互換シムで、ID の無い識別ポイントを型として許してしまう。(b)
-          台本の Discrimination に ID を持たせず、generate_scripts の中で RecallSet から引く: 設計の『Discrimination に distractor_ids
-          を引き継ぐ』から外れる。依頼: /revise で T-064 の scope に上の3ファイルを足すこと。足せば受入基準 A-1〜A-3 はこのまま実装できる。何も変更していない。'
-        tree: sha256:cc51b54c42393caf5fdd09460d2ef2bf199f9b0495039db35b51827ba460fbf0
+    status: done
+    attempts: 19
+    completed_commit: 2b6a4c9c7f12f11b7f9938da3bba71d5d9a1bce3
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 9dfd0bace6586b606a445426809228cae79e94d9
+        step: test
+      tree: sha256:2b8166dcff82f6ed3511c4d8e757f2301f9ef011d74aba99e6597ec7be11c088
+      updated_at: '2026-10-07T15:37:39+09:00'
   T-065:
     status: done
     attempts: 18
@@ -692,7 +706,54 @@ tasks:
       tree: sha256:1013d366ebc1f9465da89e5d2e35149bf254168566d4b9ff166f6eb5f8cd3891
       updated_at: '2026-10-07T14:49:08+09:00'
   T-066:
-    status: todo
+    status: done
+    attempts: 1
+    completed_commit: ef026caea8b22870dbc46c1cfa149385e323c193
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: artifact
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: 'the test half did not apply onto 9dfd0bace658: ng'' without full index line
+
+          error: docs/test/measurements/ui-e2e-nofm/06-nofm-graded.png: patch does not apply
+
+          error: cannot apply binary patch to ''docs/test/measurements/ui-e2e-nofm/07-report.png'' without
+          full index line
+
+          error: docs/test/measurements/ui-e2e-nofm/07-report.png: patch does not apply
+
+          '
+      tree: sha256:2c91706b8eaa8063842eb2258c5f7276fc837876584fdf6071142c5896553015
+      updated_at: '2026-10-07T15:37:39+09:00'
   T-068:
     status: done
     attempts: 16
@@ -741,7 +802,95 @@ tasks:
       tree: sha256:a3a8488a0153b7d8fc27ffbc7c811d66e0e7dae26222911b4e280e7953641929
       updated_at: '2026-10-07T06:10:42+09:00'
   T-069:
-    status: todo
+    status: needs-revision
+    attempts: 14
+    handoff:
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 4cf569d8-c65c-4822-b6c8-43e0082ac524
+        output_tail: 'T-069 は止めました。人の判断が要るので、`needs-revision` と knowledge-gap(risk: high)を記録してあります。
+
+
+          **原因**: 実 CosyVoice を読み込む段階でプローブが落ちました。製品の audio 段も同じ理由で動かない状態です。
+
+          - pyproject の `constraint-dependencies = ["setuptools>=83"]`(D-165、PYSEC-2026-3447 への対策)により、venv
+          の setuptools は 84.0.0 です。この版には `pkg_resources` がありません。
+
+          - CosyVoice の `cosyvoice/dataset/processor.py` は `pyworld` を読み込み、`pyworld` 0.3.5(uv.lock の版)は冒頭で
+          `import pkg_resources` を実行します。ここで `ModuleNotFoundError` になります。
+
+          - torch 2.10.0+cu128、CUDA、重み、CosyVoice のチェックアウトは揃っています。止まった原因は依存の組み合わせだけです。
+
+
+          **判断が要る点**: 直すには依存の変更が要り、T-069 の scope(プローブの道具、記録、テスト)の外です。選択肢は3つあります。
+
+          1. `pkg_resources` を使わない pyworld に替える。0.3.5 より新しい版があるかは確認していません。無ければフォークか別の実装になります。
+
+          2. setuptools を `pkg_resources` のある版に戻す。D-165 のセキュリティ判断を覆すことになります。
+
+          3. CosyVoice 側で pyworld を読み込まないようにする。
+
+
+          プローブだけに `pkg_resources` の代わりを足せば記録は通せますが、製品の audio 段が壊れたまま緑になるので、その方法は採りませんでした。
+
+
+          **現状**: 前回の中断分(`probe.py`、`script.json`、`test_tts_probe_logs.py`)は変更なしで残っています。このセッションで変えたものはありません。記録
+          `docs/test/measurements/tts-probe.md` はまだ無いため、A-1・A-2 は赤のままです。依存が直れば、次のコマンドで記録を書けます。
+
+
+          ```
+
+          PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS .venv/bin/python
+          tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
+          --out /tmp/tts-probe
+
+          ```
+
+
+          T-069 はフル処理(T-071)のリハーサルにあたるので、この問題を解くまでフル処理には進めません。'
+        at: '2026-10-07T19:09:09+09:00'
+      last_fault:
+        kind: ENV_TRANSIENT
+        where: 'T-069: implementer'
+        rc: 1
+        output_tail: You've hit your session limit · resets 7pm (Asia/Tokyo)
+        at: '2026-10-07T18:48:37+09:00'
+      updated_at: '2026-10-07T19:09:12+09:00'
+      salvage_branch: build/quiz-sift-T-069-salvage-20261007-100342
+      salvage_state: restored
+      report:
+        outcome: needs-revision
+        summary: 'ロックされた環境では CosyVoice が import できず、製品の audio 段(adapters/tts_cosyvoice)が動かない。pyproject
+          の constraint-dependencies setuptools>=83(D-165、PYSEC-2026-3447 対策)で venv の setuptools は 84.0.0
+          になり pkg_resources が無い。CosyVoice の cosyvoice/dataset/processor.py が import する pyworld 0.3.5(uv.lock
+          の版、pyworld>=0.3.4)は __init__ で import pkg_resources するので ModuleNotFoundError で落ちる。torch 2.10.0+cu128・CUDA・重み・チェックアウトは揃っている。直すには依存の判断が要り、T-069
+          の scope(tests/fixtures/tts-probe/、記録、テスト)の外: (1) pkg_resources を使わない pyworld に上げる(0.3.5 が最新ならフォーク/別実装)、(2)
+          setuptools を pkg_resources のある版に戻す(D-165 のセキュリティ判断を覆す)、(3) CosyVoice 側で pyworld の import を避ける、のいずれか。プローブだけに
+          pkg_resources のシムを足して通すことは、製品の経路が壊れたまま記録を緑にするので採らなかった。 前回の中断分(87abd0e: probe.py・script.json・test_tts_probe_logs.py)はそのまま残っており、依存が直れば同じコマンド(PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS
+          .venv/bin/python tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
+          --out /tmp/tts-probe)で記録 docs/test/measurements/tts-probe.md を書ける。このセッションでは何も変更していない(記録は未作成なので
+          A-1・A-2 は赤)。'
+        at: '2026-10-07T19:08:59+09:00'
+        touched:
+        - tests/fixtures/tts-probe/probe.py
+        - tests/fixtures/tts-probe/script.json
+        - tests/measurements/test_tts_probe_logs.py
+      escalation:
+        kind: agent_needs_revision
+        message: 'T-069: the implementer reported needs-revision — ロックされた環境では CosyVoice が import できず、製品の
+          audio 段(adapters/tts_cosyvoice)が動かない。pyproject の constraint-dependencies setuptools>=83(D-165、PYSEC-2026-3447
+          対策)で venv の setuptools は 84.0.0 になり pkg_resources が無い。CosyVoice の cosyvoice/dataset/processor.py
+          が import する pyworld 0.3.5(uv.lock の版、pyworld>=0.3.4)は __init__ で import pkg_resources するので ModuleNotFoundError
+          で落ちる。torch 2.10.0+cu128・CUDA・重み・チェックアウトは揃っている。直すには依存の判断が要り、T-069 の scope(tests/fixtures/tts-probe/、記録、テスト)の外:
+          (1) pkg_resources を使わない pyworld に上げる(0.3.5 が最新ならフォーク/別実装)、(2) setuptools を pkg_resources のある版に戻す(D-165
+          のセキュリティ判断を覆す)、(3) CosyVoice 側で pyworld の import を避ける、のいずれか。プローブだけに pkg_resources のシムを足して通すことは、製品の経路が壊れたまま記録を緑にするので採らなかった。
+          前回の中断分(87abd0e: probe.py・script.json・test_tts_probe_logs.py)はそのまま残っており、依存が直れば同じコマンド(PYTHONPATH=src:/home/koich/CosyVoice:/home/koich/CosyVoice/third_party/Matcha-TTS
+          .venv/bin/python tests/fixtures/tts-probe/probe.py --tts-model /home/koich/CosyVoice/pretrained_models/CosyVoice-300M-SFT
+          --out /tmp/tts-probe)で記録 docs/test/measurements/tts-probe.md を書ける。このセッションでは何も変更していない(記録は未作成なので
+          A-1・A-2 は赤)。'
+        tree: sha256:78558b2dd6fe26e1597637d0f2233139bda75f3b20647a034f4ffd123e649113
   T-070:
     status: done
     attempts: 2
