@@ -1,0 +1,11 @@
+{
+  "deck_id": "tts-probe",
+  "cluster_id": "c001",
+  "question_id": "p001",
+  "language": "ja",
+  "voice": "日语男",
+  "prompt": "合成の問いかけです。この組み合わせで選ぶものは何でしょうか。",
+  "answers": ["合成の答えの一つ目です。", "合成の答えの二つ目です。"],
+  "discrimination": "合成の識別ポイントです。似た言い方と取り違えないようにします。",
+  "distractors": ["B"]
+}
