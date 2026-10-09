@@ -5,7 +5,8 @@
 
 1. usage・num_turns・total_cost_usd・is_error・skills のダイジェストと、`rate_limit_event` ごとの枠を
    **成否の判定より先に** meter へ渡す(AR-65)。stdout を行ごとに読める範囲で拾い、厳格な判定を待たない。
-2. `claude_failure.classify` で7種に分類し、失敗なら meter へ記録する。再試行はしない(D-101)。
+2. `claude_failure.classify` で7種に分類し、失敗なら meter へ記録する。`TRUNCATED` の子だけを同じ argv と stdin で
+   最大 `MAX_REISSUES` 回出し直し、他の種別は出し直さない(D-101、D-231)。出し直しも子プロセス1本として 1〜3 を通る。
 3. `InvocationRecord` を1件ログへ出す。記録は構造化項目だけで、子の出力の本文を持たない(AR-146、ADR-024)。
 
 `classify_clusters` は 25 問ごとに分割し、overage か枠切れ(`rate_limit_stop`)で失敗したバッチがあれば
@@ -42,7 +43,7 @@ from quiz_sift.ports.llm import (
     RecallDraft,
     TokenUsage,
 )
-from quiz_sift.ports.metering import RateLimitInfo, RunMeter, rate_limit_stop
+from quiz_sift.ports.metering import FailureKind, RateLimitInfo, RunMeter, rate_limit_stop
 from quiz_sift.ports.process import CommandRunner, CommandSpec
 from quiz_sift.safety.invocation_log import log_invocation, record_invocation
 from quiz_sift.safety.log_filter import MaterialTextFilter
@@ -59,6 +60,9 @@ ENABLED_TOOLS = ""
 拒否リストは持たない(D-208)。有効ツールが `{StructuredOutput}` だけであることは、`init.tools` の実測(ホスト)と
 `claude_failure` の判定(呼び出しごと)が確かめる。
 """
+
+MAX_REISSUES = 2
+"""`TRUNCATED` で終わった子を出し直す上限(D-231)。`--max-turns` は上げない(argv のダイジェストが変わる)。"""
 
 BODY_FLAGS = ("--json-schema", "--system-prompt")
 """値がタスク別の本文になるフラグ。argv のダイジェストはこの値を除いて取る(D-107、AR-144)。"""
@@ -225,13 +229,25 @@ class ClaudeCliLlm:
         schema: Mapping[str, object],
         parse: Callable[[Mapping[str, Any]], T],
     ) -> tuple[Judgement[T], bool | None]:
-        """子プロセス1本。判定と、meter へ渡した `is_error` を返す。
+        """子プロセスを起動する唯一の経路。判定と、meter へ渡した `is_error` を返す。
 
+        `TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES` 回出し直す(D-231)。出し直しは
+        `provider_invocations` に入り、`llm_calls`(`begin_call`)には入らない。返すのは最後の子の判定。
         stdin に載せる問題は、呼び出し側が先に `_material` へ登録しておく(記録の argv と init.tools で伏せる)。
         """
         model = prompts.MODELS[method]
         argv = build_argv(model, system, schema)
         stdin = json.dumps(payload, ensure_ascii=False)
+        for _ in range(MAX_REISSUES):
+            judgement, is_error = self._spawn(model, argv, stdin, parse)
+            if judgement.failure is not FailureKind.TRUNCATED:
+                return judgement, is_error
+        return self._spawn(model, argv, stdin, parse)
+
+    def _spawn[T](
+        self, model: str, argv: tuple[str, ...], stdin: str, parse: Callable[[Mapping[str, Any]], T]
+    ) -> tuple[Judgement[T], bool | None]:
+        """子プロセス1本。usage と枠を判定より先に meter へ渡し、失敗を記録し、記録を1件ログへ出す。"""
         self._meter.begin_invocation(argv_digest(argv))
         with self.workspace.new_cwd() as cwd:
             spec = CommandSpec(argv=argv, env=self.workspace.child_env(), cwd=cwd, stdin=stdin)
@@ -275,7 +291,7 @@ class ClaudeCliLlm:
         schema: Mapping[str, object],
         parse: Callable[[Mapping[str, Any]], T],
     ) -> T:
-        """1回の Protocol 呼び出し = 子プロセス1本。失敗は種別を持つ `ContractError` にする。"""
+        """1回の Protocol 呼び出し = 子プロセス1本(`TRUNCATED` の出し直しを除く)。失敗は `ContractError` にする。"""
         self._meter.begin_call(method)
         judgement, _ = self._invoke(method, system, payload, schema, parse)
         if judgement.failure is not None:
