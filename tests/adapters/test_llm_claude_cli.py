@@ -349,7 +349,6 @@ def test_usage_is_recorded_before_judging_and_no_retry(tmp_path: Path) -> None:
             kind.name: (failure_shape(kind, keys), kind)
             for kind in (
                 FailureKind.SCHEMA,
-                FailureKind.TRUNCATED,
                 FailureKind.INCOMPLETE_IDS,
                 FailureKind.PROVIDER_ERROR,
             )
@@ -360,7 +359,7 @@ def test_usage_is_recorded_before_judging_and_no_retry(tmp_path: Path) -> None:
         meter = RecordingMeter()
         runner = FakeRunner(returning(result))
         outcome = build(meter, tmp_path, runner).classify_clusters(deck(3))
-        assert len(runner.specs) == 1, name  # 再試行しない
+        assert len(runner.specs) == 1, name  # 再試行しない(TRUNCATED の出し直しは別のテスト)
         assert [f.reason.split(":")[0] for f in outcome.failures] == [kind.value], name
         assert outcome.failures[0].reason.startswith(kind.value), name
         assert meter.of("end_invocation")[0][2] == fixture_usage, name
@@ -387,6 +386,113 @@ def test_usage_is_recorded_before_judging_and_no_retry(tmp_path: Path) -> None:
     assert sorted(qid for g in outcome.assignments for qid in g.question_ids) == [
         q.question_id for q in deck(60).questions
     ]
+
+
+def in_order(*results: CommandResult) -> Callable[[CommandSpec], CommandResult]:
+    """呼ばれた順に `results` を返す。尽きたら赤にする(想定より多く起動した)。"""
+    queue = list(results)
+
+    def respond(spec: CommandSpec) -> CommandResult:
+        assert queue, "想定より多く子プロセスを起動した"
+        return queue.pop(0)
+
+    return respond
+
+
+TRUNCATED = failure_shape(FailureKind.TRUNCATED, ["0"])
+
+
+def test_truncated_invocation_is_reissued_up_to_the_limit(tmp_path: Path) -> None:
+    assert llm_claude_cli.MAX_REISSUES == 2
+    described = exited(fake_stdout(structured_output={"description": "合成説明"}))
+    for truncations in (1, 2):
+        meter = make_meter(tmp_path / f"t{truncations}")
+        runner = FakeRunner(in_order(*[TRUNCATED] * truncations, described))
+        assert build(meter, tmp_path, runner).describe_term("合成用語", Language.JA) == "合成説明"
+        assert len(runner.specs) == truncations + 1
+        # 出し直しは1本目と同じ argv と stdin。
+        assert {spec.argv for spec in runner.specs} == {runner.specs[0].argv}
+        assert {spec.stdin for spec in runner.specs} == {runner.specs[0].stdin}
+        end = meter.finish(exit_code=0, exit_reason=None)
+        assert end["llm_calls"] == 1
+        assert end["provider_invocations"] == truncations + 1
+        assert end["failed_invocations"] == truncations
+        assert end["failures_by_kind"] == {**{k.value: 0 for k in FailureKind}, "truncated": truncations}
+
+    # 出し直しも1本ずつ begin_invocation から record_failure まで通る。begin_call は1回だけ。
+    recording = RecordingMeter()
+    runner = FakeRunner(in_order(TRUNCATED, described))
+    build(recording, tmp_path, runner).describe_term("合成用語", Language.JA)
+    assert recording.names() == [
+        "begin_call",
+        "begin_invocation",
+        "end_invocation",
+        "record_quota",
+        "record_failure",
+        "begin_invocation",
+        "end_invocation",
+        "record_quota",
+    ]
+
+
+def test_only_truncated_is_reissued(tmp_path: Path) -> None:
+    keys = ["0", "1", "2"]
+    shapes = {
+        "PROVIDER_ERROR": failure_shape(FailureKind.PROVIDER_ERROR, keys),
+        "overage": exited(fake_stdout(structured_output=classification_output([keys]), is_using_overage=True)),
+        "rejected": exited(
+            fake_stdout(rate_limit_status="rejected", is_error=True, subtype="error_during_execution"), 1
+        ),
+        "SCHEMA": failure_shape(FailureKind.SCHEMA, keys),
+        "PARSE": failure_shape(FailureKind.PARSE, keys),
+        "TIMEOUT": failure_shape(FailureKind.TIMEOUT, keys),
+        "INCOMPLETE_IDS": failure_shape(FailureKind.INCOMPLETE_IDS, keys),
+        "SPAWN": failure_shape(FailureKind.SPAWN, keys),
+    }
+    for name, result in shapes.items():
+        # 2本目に成功を置いても使われない(1本目の失敗のまま返る)。
+        runner = FakeRunner(in_order(result, exited(fake_stdout(structured_output=classification_output([keys])))))
+        outcome = build(RecordingMeter(), tmp_path, runner).classify_clusters(deck(3))
+        assert len(runner.specs) == 1, name
+        assert len(outcome.failures) == 1, name
+        assert not outcome.failures[0].reason.startswith("truncated"), name
+
+    # 1 + MAX_REISSUES 本すべてが TRUNCATED なら TRUNCATED の ContractError。
+    meter = RecordingMeter()
+    runner = FakeRunner(in_order(TRUNCATED, TRUNCATED, TRUNCATED))
+    with pytest.raises(llm_contract.ContractError, match="^truncated"):
+        build(meter, tmp_path, runner).describe_term("合成用語", Language.JA)
+    assert len(runner.specs) == 3
+    assert meter.of("record_failure") == [(FailureKind.TRUNCATED,)] * 3
+    assert meter.of("begin_call") == [("describe_term",)]
+
+
+def test_classify_batches_reissue_truncated_invocations(tmp_path: Path) -> None:
+    spawned: list[CommandSpec] = []
+
+    def respond(spec: CommandSpec) -> CommandResult:
+        # 1つ目のバッチは1回切り詰め、3つ目のバッチは毎回切り詰める。
+        spawned.append(spec)
+        size = len(json.loads(spec.stdin)["questions"])
+        if len(spawned) == 1 or size == 10:
+            return TRUNCATED
+        return exited(answer(spec.argv, spec.stdin))
+
+    meter = make_meter(tmp_path)
+    runner = FakeRunner(respond)
+    questions = deck(60).questions
+    outcome = build(meter, tmp_path, runner).classify_clusters(deck(60))
+    sizes = [len(json.loads(spec.stdin)["questions"]) for spec in runner.specs]
+    assert sizes == [25, 25, 25, 10, 10, 10]
+    assert runner.specs[0].stdin == runner.specs[1].stdin and runner.specs[0].argv == runner.specs[1].argv
+    assert len({spec.stdin for spec in runner.specs[3:]}) == 1
+    assert [f.question_ids for f in outcome.failures] == [tuple(q.question_id for q in questions[50:])]
+    assert outcome.failures[0].reason.startswith("truncated")
+    assert sorted(qid for g in outcome.assignments for qid in g.question_ids) == [q.question_id for q in questions[:50]]
+    end = meter.finish(exit_code=1, exit_reason=None)
+    assert end["llm_calls"] == 1
+    assert end["provider_invocations"] == 6
+    assert end["failures_by_kind"] == {**{k.value: 0 for k in FailureKind}, "truncated": 4}
 
 
 def test_every_nfr7_value_reaches_the_meter(tmp_path: Path) -> None:
