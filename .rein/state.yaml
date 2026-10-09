@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-08T01:25:21+09:00'
+updated_at: '2026-10-09T11:10:17+09:00'
 gates:
   mandate:
     status: approved
@@ -907,6 +907,53 @@ tasks:
       updated_at: '2026-10-07T14:49:08+09:00'
   T-071:
     status: todo
+  T-058:
+    status: done
+    attempts: 0
+    completed_commit: 9787243a6bbe0a824f1bba2b383535b5f4e95d2a
+    evidence:
+      authored:
+      - path: docs/test/measurements/extraction-rerun.md
+        commit: edab9e02db6f76dd9f8bfafc61e65bbb0a4b5305
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      - path: docs/test/measurements/golden-set-nofm.md
+        commit: 16353a07d743315f391b865191ca2d72c70d7c95
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      reported: none
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: artifact
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      tree: sha256:29ea2438e72cb7dd6a51929dd8f234b6d529b94586189a8683d6d2a26729233a
+      updated_at: '2026-10-09T11:10:12+09:00'
+  T-059:
+    status: done
+    attempts: 0
+    completed_commit: 9787243a6bbe0a824f1bba2b383535b5f4e95d2a
+    evidence:
+      authored:
+      - path: docs/test/measurements/extraction-refetch.md
+        commit: 9787243a6bbe0a824f1bba2b383535b5f4e95d2a
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      reported: none
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      tree: sha256:29ea2438e72cb7dd6a51929dd8f234b6d529b94586189a8683d6d2a26729233a
+      updated_at: '2026-10-09T11:10:17+09:00'
 dependency_audit:
   ran_at: '2026-10-06T11:57:42+00:00'
   commit: 894378e65684d96d55cc50553f54ba2d616c1bbd
