@@ -1,77 +1,21 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-09T11:10:17+09:00'
+updated_at: '2026-10-09T18:57:53+09:00'
 gates:
   mandate:
-    status: approved
-    receipt:
-      approval_id: GA-MANDATE-9CDEE69C
-      confirmed_at: '2026-10-08T00:23:09+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:26d8e7a4323e0237c47c8539759f94fa9425b4c52ac8609983167cefcc32604c
-      plan_digest: sha256:3dba75a3a8310fc19bb99da290cc49e2800f39d093354ce891e1e7b39689ce5e
-      config_digest: sha256:10686ac924f824920eec91e40886900debc1bb2c290664fadc695db8bc6224d2
-      environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
-      artifact_digest: sha256:7b2c6e50d6fa6c3afdd73bdf2ac6eb4e59fe47ad2b59299d4bf6b3d9a732dba5
-      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
-      attested_chain_root: sha256:6ade96e10b4eccb30b18c4c55363e9cd99ace77ec5b7c850a49c83b7e5dfa22f
+    status: pending
+    receipt: null
   acceptance:
     status: pending
     receipt: null
   T-059:
-    status: approved
-    receipt:
-      approval_id: GA-MANDATE-9CDEE69C
-      confirmed_at: '2026-10-08T00:23:09+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:26d8e7a4323e0237c47c8539759f94fa9425b4c52ac8609983167cefcc32604c
-      environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
-      artifact_digest: sha256:7b2c6e50d6fa6c3afdd73bdf2ac6eb4e59fe47ad2b59299d4bf6b3d9a732dba5
-      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
-      attested_chain_root: sha256:6ade96e10b4eccb30b18c4c55363e9cd99ace77ec5b7c850a49c83b7e5dfa22f
-      crossing_digest: sha256:fc326ab80b51c38187b610b0236621e6968d7f8a912bae0c3c844bbdee5aabf8
-      carried_from: GA-T-059-1CA1334D
+    status: pending
+    receipt: null
   T-071:
-    status: approved
-    receipt:
-      approval_id: GA-MANDATE-9CDEE69C
-      confirmed_at: '2026-10-08T00:23:09+09:00'
-      confirmed_via: ui-session
-      result_chain_root: sha256:26d8e7a4323e0237c47c8539759f94fa9425b4c52ac8609983167cefcc32604c
-      environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
-      artifact_digest: sha256:7b2c6e50d6fa6c3afdd73bdf2ac6eb4e59fe47ad2b59299d4bf6b3d9a732dba5
-      validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
-      attested_chain_root: sha256:6ade96e10b4eccb30b18c4c55363e9cd99ace77ec5b7c850a49c83b7e5dfa22f
-      crossing_digest: sha256:863de0828d534036acd38f3ea85fc432785ca8ca70f189e66d48fc640e2ebcad
-      carried_from: GA-T-071-EA225081
+    status: pending
+    receipt: null
 plan:
-  status: frozen
-  digest: sha256:3dba75a3a8310fc19bb99da290cc49e2800f39d093354ce891e1e7b39689ce5e
-  config_digest: sha256:10686ac924f824920eec91e40886900debc1bb2c290664fadc695db8bc6224d2
-  environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
-  sources:
-    docs/05-current-state.md: sha256:7078ce1b70d95066fdcdcc2c884a6bca71aa983f6dacecb06b60b78c53e9f566
-    docs/10-requirements.md: sha256:c9f4a55e84a41f6b2c0f622120193a2e11d6a71b93fe5ac497d357c50b991690
-    docs/20-design.md: sha256:a21279d569abb1a6362ce453ac2c25e07801e9452d15064306cf4b7273c0b2bc
-    docs/tasks/T-054.md: sha256:4e0ebc0957764b28b30f25e5b3a72fdcf64e7ee3987e8ef3f0979c6f1b21de1d
-    docs/tasks/T-055.md: sha256:f36b3605afb7ee8d32820b903141c866bd57533e6be1f23c8fe915cf9c86ee65
-    docs/tasks/T-056.md: sha256:2617179ae132fa6d0dbac3ab0804d6cff6a305e57016d81f1669e379fc9e5ea0
-    docs/tasks/T-057.md: sha256:42e9b3550b0e3d11bb8fe5c91dc5ed0301f4859f6b42e2dffd96094771d1b5ce
-    docs/tasks/T-058.md: sha256:529784d9fe3662ba12d7927751221e5c38537ee2fb4307fb2de6d39c6a61c2af
-    docs/tasks/T-059.md: sha256:ffffd2f028f307fa9bb2cbd04a8b958148618c5fdb213880c4e165333d06ffdb
-    docs/tasks/T-060.md: sha256:02d7a490d1522666ef7b19a7da683d4c1fe9a31884a79eed00b7c222814f9d0c
-    docs/tasks/T-061.md: sha256:426727ff769a92e7d1e50b347d42b2249a4348d41019d5363aa797e18926c658
-    docs/tasks/T-062.md: sha256:fa5d3220754e1e49d26654f6dbe980ce5c32ea28b2a1d6abdf99707b67ff20d3
-    docs/tasks/T-063.md: sha256:9709b20ec41317ba9a5f562c23825757960cd119d2e919aa2058065706093733
-    docs/tasks/T-064.md: sha256:6feab9ae3fdce45a13619a2b207bae22b0a8c9b1b9264918c4e9a695f40aed31
-    docs/tasks/T-065.md: sha256:6a91c4dbd4dfd489e64a2a7867ee13cdc88cf259a17fd79f174d24a1cccc23c6
-    docs/tasks/T-066.md: sha256:5c5398ff4789b9d85e3234f9675e2ab00f59a0451a446f88e24cf3e3af13e9b3
-    docs/tasks/T-067.md: sha256:ea60409d8b56f445f7a84fe937286ba95e858a0e7e27a45513cdfc88f9532185
-    docs/tasks/T-068.md: sha256:11580dd6af9e1b5a9d49da990c33464b2b760263fff2856c2b979f4877ca2da4
-    docs/tasks/T-069.md: sha256:0921ffec7993bfdc4a43ac5c0de1272c67933db6348f67bd68be97d9a5f00b8d
-    docs/tasks/T-070.md: sha256:4ed0f56f3e59736e3530d1deb1ecf6c6acf5651211cc4502942661a77652285d
-    docs/tasks/T-071.md: sha256:e8c69a057adbc5d14ca71f4c5d02d10ed93580e7b34f794b80c82a8a1790f92a
-  frozen_at: '2026-10-08T00:23:09+09:00'
+  status: draft
 execution:
   status: idle
 tasks:
@@ -955,21 +899,53 @@ tasks:
       tree: sha256:29ea2438e72cb7dd6a51929dd8f234b6d529b94586189a8683d6d2a26729233a
       updated_at: '2026-10-09T11:10:17+09:00'
 dependency_audit:
-  ran_at: '2026-10-06T11:57:42+00:00'
-  commit: 894378e65684d96d55cc50553f54ba2d616c1bbd
-  dependencies: sha256:388622e9c8a4b601dac0bf9aff7ab83d3781061ae15bcc7ca2bc587012fafb44
+  ran_at: '2026-10-09T09:58:40+00:00'
+  commit: 749d524a9504dce383567dfb7ba05ab786af01f7
+  dependencies: sha256:0ef7ecdf82707ea9767fd7e42f99391a7f24e2ed8e77b39ebc3a38b78817cf17
   passed: true
-  summary: 'No known vulnerabilities found
-
-    Name       Skip Reason
-
-    ---------- --------------------------------------------------------------------------------
-
-    torch      Dependency not found on PyPI and could not be audited: torch (2.10.0+cu128)
-
-    torchaudio Dependency not found on PyPI and could not be audited: torchaudio (2.10.0+cu128)
-
-    '
+  summary: "ting torchaudio (2.10.0+cu128)\n\e[2K\e[32m\\\e[0m Collecting torchaudio (2.10.0+cu128)\n\e\
+    [2K\e[32m\\\e[0m Collecting torchaudio (2.10.0+cu128)\n\e[2K\e[32m\\\e[0m Collecting torchaudio (2.10.0+cu128)\n\
+    \e[2K\e[32m|\e[0m Collecting torchaudio (2.10.0+cu128)\n\e[2K\e[32m|\e[0m Collecting torchaudio (2.10.0+cu128)\n\
+    \e[2K\e[32m|\e[0m Skipping torchaudio: Dependency not found on PyPI and could not be audited: \ntorchaudio\
+    \ (2.10.0+cu128)\n\e[2K\e[1A\e[2K\e[32m|\e[0m Collecting torchmetrics (1.9.0)\n\e[2K\e[32m|\e[0m Auditing\
+    \ torchmetrics (1.9.0)\n\e[2K\e[32m|\e[0m Collecting tqdm (4.70.1)\n\e[2K\e[32m|\e[0m Collecting tqdm\
+    \ (4.70.1)\n\e[2K\e[32m|\e[0m Auditing tqdm (4.70.1)\n\e[2K\e[32m|\e[0m Collecting transformers (5.17.0)\n\
+    \e[2K\e[32m|\e[0m Auditing transformers (5.17.0)\n\e[2K\e[32m|\e[0m Collecting triton (3.6.0)\n\e\
+    [2K\e[32m/\e[0m Collecting triton (3.6.0)\n\e[2K\e[32m/\e[0m Collecting triton (3.6.0)\n\e[2K\e[32m/\e\
+    [0m Collecting triton (3.6.0)\n\e[2K\e[32m/\e[0m Collecting triton (3.6.0)\n\e[2K\e[32m-\e[0m Collecting\
+    \ triton (3.6.0)\n\e[2K\e[32m-\e[0m Collecting triton (3.6.0)\n\e[2K\e[32m-\e[0m Auditing triton (3.6.0)\n\
+    \e[2K\e[32m-\e[0m Collecting truststore (0.10.4)\n\e[2K\e[32m-\e[0m Auditing truststore (0.10.4)\n\
+    \e[2K\e[32m-\e[0m Collecting typeguard (4.6.0)\n\e[2K\e[32m-\e[0m Collecting typeguard (4.6.0)\n\e\
+    [2K\e[32m-\e[0m Auditing typeguard (4.6.0)\n\e[2K\e[32m-\e[0m Collecting typer (0.27.2)\n\e[2K\e[32m-\e\
+    [0m Auditing typer (0.27.2)\n\e[2K\e[32m-\e[0m Collecting typing_extensions (4.16.0)\n\e[2K\e[32m-\e\
+    [0m Collecting typing_extensions (4.16.0)\n\e[2K\e[32m-\e[0m Auditing typing_extensions (4.16.0)\n\
+    \e[2K\e[32m-\e[0m Collecting typing-inspection (0.4.4)\n\e[2K\e[32m\\\e[0m Auditing typing-inspection\
+    \ (0.4.4)\n\e[2K\e[32m\\\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m\\\e[0m Collecting Unidecode\
+    \ (1.4.0)\n\e[2K\e[32m\\\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m\\\e[0m Collecting Unidecode\
+    \ (1.4.0)\n\e[2K\e[32m\\\e[0m Collecting Unidecode (1.4.0)\n\e[2K\e[32m|\e[0m Collecting Unidecode\
+    \ (1.4.0)\n\e[2K\e[32m|\e[0m Auditing Unidecode (1.4.0)\n\e[2K\e[32m|\e[0m Collecting unidic-lite\
+    \ (1.0.8)\n\e[2K\e[32m|\e[0m Collecting unidic-lite (1.0.8)\n\e[2K\e[32m|\e[0m Auditing unidic-lite\
+    \ (1.0.8)\n\e[2K\e[32m|\e[0m Collecting urllib3 (2.8.0)\n\e[2K\e[32m|\e[0m Auditing urllib3 (2.8.0)\n\
+    \e[2K\e[32m|\e[0m Collecting virtualenv (21.13.0)\n\e[2K\e[32m|\e[0m Collecting virtualenv (21.13.0)\n\
+    \e[2K\e[32m|\e[0m Auditing virtualenv (21.13.0)\n\e[2K\e[32m|\e[0m Collecting watchdog (6.0.0)\n\e\
+    [2K\e[32m|\e[0m Auditing watchdog (6.0.0)\n\e[2K\e[32m|\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m|\e\
+    [0m Collecting wetext (0.1.8)\n\e[2K\e[32m/\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m/\e[0m Collecting\
+    \ wetext (0.1.8)\n\e[2K\e[32m/\e[0m Collecting wetext (0.1.8)\n\e[2K\e[32m/\e[0m Collecting wetext\
+    \ (0.1.8)\n\e[2K\e[32m-\e[0m Auditing wetext (0.1.8)\n\e[2K\e[32m-\e[0m Collecting wget (3.2)\n\e\
+    [2K\e[32m-\e[0m Collecting wget (3.2)\n\e[2K\e[32m-\e[0m Collecting wget (3.2)\n\e[2K\e[32m-\e[0m\
+    \ Collecting wget (3.2)\n\e[2K\e[32m\\\e[0m Collecting wget (3.2)\n\e[2K\e[32m\\\e[0m Collecting wget\
+    \ (3.2)\n\e[2K\e[32m\\\e[0m Collecting wget (3.2)\n\e[2K\e[32m\\\e[0m Auditing wget (3.2)\n\e[2K\e\
+    [32m\\\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m\\\e[0m Collecting x-transformers (2.28.8)\n\
+    \e[2K\e[32m|\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m|\e[0m Collecting x-transformers\
+    \ (2.28.8)\n\e[2K\e[32m|\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m|\e[0m Collecting x-transformers\
+    \ (2.28.8)\n\e[2K\e[32m/\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m Collecting x-transformers\
+    \ (2.28.8)\n\e[2K\e[32m/\e[0m Collecting x-transformers (2.28.8)\n\e[2K\e[32m/\e[0m Auditing x-transformers\
+    \ (2.28.8)\n\e[2K\e[32m/\e[0m Collecting yarl (1.25.1)\n\e[2K\e[32m/\e[0m Auditing yarl (1.25.1)\n\
+    \e[2K\e[32m/\e[0m Collecting zipp (4.1.0)\n\e[2K\e[32m/\e[0m Collecting zipp (4.1.0)\n\e[2K\e[32m/\e\
+    [0m Auditing zipp (4.1.0)\n\e[2K\e[32m/\e[0m Auditing zipp (4.1.0)\n\e[?25h\n\e[1A\e[2KNo known vulnerabilities\
+    \ found\nName       Skip Reason\n---------- --------------------------------------------------------------------------------\n\
+    torch      Dependency not found on PyPI and could not be audited: torch (2.10.0+cu128)\ntorchaudio\
+    \ Dependency not found on PyPI and could not be audited: torchaudio (2.10.0+cu128)\n"
 baseline:
   measured_at: '2026-10-06T02:00:57+00:00'
   tree_digest: sha256:692e843c1c521429d4b9d197fd31eb4dd3f3d5ba2b00d2eb2fbfeac4ad5db8d0

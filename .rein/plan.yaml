@@ -1316,6 +1316,50 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_person_record_nodes_skip_until_the_record_exists
       executor_profile: quality
   operator_surface: []
+- id: T-072
+  title: claude 呼び出しの切り詰め(TRUNCATED)を、上限つきで同じ入力のまま出し直す
+  kind: foundation
+  blocked_by: []
+  claim_ids:
+  - C-025
+  domains:
+  - adapters
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - tests/adapters/test_llm_claude_cli.py
+  acceptance:
+  - id: A-1
+    statement: 子プロセスが TRUNCATED で終わった呼び出しは、同じ argv と stdin で最大 MAX_REISSUES(= 2)回まで出し直し、成功すればその値を返す。出し直しも子プロセス1本として meter に入り(provider_invocations
+      に数え、llm_calls には数えない)、1回の Protocol 呼び出しの中で完結する。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_truncated_invocation_is_reissued_up_to_the_limit
+      executor_profile: quality
+  - id: A-2
+    statement: 出し直しは TRUNCATED だけが対象で、PROVIDER_ERROR(枠切れ・overage を含む)・SCHEMA・PARSE・TIMEOUT・INCOMPLETE_IDS は1本目で失敗のまま返る。1 + MAX_REISSUES
+      本すべてが TRUNCATED なら TRUNCATED の ContractError になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_only_truncated_is_reissued
+      executor_profile: quality
+  - id: A-3
+    statement: classify_clusters のバッチの呼び出しも同じ規則で出し直す(子プロセスを起動する経路はすべて同じ1か所を通る)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_classify_batches_reissue_truncated_invocations
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
   title: 【人・不可逆】実デッキでフル処理を完走させる(人がホストで exec と render)
   kind: integration
@@ -1328,6 +1372,7 @@ tasks:
   - T-068
   - T-069
   - T-070
+  - T-072
   claim_ids:
   - C-025
   - C-007
@@ -2001,6 +2046,17 @@ decisions:
   rationale: 取得の経路のコードに変更が無いので、リハーサルで確かめるべき新しい部分は抽出器だけ。
   requirement_ids:
   - R-2
+- id: D-231
+  subject: claude 呼び出しの切り詰め(TRUNCATED)の扱い(D-101 の改訂)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: TRUNCATED で終わった子プロセスだけを、アダプタの1か所で同じ argv と stdin のまま最大2回出し直す。他の失敗の種別は従来どおり出し直さない。出し直しは provider_invocations に入り、llm_calls には入らない。
+  rationale: フル処理の試行1(2026-10-09)で、recall の 206 本中 2 本が error_max_turns(StructuredOutput への入力が JSON として読めず、3ターンとも拒否)で落ち、列が完走不能になった。同じ拒否が1回だけの呼び出しは
+    15 本あり、モデル側の確率的な失敗と読める。数百本の列で約1%の失敗が全体を落とすので、D-101 の「作り直さない」を TRUNCATED に限って改める。--max-turns を上げる案は argv のダイジェストが変わり固定オーバーヘッドの定数(T-046)が unknown になるので採らない。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements
