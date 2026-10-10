@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-10T02:07:00+09:00'
+updated_at: '2026-10-10T02:28:56+09:00'
 gates:
   mandate:
     status: approved
@@ -955,6 +955,56 @@ tasks:
         reused: false
       tree: sha256:29ea2438e72cb7dd6a51929dd8f234b6d529b94586189a8683d6d2a26729233a
       updated_at: '2026-10-09T11:10:17+09:00'
+  T-072:
+    status: done
+    attempts: 1
+    completed_commit: e4c81edd1a61d940376e5425741eb159c9b27332
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: fed8519608cf6629096c7de80f561718f2bee1d0
+        step: test
+      tree: sha256:6d3c590e46ff4952ec986a1738d8be976eb587aef4b100e2dd74f7282dd538b4
+      updated_at: '2026-10-10T02:28:56+09:00'
 dependency_audit:
   ran_at: '2026-10-09T09:58:40+00:00'
   commit: 749d524a9504dce383567dfb7ba05ab786af01f7
