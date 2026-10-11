@@ -1,29 +1,29 @@
 # .rein/rein.lock — machine-written by `rein init|sync|install|uninstall|upgrade`.
 # Records the document format, the tool version/source, and a hash per installed file so
 # upgrades never overwrite local edits. Do not edit by hand.
-format: rein-grounded-v11
-tool_version: 0.13.0
+format: rein-grounded-v12
+tool_version: 0.14.0
 source: git+https://github.com/komoroko/loose-rein-kit@v0.10.0
 prompts:
-  version: 0.13.0
+  version: 0.14.0
   files:
     AGENTS.rein.md: sha256:cc8701bd28d8deb789d1085c7abac1f8d4e9bef8023d49075bf192ee6a5e7a4e
     prompts/agents/adversarial-reviewer.md: sha256:ce74b38d44df0dd709608c4769cb2ba5b2b1237eb72a2dd77d9863325b5a568a
     prompts/agents/architect.md: sha256:2f5d25fbbb939eab00a26db15241c1418283f7c627fb3c639ede199f4a4bdf8f
     prompts/agents/implementer.md: sha256:310bc58074601ba7a855cf93242e1da395926479b5a274ff0fc5a818a2cd58ef
     prompts/agents/requirements-analyst.md: sha256:0c928038ded17cc8224febce1ba72c555b8fb182d0c35254e03df3fa63241f8d
-    prompts/commands/build.md: sha256:63bf4532e254f99cb8c3289a3c7699df4ae1bc9d5944d5105d0bfb1a9acb32bb
+    prompts/commands/build.md: sha256:53eed7ba920fad4eabc77773d00620322c279baf8ac9aafb3ce0a0e3e1379871
     prompts/commands/design.md: sha256:c4ec72f030a1e4f206dfe4737407f80d3d59a93ad24b46ee1079ad8d8851d176
     prompts/commands/onboard.md: sha256:a424f9ea371691d31db64f892ec64b4060dcfe6dd8ddbbb98503926b727a5bd4
     prompts/commands/req.md: sha256:ef334b9d1b00d7d6f89cfd10e81aeae47f56c486b843ea37d0909b661bcb49c4
     prompts/commands/revise.md: sha256:0ef88338c574efb7e629ffb288ed3b519f261ffcb0a4be961783601d2c62472c
     prompts/commands/status.md: sha256:6f31d2c1b46f62b0e511300838251dc6a35fb33c3d1b03dfbed1543e76f4de2d
-    prompts/commands/tasks.md: sha256:682c9c950a03dcbcec963b711463d51be7bfade7a4d5603776a5f675864baaaa
+    prompts/commands/tasks.md: sha256:ce379dceeaec6517ed5f5b448c6aa13255b029cb71671f5f2007a67d37ae1e50
     prompts/commands/verify.md: sha256:6115f6fc34bbcec48afbca16a611f5596f72ea912734a35ec9c4d5c6c3dc2b9e
     prompts/rules/gate-workflow.md: sha256:37e8048a4d2ae31bbf3f13a5030558756e27ef5cad602d54d84cc3bb58d533a0
 integrations:
   claude:
-    version: 0.12.1
+    version: 0.14.0
     installed_at: '2026-09-25'
     files:
       .claude/agents/adversarial-reviewer.md: sha256:a4fd4c68f39502bad42327168e79fbb43402d7ddff17788237ffb0d32eab4d8f
@@ -48,4 +48,4 @@ seeded:
   .rein/review.yaml: sha256:e909db2b8d15c4638043d1202cf2e02a536b1b2964e13b95f1b52e537432456d
   .rein/config.yaml: sha256:e238a24168e6c5d170523684c0936e464ca484cf16962c8f27da44b0489d118d
 created_at: '2026-09-25'
-updated_at: '2026-10-06'
+updated_at: '2026-10-11'
