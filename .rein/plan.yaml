@@ -1063,6 +1063,13 @@ tasks:
       kind: artifact
       paths:
       - docs/test/measurements/ui-e2e-nofm.md
+      - docs/test/measurements/ui-e2e-nofm/01-decks.png
+      - docs/test/measurements/ui-e2e-nofm/02-graded.png
+      - docs/test/measurements/ui-e2e-nofm/03-session-done.png
+      - docs/test/measurements/ui-e2e-nofm/04-nofm-under.png
+      - docs/test/measurements/ui-e2e-nofm/05-nofm-over.png
+      - docs/test/measurements/ui-e2e-nofm/06-nofm-graded.png
+      - docs/test/measurements/ui-e2e-nofm/07-report.png
       produces:
       - docs/test/measurements/ui-e2e-nofm.md
       - docs/test/measurements/ui-e2e-nofm/
