@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from quiz_sift.cluster.run import Clustering, cluster_deck
-from quiz_sift.cluster.summary import MAX_REGENERATIONS, UngroundedSummary, ungrounded_terms
+from quiz_sift.cluster.summary import UngroundedSummary, ungrounded_terms
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
@@ -259,7 +259,7 @@ def test_rejected_summary_is_regenerated_for_that_cluster_only(known5: tuple[Dec
             sequences={"s3": (failing, failing, GROUNDED["s3"])},
         )
         cluster_deck(llm, deck, Writer(out))
-        assert Counter(llm.summarized) == {**dict.fromkeys(GROUNDED, 1), "s3": 1 + MAX_REGENERATIONS}, failing
+        assert Counter(llm.summarized) == {**dict.fromkeys(GROUNDED, 1), "s3": 3}, failing
         assert out.read_text(encoding="utf-8").splitlines() == list(GROUNDED.values())
         out.unlink()
 
@@ -271,7 +271,7 @@ def test_rejected_summary_is_regenerated_for_that_cluster_only(known5: tuple[Dec
         sequences={"s3": (UNGROUNDED_S3, CONTRADICTING_S3, GROUNDED["s3"])},
     )
     cluster_deck(llm, deck, Writer(tmp_path / "mixed.txt"))
-    assert llm.summarized.count("s3") == 1 + MAX_REGENERATIONS
+    assert llm.summarized.count("s3") == 3
     # 実在性に落ちた要約は判定にかけない。
     assert UNGROUNDED_S3 not in [statement for _, statement in llm.checked]
 
@@ -299,5 +299,5 @@ def test_summary_regeneration_exhausted_still_stops(
     assert exc.value.code not in (None, 0)
     if isinstance(exc.value, EntailmentRejected):
         assert exc.value.verdict is Entailment.CONTRADICTED
-    assert llm.summarized.count("s3") == 1 + MAX_REGENERATIONS
+    assert llm.summarized.count("s3") == 3
     assert not out.exists()

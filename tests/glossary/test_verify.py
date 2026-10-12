@@ -10,7 +10,6 @@ from quiz_sift.domain.language import Language
 from quiz_sift.glossary.describe import GlossaryEntry
 from quiz_sift.glossary.extract_terms import extract_terms
 from quiz_sift.glossary.verify import (
-    MAX_REGENERATIONS,
     Consistent,
     Contradicted,
     Glossary,
@@ -165,7 +164,7 @@ def test_rejected_description_is_regenerated_for_that_term_only(deck: Deck, tmp_
     )
     emit_glossary(llm, deck, writer)
     assert writer.glossary is not None
-    assert Counter(llm.described) == {**dict.fromkeys(extract_terms(deck), 1), TARGET: 1 + MAX_REGENERATIONS}
+    assert Counter(llm.described) == {**dict.fromkeys(extract_terms(deck), 1), TARGET: 3}
     assert {e.term: e.description for e in writer.glossary.entries}[TARGET] == FIXED
     assert writer.glossary.verification == _baseline(deck)
     assert isinstance(writer.glossary.verification, Consistent)
@@ -190,10 +189,10 @@ def test_description_regeneration_exhausted_still_stops(
     assert exc.value.verdict is verdict
     assert exc.value.code not in (None, 0)
     assert not out.exists()
-    assert llm.described.count(TARGET) == 1 + MAX_REGENERATIONS
+    assert llm.described.count(TARGET) == 3
     # 全用語を判定している: 判定した用語の数は、照合先のある用語の数に等しい。
     judged = {statement.split(": ", 1)[0] for _, statement in llm.checked}
     baseline = _baseline(deck)
     assert isinstance(baseline, Consistent) and len(judged) == baseline.checked
     # 上限まで判定したのは TARGET だけ。
-    assert sum(statement.startswith(f"{TARGET}: ") for _, statement in llm.checked) == 1 + MAX_REGENERATIONS
+    assert sum(statement.startswith(f"{TARGET}: ") for _, statement in llm.checked) == 3
