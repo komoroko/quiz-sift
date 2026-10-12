@@ -1092,3 +1092,57 @@ def test_c013_script_discrimination_is_judged_against_its_distractors(
     assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED
     assert any(s == statement for _, s in llm.judged)
     assert _artifacts(workspace, deck_id, "script") == []
+
+
+@dataclass
+class _UngroundedOnce(AnalysisLlm):
+    """`label` のグループの要約だけ、最初の1回は `ungrounded` を返す。"""
+
+    label: str = ""
+    ungrounded: str = ""
+    returned: list[str] = field(default_factory=list)
+
+    def summarize_cluster(self, members: Deck) -> str:
+        summary = super().summarize_cluster(members)
+        if summary == self.summaries[self.label] and self.ungrounded not in self.returned:
+            self.returned.append(self.ungrounded)
+            return self.ungrounded
+        return summary
+
+
+def test_regeneration_logs_name_ids_and_counts_only(
+    workspace: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A-5: cluster と glossary の作り直しのたびにログが1行出て、ID と検査名・回数だけを含む(NFR-2)。"""
+    caplog.set_level(logging.INFO)
+    deck_id = _deck(workspace, "regeneration-logs")
+    summary = SUMMARIES["iam"]
+    # ec2 クラスタの問題に Lambda は無いので、実在性に落ちる。
+    ungrounded = "EC2 の購入オプションは Lambda で選ぶ"
+    description = "IAM: IAMの説明"
+    llm = _UngroundedOnce(drafts=DRAFTS, groups=GROUPS, summaries=SUMMARIES, label="ec2", ungrounded=ungrounded)
+
+    def first_rejected(_: str, statement: str) -> bool:
+        # iam の要約と IAM の説明を、それぞれ最初の1回だけ矛盾と返す。
+        return statement in (summary, description) and llm.checked.count(statement) == 1
+
+    llm.contradicts = first_rejected
+    run = CliRunner(workspace, capsys, llm, StubTts())
+    run("cluster", deck_id)
+    run("glossary", deck_id)
+    assert llm.returned == [ungrounded] and ungrounded not in llm.checked
+    assert llm.checked.count(summary) == 2 and llm.checked.count(description) == 2
+
+    lines = [r.getMessage() for r in caplog.records if "作り直す" in r.getMessage()]
+    cluster_lines = [line for line in lines if line.startswith("cluster:")]
+    glossary_lines = [line for line in lines if line.startswith("glossary:")]
+    assert len(lines) == 3 and len(cluster_lines) == 2 and len(glossary_lines) == 1
+    checks = []
+    for line in cluster_lines:
+        match = re.fullmatch(r"cluster: クラスタ c\d{3} の要約を作り直す\((grounding|entailment); 1 回目\)", line)
+        assert match, line
+        checks.append(match.group(1))
+    assert sorted(checks) == ["entailment", "grounding"]
+    assert re.fullmatch(r"glossary: 用語 #\d+ の説明を作り直す\(entailment; 1 回目\)", glossary_lines[0])
+    # 要約・説明・用語の本文はどのログにも出ない。
+    assert not [text for text in (summary, ungrounded, description, "IAM", "EC2") for line in lines if text in line]

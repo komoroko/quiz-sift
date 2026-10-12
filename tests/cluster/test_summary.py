@@ -1,5 +1,6 @@
 """クラスタ要約の語句実在性と含意判定(C-003 / C-013 / R-3 / NFR-1 / A-5 / A-6 / D-161)。"""
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -31,17 +32,31 @@ CONTRADICTING_S3 = "S3 標準-IA の取り出しには数時間かかる"
 
 
 class StubLlm:
-    def __init__(self, groups: Groups, summaries: dict[str, str], contradicted: frozenset[str] = frozenset()) -> None:
+    """`summaries` の要約を返す。`sequences` にあるグループは、呼ばれるたびにその列を順に返す(尽きたら最後)。"""
+
+    def __init__(
+        self,
+        groups: Groups,
+        summaries: dict[str, str],
+        contradicted: frozenset[str] = frozenset(),
+        sequences: dict[str, tuple[str, ...]] | None = None,
+    ) -> None:
         self.groups = groups
         self.summaries = summaries
         self.contradicted = contradicted
+        self.sequences = sequences or {}
         self.checked: list[tuple[str, str]] = []
+        self.summarized: list[str] = []
 
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
         return ClassificationResult(tuple(GroupProposal(k, v) for k, v in self.groups.items()), ())
 
     def summarize_cluster(self, members: Deck) -> str:
         (label,) = {k for k, ids in self.groups.items() if members.questions[0].question_id in ids}
+        self.summarized.append(label)
+        if label in self.sequences:
+            sequence = self.sequences[label]
+            return sequence[min(self.summarized.count(label), len(sequence)) - 1]
         return self.summaries[label]
 
     def check_entailment(self, reference: str, statement: str) -> Entailment:
@@ -230,3 +245,59 @@ def test_summary_reference_lists_every_correct_option(tmp_path: Path) -> None:
     for local_id, corrects, wrong in (("m1", "AC", "BD"), ("m2", "BD", "AC")):
         assert f"正解: {local_id} の選択肢 {corrects[0]}、{local_id} の選択肢 {corrects[1]}" in reference
         assert not any(f"{local_id} の選択肢 {x}" in reference for x in wrong)
+
+
+def test_rejected_summary_is_regenerated_for_that_cluster_only(known5: tuple[Deck, Groups], tmp_path: Path) -> None:
+    """A-1: 実在性か含意判定に落ちたクラスタだけ要約を作り直し、2回落ちてから通れば3回目の要約で書く。"""
+    deck, groups = known5
+    for failing in (UNGROUNDED_S3, CONTRADICTING_S3):
+        out = tmp_path / "clusters.txt"
+        llm = StubLlm(
+            groups,
+            GROUNDED,
+            contradicted=frozenset({CONTRADICTING_S3}),
+            sequences={"s3": (failing, failing, GROUNDED["s3"])},
+        )
+        cluster_deck(llm, deck, Writer(out))
+        assert Counter(llm.summarized) == {**dict.fromkeys(GROUNDED, 1), "s3": 3}, failing
+        assert out.read_text(encoding="utf-8").splitlines() == list(GROUNDED.values())
+        out.unlink()
+
+    # 実在性 → 含意判定 → 通る、の混ざった落ち方も同じ上限を共有する。
+    llm = StubLlm(
+        groups,
+        GROUNDED,
+        contradicted=frozenset({CONTRADICTING_S3}),
+        sequences={"s3": (UNGROUNDED_S3, CONTRADICTING_S3, GROUNDED["s3"])},
+    )
+    cluster_deck(llm, deck, Writer(tmp_path / "mixed.txt"))
+    assert llm.summarized.count("s3") == 3
+    # 実在性に落ちた要約は判定にかけない。
+    assert UNGROUNDED_S3 not in [statement for _, statement in llm.checked]
+
+
+@pytest.mark.parametrize(
+    ("sequence", "error"),
+    [
+        ((CONTRADICTING_S3,), EntailmentRejected),
+        ((UNGROUNDED_S3,), UngroundedSummary),
+        # 落ち方が混ざれば、最後に落ちた検査で決める。
+        ((UNGROUNDED_S3, UNGROUNDED_S3, CONTRADICTING_S3), EntailmentRejected),
+        ((CONTRADICTING_S3, CONTRADICTING_S3, UNGROUNDED_S3), UngroundedSummary),
+    ],
+)
+def test_summary_regeneration_exhausted_still_stops(
+    known5: tuple[Deck, Groups], tmp_path: Path, sequence: tuple[str, ...], error: type[SystemExit]
+) -> None:
+    """A-2: 3回続けて落ちたクラスタがあれば、最後に落ちた検査に応じた例外で止まり、何も書かない。"""
+    deck, groups = known5
+    out = tmp_path / "clusters.txt"
+    llm = StubLlm(groups, GROUNDED, contradicted=frozenset({CONTRADICTING_S3}), sequences={"s3": sequence})
+    with pytest.raises(error) as exc:
+        cluster_deck(llm, deck, Writer(out))
+    assert type(exc.value) is error
+    assert exc.value.code not in (None, 0)
+    if isinstance(exc.value, EntailmentRejected):
+        assert exc.value.verdict is Entailment.CONTRADICTED
+    assert llm.summarized.count("s3") == 3
+    assert not out.exists()

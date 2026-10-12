@@ -6,12 +6,17 @@
    (漢字と混ざった句はカタカナの列だけ)、英語デッキは大文字略語と文頭以外の大文字始まりの語。
    漢字だけの語や小文字の一般語は照合しない。専門用語が0件の要約は照合を通り、含意判定だけがかかる。
 2. **含意判定**(NFR-1 / D-042): 要約が、そのクラスタの問題の正解・公式解説と矛盾しないこと。
-   `safety.entailment.emit_if_consistent` 越しに書き出すので、`consistent` 以外で成果物は書かれない。
+
+クラスタごとに「要約 → 実在性 → 含意判定」を行い、どちらかに落ちたらそのクラスタの要約だけを上限
+`MAX_REGENERATIONS` 回まで作り直す(D-232 / ADR-026)。上限を超えたクラスタが出た時点で、最後に落ちた検査に
+応じて `UngroundedSummary` か `EntailmentRejected` で止める。全クラスタが通ったときだけ成果物を書く。
+`LlmCallError` は作り直さない(D-101)。
 
 「その他」クラスタは論点を持たないので要約を生成せず、固定のラベルを置く。知識の主張ではないので
 どちらの検査にもかけない。
 """
 
+import logging
 import re
 import unicodedata
 from collections.abc import Callable
@@ -24,13 +29,17 @@ from quiz_sift.domain.ids import ClusterId
 from quiz_sift.domain.language import Language
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.targets import SUMMARY_FIELDS, texts_for
-from quiz_sift.ports.llm import GroupProposal
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent, reference_for
+from quiz_sift.ports.llm import Entailment, GroupProposal
+from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, judge, reference_for
+
+logger = logging.getLogger(__name__)
 
 OTHER_LOCAL_ID = "other"
 """「その他」クラスタの `ClusterId.local_id`。"""
 OTHER_SUMMARY = {Language.JA: "その他", Language.EN: "Other"}
 """「その他」クラスタの要約として置く固定のラベル。"""
+MAX_REGENERATIONS = 2
+"""1クラスタあたりの要約の作り直しの上限。生成は最初の1回と合わせて最大 `1 + MAX_REGENERATIONS` 回(D-232)。"""
 
 
 class SummaryLlm(EntailmentChecker, Protocol):
@@ -93,27 +102,40 @@ def _members(deck: Deck, group: GroupProposal) -> Deck:
     )
 
 
-def emit_summarized[T](
-    llm: SummaryLlm, deck: Deck, partition: Partition, emit: Callable[[tuple[Cluster, ...]], T]
-) -> T:
-    """各クラスタを要約し、実在性と含意判定を通ったときだけ `emit` にクラスタ列を渡して書かせる。
-
-    実在しない語句があれば `UngroundedSummary`、含意判定が `consistent` でなければ
-    `EntailmentRejected`。どちらも `emit` を呼ぶ前に上がる。
-    """
-    clusters: list[Cluster] = []
-    claims: list[Claim] = []
-    for index, group in enumerate(partition.groups, start=1):
-        cluster_id = ClusterId(deck.deck_id, f"c{index:03d}")
-        members = _members(deck, group)
+def _summarize(llm: SummaryLlm, cluster_id: ClusterId, members: Deck) -> str:
+    """1クラスタの要約を、実在性と含意判定を通るか上限まで作る。上限を超えたら最後に落ちた検査で止める。"""
+    failure: UngroundedSummary | EntailmentRejected | None = None
+    for attempt in range(1, MAX_REGENERATIONS + 2):
+        if failure is not None:
+            check = "grounding" if isinstance(failure, UngroundedSummary) else "entailment"
+            logger.info("cluster: クラスタ %s の要約を作り直す(%s; %d 回目)", cluster_id.local_id, check, attempt - 1)
         summary = llm.summarize_cluster(members)
         missing = ungrounded_terms(summary, members)
         if missing:
-            raise UngroundedSummary(cluster_id, len(missing))
+            failure = UngroundedSummary(cluster_id, len(missing))
+            continue
+        verdict = judge(llm, [Claim(reference=_reference(members), statement=summary)])
+        if verdict is Entailment.CONSISTENT:
+            return summary
+        failure = EntailmentRejected(verdict)
+    assert failure is not None
+    raise failure
+
+
+def emit_summarized[T](
+    llm: SummaryLlm, deck: Deck, partition: Partition, emit: Callable[[tuple[Cluster, ...]], T]
+) -> T:
+    """各クラスタを要約し、全クラスタが実在性と含意判定を通ったときだけ `emit` にクラスタ列を渡して書かせる。
+
+    落ちたクラスタだけを上限まで作り直す。上限を超えたクラスタがあれば、最後に落ちた検査に応じて
+    `UngroundedSummary` か `EntailmentRejected`。どちらも `emit` を呼ぶ前に上がる。
+    """
+    clusters: list[Cluster] = []
+    for index, group in enumerate(partition.groups, start=1):
+        cluster_id = ClusterId(deck.deck_id, f"c{index:03d}")
+        summary = _summarize(llm, cluster_id, _members(deck, group))
         clusters.append(Cluster(cluster_id=cluster_id, summary=summary, question_ids=group.question_ids))
-        claims.append(Claim(reference=_reference(members), statement=summary))
     if partition.other:
         other_id = ClusterId(deck.deck_id, OTHER_LOCAL_ID)
         clusters.append(Cluster(other_id, OTHER_SUMMARY[deck.language], partition.other))
-    result = tuple(clusters)
-    return emit_if_consistent(llm, claims, lambda: emit(result))
+    return emit(tuple(clusters))
