@@ -143,6 +143,9 @@ def question(deck: Deck, local_id: str) -> Question:
 class StubLlm:
     """`drafts` の想起素材を返し、`contradicted` / `uncertain` に含まれる主張にその判定を返す。
 
+    `rejections` にある主張は、その回数だけ `contradicted` を返してから `consistent` を返す。`failing_checks` の
+    主張の判定は `LlmCallError` を上げる。判定にかけた主張は reference と組で `checked` に残る。
+
     `sequences` にある問題は、呼ばれるたびにその列を順に返す(尽きたら最後を返し続ける)。`failing` の問題は
     `LlmCallError` を上げる。呼ばれた問題は `recalled` に残る。
     """
@@ -152,6 +155,8 @@ class StubLlm:
     uncertain: frozenset[str] = frozenset()
     sequences: dict[str, tuple[RecallDraft, ...]] = field(default_factory=dict)
     failing: frozenset[str] = frozenset()
+    rejections: dict[str, int] = field(default_factory=dict)
+    failing_checks: frozenset[str] = frozenset()
     checked: list[tuple[str, str]] = field(default_factory=list)
     recalled: list[str] = field(default_factory=list)
 
@@ -165,7 +170,10 @@ class StubLlm:
 
     def check_entailment(self, reference: str, statement: str) -> Entailment:
         self.checked.append((reference, statement))
-        if statement in self.contradicted:
+        if statement in self.failing_checks:
+            raise LlmCallError("合成の判定の失敗")
+        judged = sum(s == statement for _, s in self.checked)
+        if statement in self.contradicted or judged <= self.rejections.get(statement, 0):
             return Entailment.CONTRADICTED
         if statement in self.uncertain:
             return Entailment.UNCERTAIN

@@ -1,21 +1,20 @@
 """想起素材の生成(R-4 / NFR-1 / ADR-022)。問題ごとに素材を作り、すべての検査を通ったときだけ成果物を書く。
 
-1. **1問ずつ生成 → 検査**(クラスタ順): `verify.check_question` に落ちた問題だけを、上限
-   `MAX_REGENERATIONS` 回まで作り直す。重複キーはクラスタ順で前の問題と比べるので、後の問題が作り直される。
+1. **1問ずつ生成 → 検査 → 含意判定**(クラスタ順): `verify.check_question` か含意判定に落ちた問題だけを、
+   上限 `MAX_REGENERATIONS` 回まで作り直す。重複キーはクラスタ順で前の問題と比べるので、後の問題が作り直される。
    他クラスタ出現率は合否に関わらずログに記録し、成果物にも載せる。
-2. **呼び出しの失敗は作り直さない**(D-101): 失敗しても残りの問題を回し、段を終えてから `RecallCallsFailed`。
-   overage か枠切れを見たら残りを発行しない(D-144)。
-3. **上限超過**: 全問を回し切ってから、上限を超えた問題をすべて列挙して `RegenerationExhausted`(D-217)。
-4. **含意判定**(NFR-1 / D-042): 答えの各要素は対象の正解を明示した reference と、識別ポイントは参照先の
-   誤答の本文を加えた reference と照合する(D-192、D-210)。不合格は作り直さない。
-   `safety.entailment.emit_if_consistent` 越しに書き出すので、`consistent` 以外で成果物は書かれない。
-
-安い検査から順に行い、LLM の含意判定は機械検査をすべて通った素材にだけかける。
+2. **含意判定**(NFR-1 / D-042 / D-232): 機械検査をすべて通った素材だけを判定する。答えの各要素は対象の正解を
+   明示した reference と、識別ポイントは参照先の誤答の本文を加えた reference と照合する(D-192、D-210)。
+   `consistent` でなければ検査名 `entailment` の不合格として、同じ上限の中でその問題を作り直す。
+3. **呼び出しの失敗は作り直さない**(D-101): 含意判定の呼び出しの失敗もその問題の失敗に数える。失敗しても
+   残りの問題を回し、段を終えてから `RecallCallsFailed`。overage か枠切れを見たら残りを発行しない(D-144)。
+4. **上限超過**: 全問を回し切ってから、上限を超えた問題をすべて列挙して `RegenerationExhausted`(D-217)。
+   上限超過の問題が無いとき、成果物に書かれるのはすべて含意判定を通った素材だけになる。
 """
 
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from quiz_sift.domain.cluster import Cluster
@@ -23,14 +22,16 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.ports.llm import LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Entailment, LlmCallError, RecallDraft
 from quiz_sift.recall.verify import QuestionCheck, RecallMaterial, RecallReport, check_question, cluster_texts, report
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent, reference_for
+from quiz_sift.safety.entailment import Claim, EntailmentChecker, judge, reference_for
 
 logger = logging.getLogger(__name__)
 
 MAX_REGENERATIONS = 2
 """1問あたりの作り直しの上限。生成は最初の1回と合わせて最大 `1 + MAX_REGENERATIONS` 回(D-171)。"""
+ENTAILMENT = "entailment"
+"""含意判定が `consistent` でなかったときの検査名(D-232)。"""
 
 
 class RecallLlm(EntailmentChecker, Protocol):
@@ -88,21 +89,28 @@ def _generate_one(
     earlier: Sequence[RecallMaterial],
     stop_seen: Callable[[], bool],
 ) -> _Generated | None:
-    """1問を検査に通るか上限まで作る。生成の前に `stop_seen` が真なら `None`。`LlmCallError` はそのまま上がる。"""
+    """1問を検査と含意判定に通るか上限まで作る。生成の前に `stop_seen` が真なら `None`。
+
+    `LlmCallError`(生成と含意判定のどちらの呼び出しでも)はそのまま上がる。
+    """
     generated: _Generated | None = None
     for attempt in range(1, MAX_REGENERATIONS + 2):
         if stop_seen():
             return None
         material = RecallMaterial(cluster_id, question.question_id, llm.generate_recall(question, language))
-        generated = _Generated(material, check_question(material, question, texts, earlier), attempt)
-        if not generated.check.failures:
+        check = check_question(material, question, texts, earlier)
+        if not check.failures and judge(llm, _claims(material, question)) is not Entailment.CONSISTENT:
+            check = replace(check, failures=(ENTAILMENT,))
+        generated = _Generated(material, check, attempt)
+        if not check.failures:
             break
-        logger.info(
-            "recall: 問題 %s が検査に落ちた(%d 回目): %s",
-            question.question_id.local_id,
-            attempt,
-            ",".join(generated.check.failures),
-        )
+        if attempt <= MAX_REGENERATIONS:
+            logger.info(
+                "recall: 問題 %s を作り直す(%s; %d 回目)",
+                question.question_id.local_id,
+                ",".join(check.failures),
+                attempt,
+            )
     return generated
 
 
@@ -133,11 +141,11 @@ def generate_recall_set[T](
     stop_seen: Callable[[], bool],
     failure_kind: Callable[[LlmCallError], str],
 ) -> T:
-    """`clusters` の各問題の想起素材を作り、すべての検査を通ったときだけ `emit` に成果物を書かせる。
+    """`clusters` の各問題の想起素材を作り、すべての検査と含意判定を通ったときだけ `emit` に成果物を書かせる。
 
     `stop_seen` が真になったら残りを発行しない(D-144)。`failure_kind` は失敗した呼び出しをログに出す種別。
-    呼び出しの失敗か未発行があれば `RecallCallsFailed`、上限を超えた問題があれば `RegenerationExhausted`、
-    含意判定が `consistent` でなければ `EntailmentRejected`。どれも `emit` を呼ぶ前に上がる。
+    呼び出しの失敗か未発行があれば `RecallCallsFailed`、上限を超えた問題があれば `RegenerationExhausted`。
+    どちらも `emit` を呼ぶ前に上がる。
     """
     foreign = [c.cluster_id for c in clusters if c.cluster_id.deck_id != deck.deck_id]
     if foreign:
@@ -180,6 +188,4 @@ def generate_recall_set[T](
         raise RegenerationExhausted(exhausted)
     result = report([g.check for g in done], {g.material.question_id: g.attempts - 1 for g in done})
     _log_rates(result)
-    claims = [claim for g in done for claim in _claims(g.material, questions[g.material.question_id])]
-    materials = RecallSet(tuple(g.material for g in done), result)
-    return emit_if_consistent(llm, claims, lambda: emit(materials))
+    return emit(RecallSet(tuple(g.material for g in done), result))
