@@ -37,7 +37,7 @@ claims:
   requirement_ids:
   - R-4
   statement: 想起素材は問題ごとに生成され、想起キーの各語・状況・条件はその問題の問題文に G-1 の意味で実在し、想起キー・他クラスタ出現率・クラスタ要約の検査は G-1 を実装した単一の述語を呼び、生成プロンプトの照合先は検査と同じ定数から組み立てられ、識別ポイントは構造化した選択肢
-    ID で1件以上の誤答選択肢だけを参照し、答えは要素ごとに選択肢 ID を持ち ID の集合が正解の集合と一致する N 要素の配列であり、重複キーはクラスタをまたぐ場合だけ数えられ、1問単位の検査かクラスタをまたぐ重複に落ちた問題だけが上限
+    ID で1件以上の誤答選択肢だけを参照し、答えは要素ごとに選択肢 ID を持ち ID の集合が正解の集合と一致する N 要素の配列であり、重複キーはクラスタをまたぐ場合だけ数えられ、1問単位の検査かクラスタをまたぐ重複か含意判定に落ちた問題だけが上限
     2 回まで再生成されて回数が記録され、上限を超えた問題があれば成果物を出さずに非 0 終了する。
   risk: high
 - id: C-026
@@ -71,7 +71,7 @@ claims:
   requirement_ids:
   - NFR-1
   statement: 想起素材・台本・クラスタ要約の含意判定の reference が正解 N 件すべてを含み(識別ポイントは参照先の誤答選択肢の本文も含み)、N 要素の答えは要素が持つ選択肢 ID
-    の正解と判定され、N 件のうち1件とだけ矛盾する生成物や参照先の誤答と矛盾する識別ポイントでは成果物を出さずにエラー終了し、正解を言い換えただけの生成物では誤検出しない。
+    の正解と判定され、N 件のうち1件とだけ矛盾する生成物や参照先の誤答と矛盾する識別ポイントは成果物に書かれず、想起素材・クラスタ要約・グロッサリの説明では矛盾した項目だけが上限 2 回まで作り直され、上限を超えれば(台本では最初の矛盾で)成果物を出さずにエラー終了し、正解を言い換えただけの生成物では誤検出しない。
   risk: critical
 - id: C-014
   requirement_ids:
@@ -790,7 +790,7 @@ tasks:
       executor_profile: quality
   operator_surface: []
 - id: T-063
-  title: '想起素材: 照合先の定数化、ID で構造化したスキーマ、問題ごとの再生成、含意判定の reference'
+  title: '想起素材: 照合先の定数化、ID で構造化したスキーマ、問題ごとの再生成(含意判定の不合格を含む)、含意判定の reference'
   kind: integration
   blocked_by:
   - T-055
@@ -873,18 +873,19 @@ tasks:
       - tests/recall/test_verify.py::test_duplicates_count_only_across_clusters
       executor_profile: quality
   - id: A-5
-    statement: 1問単位の検査かクラスタをまたぐ重複に落ちた問題だけが上限 2 回まで再生成され、問題ごとの回数が report に記録され、再生成の呼び出しも llm_calls と provider_invocations
-      に数えられる。含意判定の不合格と LLM 呼び出しの失敗は再生成されない。上限を超えた問題があれば全問を回し切った後にすべて列挙して成果物を出さずに非 0 終了する。
+    statement: 1問単位の検査、クラスタをまたぐ重複、含意判定(機械検査を通った素材だけを判定し、検査名 entailment)に落ちた問題だけが上限 2 回まで再生成され、問題ごとの回数が report に記録され、再生成の呼び出しも
+      llm_calls と provider_invocations に数えられる。スタブ判定器が 2 回落としてから通すと、その問題は 3 回生成されて成果物が書かれ、3 回落とすと全問を回し切った後に RegenerationExhausted で非 0 終了する。LLM 呼び出しの失敗は再生成されず(含意判定の呼び出しの失敗もその問題の失敗に数え、最後に RecallCallsFailed)、上限を超えた問題があれば全問を回し切った後にすべて列挙して成果物を出さずに非 0 終了する(D-232)。
     evidence:
       kind: command
       command:
       - pytest
       - -q
       - tests/acceptance/test_analysis.py::test_c004_failed_questions_are_regenerated_up_to_twice
+      - tests/recall/test_generate.py::test_entailment_failure_is_regenerated_within_the_same_limit
       executor_profile: quality
   - id: A-6
-    statement: 含意判定の reference は正解 N 件すべてを含み、答えの要素は対象の正解を明示して判定され、識別ポイントは「誤答選択肢(この問題では正しくない記述)」の節に参照先の本文を含む。スタブ判定器が要素1件だけ、または参照先の誤答とだけ矛盾と返すと
-      EntailmentRejected で成果物が書かれない。言い換えのフィクスチャでは誤検出 0。グロッサリの reference は変わらない。
+    statement: 含意判定の reference は正解 N 件すべてを含み、答えの要素は対象の正解を明示して判定され、識別ポイントは「誤答選択肢(この問題では正しくない記述)」の節に参照先の本文を含む。スタブ判定器が要素1件だけ、または参照先の誤答とだけ矛盾と返し続けると、
+      想起素材は上限まで作り直したうえで成果物が書かれずに非 0 終了し、台本は EntailmentRejected で成果物が書かれない。言い換えのフィクスチャでは誤検出 0。グロッサリの reference は変わらない。
     evidence:
       kind: command
       command:
@@ -910,6 +911,15 @@ tasks:
       - pytest
       - -q
       - tests/safety/test_entailment.py::test_reference_text_holds_the_right_sections
+      executor_profile: quality
+  - id: A-9
+    statement: 想起素材の作り直しのたびにログが1行出て、問題 ID・検査名・回数だけを含み、想起素材の本文を含まない(NFR-2)。含意判定で落ちて作り直したときにもログが出る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_regeneration_log_names_question_id_and_counts_only
       executor_profile: quality
   operator_surface: []
 - id: T-064
@@ -1367,6 +1377,74 @@ tasks:
       - tests/adapters/test_llm_claude_cli.py::test_classify_batches_reissue_truncated_invocations
       executor_profile: quality
   operator_surface: []
+- id: T-073
+  title: 含意判定(cluster 要約は実在性も)に落ちた cluster 要約と glossary 説明を、その項目だけ上限つきで作り直す
+  kind: parallel
+  blocked_by:
+  - T-063
+  claim_ids:
+  - C-013
+  - C-025
+  domains:
+  - cluster
+  - glossary
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/cluster/summary.py
+    - src/quiz_sift/glossary/verify.py
+    - tests/cluster/
+    - tests/glossary/
+    - tests/acceptance/test_analysis.py
+    - tests/acceptance/test_cross_cutting.py
+    - tests/test_cli.py
+  acceptance:
+  - id: A-1
+    statement: 'cluster 段で、要約が実在性の検査に落ちたか含意判定が consistent でなかったクラスタは、そのクラスタだけ要約を作り直す。スタブが MAX_REGENERATIONS(= 2)回落ちてから通る要約を返すと、そのクラスタの summarize_cluster はちょうど 3 回呼ばれ、作り直した要約で成果物が書かれ、他のクラスタの summarize_cluster は 1 回だけである。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_rejected_summary_is_regenerated_for_that_cluster_only
+      executor_profile: quality
+  - id: A-2
+    statement: 'cluster 段で、含意判定に 3 回続けて落ちたクラスタがあれば EntailmentRejected、実在性の検査に 3 回続けて落ちたクラスタがあれば UngroundedSummary で非0終了し(落ち方が混ざれば最後に落ちた検査で決める)、どちらも summarize_cluster はそのクラスタで 3 回だけ呼ばれ、成果物は書かれない。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_summary_regeneration_exhausted_still_stops
+      executor_profile: quality
+  - id: A-3
+    statement: 'glossary 段で、含意判定が consistent でなかった用語は、その用語だけ説明を作り直す。スタブが 2 回落ちてから通る説明を返すと、その用語の describe_term はちょうど 3 回呼ばれ、作り直した説明でグロッサリが書かれ、照合結果は Consistent(照合件数)のままで、他の用語の describe_term は 1 回だけである。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_verify.py::test_rejected_description_is_regenerated_for_that_term_only
+      executor_profile: quality
+  - id: A-4
+    statement: 'glossary 段で、3 回続けて consistent でなかった用語があれば、全用語を判定したうえで EntailmentRejected で非0終了し、グロッサリを書かない。その用語の describe_term は 3 回だけ呼ばれる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/glossary/test_verify.py::test_description_regeneration_exhausted_still_stops
+      executor_profile: quality
+  - id: A-5
+    statement: '作り直しのたびにログが1行出て、クラスタ ID か用語の通し番号と検査名・回数だけを含み、要約・説明・用語の本文を含まない(NFR-2)。cluster・glossary の2段それぞれで、作り直しを起こしたときにログが出ることと本文が出ないことを確かめる。'
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_regeneration_logs_name_ids_and_counts_only
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
   title: 【人・不可逆】実デッキでフル処理を完走させる(人がホストで exec と render)
   kind: integration
@@ -1380,6 +1458,7 @@ tasks:
   - T-069
   - T-070
   - T-072
+  - T-073
   claim_ids:
   - C-025
   - C-007
@@ -1691,7 +1770,7 @@ decisions:
   - NFR-7
   - R-7
 - id: D-191
-  subject: 想起素材の再生成の対象
+  subject: 想起素材の再生成の対象(含意判定の不合格を再生成しない部分は D-232 で改めた)
   reach: mandate
   status: settled
   settled_by: human
@@ -2064,6 +2143,27 @@ decisions:
   requirement_ids:
   - NFR-7
   - NFR-8
+- id: D-232
+  subject: 含意判定に落ちた生成物の作り直し(D-191 と ADR-022 の「不合格の扱い」の改訂)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 想起素材・クラスタ要約・グロッサリの説明は、含意判定(クラスタ要約は実在性の検査も)に落ちた項目だけを、最初の1回と合わせて最大3回まで作り直す。上限を超えたら従来どおり成果物を出さずに非0終了する。台本は文を生成しないので変えない。NFR-1 と R-4 の基準をこれに合わせて改める(ADR-026)。
+  rationale: フル処理の試行2(2026-10-12、列 47a478dc038549bf8fe8e58b26055edb)が cluster 段の要約の contradicted で止まった。実デッキで cluster 段の要約の検査まで達した5本のうち3本が、実在性か含意判定で止まっている。recall の含意判定(約400件)と glossary 段は実デッキで一度も走っていない。不可逆の試行は残り1回である。生成物を捨てて作り直しても成果物には書かれないので NFR-1 の目的は保てる。判定器の偽陰性が通る機会が1項目あたり最大3倍になる代償は、上限を2回に抑えて引き受ける(人の判断)。合成デッキで glossary 段まで通すリハーサルは足さない(人の判断)。
+  requirement_ids:
+  - NFR-1
+  - R-4
+  - NFR-7
+- id: D-233
+  subject: recall の含意判定の作り直しを、どのタスクで行うか(敵対的レビュー AR-7)
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: T-063 を作り直しの対象に戻し(done → todo)、A-5・A-6 を D-232 の方針に書き直し、A-9(作り直しのログ)を足す。T-073 は cluster と glossary だけを受け持ち、T-063 の後に置く。
+  rationale: T-063 の凍結された A-5・A-6 は「含意判定の不合格は再生成されない」「EntailmentRejected で止まる」と言っており、T-073 が recall を変えると、他のタスクの受入基準を黙って逆にすることになる。recall の再生成ループと含意判定を持つのは T-063 なので、そこで直すのが原因の側である。T-064 以降の下流は計画の記述が変わらないので keep する。
+  requirement_ids:
+  - NFR-1
+  - R-4
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements

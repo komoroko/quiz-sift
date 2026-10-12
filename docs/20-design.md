@@ -79,7 +79,7 @@
   - **スキーマ**: `RecallDraft(key, answers: (AnswerElement(option_id, text), ...), discrimination: DiscriminationPoint(text, distractor_ids))`。payload の選択肢は不透明なキーで渡し、`parse_recall` がキーを `OptionId` に写し戻す(D-206)。未知のキーは `SCHEMA` で、例外文には件数だけを載せる(NFR-2)。`adapters/llm_anthropic.py` は削除する(D-216、NFR-8)。
   - **検査(1問単位、純粋関数)**: 空要素、`ungrounded_key`、`answer_mismatch`(要素の ID の集合が正解の集合と一致しない)、`missing_options`(名前は残し、中身は「`distractor_ids` が1件以上で、すべて誤答」。括弧の検査 `_QUOTED`/`referenced_options` は消す)、`generic`、`verbatim`。問題をまたぐのは `duplicate_keys` だけで、クラスタをまたぐ場合だけ数え(D-200)、クラスタ順で後の問題を落ちとする。
   - **再生成ループ**: `cli.Pipeline._recall_drafts` と `_Drafted` を廃止し、`recall/generate.py` に一本化する。1問ごとに `1 + MAX_REGENERATIONS`(= 3)回まで生成 → 検査。`LlmCallError` は再生成しない(D-101。ただし子プロセスの切り詰めはアダプタが出し直す。D-231)。`meter.stop_seen()` での早期停止を保つ(D-144)。上限を超えた問題があっても全問を回し切り、その後に超えた問題をすべて列挙して `RegenerationExhausted(SystemExit)` で止まる(D-217。メッセージは問題 ID・検査名・回数だけ)。
-  - **含意判定**: 答えの要素は `reference_for(q, focus=要素の option_id)`、識別ポイントは `reference_for(q, distractors=distractor_ids)`(D-192)。不合格は再生成せず `EntailmentRejected`。
+  - **含意判定**: 答えの要素は `reference_for(q, focus=要素の option_id)`、識別ポイントは `reference_for(q, distractors=distractor_ids)`(D-192)。機械検査を通った素材だけを判定し、不合格は検査名 `entailment` として同じ上限の中で作り直す(D-232、ADR-026。当初の「再生成せず `EntailmentRejected`」を改めた)。
   - **reference の形**: 誤答の本文を「正しい情報」として渡すと、「X は当てはまらない」という正しい識別ポイントが contradicted になる。そこで reference を「正解: …」と「誤答選択肢(この問題では正しくない記述): …」の節に分け、`ENTAILMENT_SYSTEM` に「誤答選択肢の節は、この問題の答えとして正しくない記述の一覧である。statement が誤答選択肢を正しくないと述べることは矛盾ではない」と足す。プロンプトの変更は ADR-019 の運用の変更で、実判定での効果は合成リハーサル(C-026)で確かめる。
   - **成果物**: recall の JSON に `answers[{option, text}]` と `discrimination{text, distractors[]}`、report に `regenerations`(問題ごとの回数)を足す(検査ごとの延べ件数は作らない、D-219)。ログは件数だけ。
 - **Existing assets to reuse**: `is_present`、`original_ratio`、`RecallKey.term_set`、`emit_if_consistent`、`ContractError`、`parse_proposals` の keyed 方式、`Meter`。
@@ -134,7 +134,8 @@
 
 ### NFR-1 → design
 - **Implementation method**: 3か所に重複している `_reference`(`recall/generate.py`、`script/generate.py`、`cluster/summary.py`)を `safety/entailment.reference_for(question, focus=None)` に1本化する。`focus=None` は正解 N 件すべて、`focus` を渡すと「この文が説明する正解」を明示し正解 N 件も併記する(local)。識別ポイントは参照先の誤答の本文を加える(D-192)。グロッサリの reference は変えない(D-195)。
-- **Tests**: 判定器のスタブが要素2だけに contradicted を返すと `EntailmentRejected` で成果物が書かれない。参照先の誤答と矛盾する識別ポイントでも止まる。言い換えのフィクスチャでは誤検出 0。
+- **生成物の作り直し**(D-232、ADR-026): 想起素材・クラスタ要約・グロッサリの説明は、含意判定(クラスタ要約は実在性の検査も)に落ちた項目だけを `MAX_REGENERATIONS`(= 2、recall の D-171 と同じ)回まで作り直し、上限を超えたら従来どおり成果物を出さずに止める。recall は含意判定を1問の検査の最後に置き、検査名 `entailment` で同じ上限を共有する(D-191 を改める)。台本は文を生成しないので変えない。ログは ID と検査名・回数だけ。
+- **Tests**: 判定器のスタブが要素2だけに contradicted を返し続けると成果物が書かれずに非0終了する(recall は上限まで作り直してから `RegenerationExhausted`、台本は `EntailmentRejected`)。参照先の誤答と矛盾する識別ポイントでも止まる。言い換えのフィクスチャでは誤検出 0。
 - **What this requires of a person**: なし(判定能力そのものは測らない。D-043/D-044 のまま)。
 - **Reversibility**: 可逆。
 
