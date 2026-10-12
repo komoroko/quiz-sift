@@ -590,7 +590,7 @@ def test_c004_answers_and_distractors_are_structured_by_option_id(
 def test_c004_failed_questions_are_regenerated_up_to_twice(
     workspace: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A-5: 検査に落ちた問題だけを上限2回まで作り直し、回数を report に記録する。"""
+    """A-5: 検査か含意判定に落ちた問題だけを上限2回まで作り直し、回数を report に記録する。"""
     ungrounded = replace(DRAFTS["q05"], key=RecallKey(("ゼロ知識証明",)))
     sequences = {
         "q05": (ungrounded, DRAFTS["q05"]),
@@ -614,8 +614,10 @@ def test_c004_failed_questions_are_regenerated_up_to_twice(
     assert _failed_checks(error) == {"q05": ("ungrounded_key",), "q12": ("empty",)}
     assert [e.attempts for e in error.exhausted] == [3, 3]
     assert sorted(llm.recalled) == sorted([*DRAFTS, "q05", "q05", "q12", "q12"])
-    # 含意判定にかかったのはクラスタ要約だけで、想起素材は判定の前に止まっている。
-    assert set(llm.checked) <= set(SUMMARIES.values())
+    # 機械検査に落ちた素材は含意判定にかけない。
+    for qid in always_bad:
+        (bad,) = always_bad[qid]
+        assert not {bad.discrimination.text, *(e.text for e in bad.answers)} & set(llm.checked), qid
     assert _artifacts(workspace, deck_id, "recall") == []
     message = str(error.code)
     assert "q05(ungrounded_key; 3 回)" in message and "q12(empty; 3 回)" in message
@@ -628,13 +630,30 @@ def test_c004_failed_questions_are_regenerated_up_to_twice(
     assert isinstance(error, RecallCallsFailed)
     assert sorted(llm.recalled) == sorted(DRAFTS)
 
-    # 含意判定の不合格は作り直さない。
-    deck_id = _deck(workspace, "regenerate-entailment")
-    wrong = "リードレプリカを作る"
-    llm = _subset_llm(drafts={**DRAFTS, "q11": _answered(DRAFTS["q11"], wrong)}, contradicted=frozenset({wrong}))
-    error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
-    assert isinstance(error, EntailmentRejected)
-    assert sorted(llm.recalled) == sorted(DRAFTS)
+    # 含意判定に落ちた問題も同じ上限の中で作り直す(D-232)。判定器が q11 の答えを2回落としてから通すと、
+    # q11 は3回生成されて成果物が書かれる。判定にかかるのは機械検査を通った素材だけ。
+    answer = DRAFTS["q11"].answers[0].text
+    for rejections, written in ((2, True), (3, False)):
+        deck_id = _deck(workspace, f"regenerate-entailment-{rejections}")
+        llm = _subset_llm()
+
+        def rejects_first(_: str, statement: str, n: int = rejections, llm: AnalysisLlm = llm) -> bool:
+            return statement == answer and llm.checked.count(answer) <= n
+
+        llm.contradicts = rejects_first
+        run = CliRunner(workspace, capsys, llm, StubTts())
+        if written:
+            recall = _load(run("recall", deck_id))
+            assert recall["report"]["regenerations"] == {**dict.fromkeys(DRAFTS, 0), "q11": 2}
+        else:
+            error = _fails(run, "recall", deck_id)
+            assert isinstance(error, RegenerationExhausted)
+            assert _failed_checks(error) == {"q11": ("entailment",)}
+            assert [e.attempts for e in error.exhausted] == [3]
+            assert _artifacts(workspace, deck_id, "recall") == []
+        # 上限を超えても残りの問題を回し切る。
+        assert sorted(llm.recalled) == sorted([*DRAFTS, "q11", "q11"])
+        assert llm.checked.count(answer) == 3
 
 
 def test_c004_regenerations_are_counted_as_calls_and_invocations(
@@ -921,6 +940,7 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
     assert _artifacts(workspace, deck_id, "cluster") == []
 
     # 想起素材: 誤った答え(q11 の正解はマルチ AZ 配置)は書かれない。判定できない(uncertain)ものも止める。
+    # q11 だけを上限まで作り直し、それでも通らなければ成果物を書かずに止まる(D-232)。
     wrong_answer = "リードレプリカを作る"
     for verdict, changes in (
         (Entailment.CONTRADICTED, {"contradicted": frozenset({wrong_answer})}),
@@ -930,7 +950,12 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
         drafts = {**DRAFTS, "q11": _answered(DRAFTS["q11"], wrong_answer)}
         llm = _subset_llm(drafts=drafts, **changes)
         error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
-        assert isinstance(error, EntailmentRejected) and error.verdict is verdict
+        assert isinstance(error, RegenerationExhausted), verdict
+        assert [(e.question_id.local_id, e.failures, e.attempts) for e in error.exhausted] == [
+            ("q11", ("entailment",), 3)
+        ]
+        assert llm.checked.count(wrong_answer) == 3
+        assert wrong_answer not in str(error.code)
         assert _artifacts(workspace, deck_id, "recall") == []
 
     # グロッサリ: 公式解説と矛盾する用語説明は書かれない。
@@ -991,7 +1016,7 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
 
 
 def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """A-6: N 要素のうち1要素だけ、または参照先の誤答とだけ矛盾すると判定されても、成果物は書かれない。"""
+    """A-6: N 要素のうち1要素だけ、または参照先の誤答とだけ矛盾すると判定され続けると、成果物は書かれない。"""
     drafts = {**DRAFTS, "q10": MULTI_DRAFT}
     texts = dict(zip("ABCD", MULTI_ROW["options"], strict=True))
 
@@ -1007,16 +1032,29 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
 
     second = MULTI_DRAFT.answers[1].text
     for name, contradicts in {
-        # 2つ目の要素(職務分掌)だけを矛盾と返す。
-        "element": lambda reference, statement: statement == second,
+        # 2つ目の要素(職務分掌)だけを矛盾と返す。台本は N 要素を連結した答えを判定するので、含むかで見る。
+        "element": lambda reference, statement: second in statement,
         # 参照先の誤答の節を持つ reference とだけ矛盾と返す。
         "distractor": lambda reference, statement: f"{DISTRACTOR_SECTION}: {texts['B']}" in reference,
     }.items():
         deck_id = _deck(workspace, f"c013-multi-{name}", MULTI_ROWS)
         llm = _subset_llm(drafts=drafts, contradicts=contradicts)
         error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
-        assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED, name
+        # q10 だけを上限まで作り直したうえで、成果物を書かずに止まる(D-232)。
+        assert isinstance(error, RegenerationExhausted), name
+        assert _failed_checks(error) == {"q10": ("entailment",)}, name
+        assert llm.recalled.count("q10") == 3, name
         assert _artifacts(workspace, deck_id, "recall") == []
+
+        # 台本: 想起素材を通した後に同じ判定器へ替えると、台本の段は最初の矛盾で止まって何も書かない。
+        deck_id = _deck(workspace, f"c013-multi-script-{name}", MULTI_ROWS)
+        llm = _subset_llm(drafts=drafts)
+        run = CliRunner(workspace, capsys, llm, StubTts())
+        run("recall", deck_id)
+        llm.contradicts = contradicts
+        error = _fails(run, "script", deck_id)
+        assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED, name
+        assert _artifacts(workspace, deck_id, "script") == []
 
 
 def test_c013_script_discrimination_is_judged_against_its_distractors(

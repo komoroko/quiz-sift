@@ -1,5 +1,6 @@
 """想起素材の生成ループと含意判定の結線(C-004 / C-013 / R-4 / NFR-1)。"""
 
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -8,15 +9,19 @@ import pytest
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
-from quiz_sift.ports.llm import Entailment
-from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
-from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION, EntailmentRejected
+from quiz_sift.recall.generate import ENTAILMENT, MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
+from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION
 
-from .conftest import GOOD, StubLlm, Writer, generate
+from .conftest import GOOD, ROWS, StubLlm, Writer, generate
 
 # 語句も参照もすべて実在するが、正解・解説(標準-IA はミリ秒単位で取り出せる)と矛盾する答え。
 CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
 ORDER = [("c001", "q01"), ("c001", "q02"), ("c002", "q03"), ("c002", "q04"), ("c003", "q05")]
+
+
+def judged(llm: StubLlm) -> set[str]:
+    """含意判定にかかった問題(reference の問題文から引く)。"""
+    return {qid for qid, stem, *_ in ROWS for reference, _ in llm.checked if reference.startswith(f"問題: {stem}")}
 
 
 def test_three_elements_are_non_empty(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
@@ -51,7 +56,8 @@ def test_three_elements_are_non_empty(deck: Deck, clusters: tuple[Cluster, ...],
         assert [(e.question_id.local_id, e.attempts) for e in exc.value.exhausted] == [("q03", 1 + MAX_REGENERATIONS)]
         assert "empty" in exc.value.exhausted[0].failures, name
         assert not out.exists(), name
-        assert llm.checked == [], name
+        # 機械検査に落ちた素材は含意判定にかけない。
+        assert "q03" not in judged(llm), name
 
 
 def test_failed_question_is_regenerated_until_it_passes(
@@ -99,7 +105,7 @@ def test_exhausted_questions_are_all_listed_after_every_question(
     assert "q01(ungrounded_key; 3 回)" in message and "q04(missing_options; 3 回)" in message
     assert "Lambda" not in message and "ロール" not in message
     assert not out.exists()
-    assert llm.checked == []
+    assert judged(llm) == {"q02", "q03", "q05"}
 
 
 def test_call_failures_are_not_regenerated(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
@@ -111,7 +117,7 @@ def test_call_failures_are_not_regenerated(deck: Deck, clusters: tuple[Cluster, 
     assert llm.recalled == [qid for _, qid in ORDER]
     assert "失敗 2 回、発行 5 / 5" in str(exc.value.code)
     assert not out.exists()
-    assert llm.checked == []
+    assert judged(llm) == {"q01", "q03", "q05"}
 
 
 def test_stop_seen_issues_no_more_calls(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
@@ -125,40 +131,102 @@ def test_stop_seen_issues_no_more_calls(deck: Deck, clusters: tuple[Cluster, ...
     assert not out.exists()
 
 
-def test_recall_goes_through_entailment(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
-    out = tmp_path / "recall.tsv"
-    (element,) = GOOD["q01"].answers
-    llm = StubLlm(
-        {**GOOD, "q01": replace(GOOD["q01"], answers=(AnswerElement(element.option_id, CONTRADICTING),))},
-        contradicted=frozenset({CONTRADICTING}),
-    )
-    with pytest.raises(EntailmentRejected) as exc:
+def test_entailment_failure_is_regenerated_within_the_same_limit(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path
+) -> None:
+    """A-5: 含意判定に落ちた問題も、検査名 `entailment` として同じ上限の中で作り直す(D-232)。"""
+    answer = GOOD["q01"].answers[0].text
+    # 判定器が q01 の答えを2回落としてから通すと、q01 は3回生成されて成果物が書かれる。
+    out = tmp_path / "twice.tsv"
+    writer = Writer(out)
+    llm = StubLlm(GOOD, rejections={answer: 2})
+    generate(llm, deck, clusters, writer)
+    assert out.exists() and writer.result is not None
+    assert llm.recalled == ["q01"] * 3 + ["q02", "q03", "q04", "q05"]
+    assert {q.local_id: n for q, n in writer.result.report.regenerations}["q01"] == 2
+    assert [statement for _, statement in llm.checked].count(answer) == 3
+
+    # 3回落とすと、残りの問題を回し切ってから RegenerationExhausted で止まり、何も書かない。
+    out = tmp_path / "thrice.tsv"
+    llm = StubLlm(GOOD, rejections={answer: 3})
+    with pytest.raises(RegenerationExhausted) as exc:
         generate(llm, deck, clusters, Writer(out))
-    assert exc.value.verdict is Entailment.CONTRADICTED
     assert exc.value.code not in (None, 0)
+    assert [(e.question_id.local_id, e.failures, e.attempts) for e in exc.value.exhausted] == [
+        ("q01", (ENTAILMENT,), 1 + MAX_REGENERATIONS)
+    ]
+    assert llm.recalled == ["q01"] * 3 + ["q02", "q03", "q04", "q05"]
+    assert judged(llm) == {"q01", "q02", "q03", "q04", "q05"}
+    assert answer not in str(exc.value.code)
     assert not out.exists()
-    # 答えの要素は、その問題の正解・公式解説と、要素が説明する正解を照合先として判定されている。
-    reference = next(ref for ref, statement in llm.checked if statement == CONTRADICTING)
-    assert "正解: S3 標準-IA" in reference and "ミリ秒単位で取り出せる" in reference
-    assert f"{FOCUS_SECTION}: S3 標準-IA" in reference
-    assert "IAM" not in reference
-    # 含意判定の不合格は作り直さない。
-    assert llm.recalled == [qid for _, qid in ORDER]
 
-    # 識別ポイントも照合される。判定できない(uncertain)ものも書かずに止める(D-042)。
+    # 判定できない(uncertain)ものも落ちとして作り直し、通らなければ止まる(D-042)。
     unsure = GOOD["q05"].discrimination.text
-    with pytest.raises(EntailmentRejected) as exc:
-        generate(StubLlm(GOOD, uncertain=frozenset({unsure})), deck, clusters, Writer(out))
-    assert exc.value.verdict is Entailment.UNCERTAIN
+    llm = StubLlm(GOOD, uncertain=frozenset({unsure}))
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(llm, deck, clusters, Writer(out))
+    assert [(e.question_id.local_id, e.failures) for e in exc.value.exhausted] == [("q05", (ENTAILMENT,))]
     assert not out.exists()
 
-    # 矛盾が無ければ、全素材の答えの要素と識別ポイントが1件ずつ判定されてから書き出される。
+    # 機械検査と含意判定の落ちは同じ上限を共有する: 1回目は実在性、2回目は含意判定、3回目で通る。
+    ungrounded = replace(GOOD["q01"], key=RecallKey(("Lambda",)))
+    contradicting = replace(GOOD["q01"], answers=(AnswerElement(GOOD["q01"].answers[0].option_id, CONTRADICTING),))
+    llm = StubLlm(
+        GOOD,
+        contradicted=frozenset({CONTRADICTING}),
+        sequences={"q01": (ungrounded, contradicting, GOOD["q01"])},
+    )
+    writer = Writer(tmp_path / "shared.tsv")
+    generate(llm, deck, clusters, writer)
+    assert writer.result is not None
+    assert {q.local_id: n for q, n in writer.result.report.regenerations}["q01"] == 2
+    # 実在性に落ちた1回目の素材は判定にかけていない。
+    assert [s for _, s in llm.checked].count(answer) == 1
+
+    # 含意判定の呼び出しの失敗は作り直さず、その問題の失敗に数え、残りを回し切ってから止まる。
+    out = tmp_path / "check-failed.tsv"
+    llm = StubLlm(GOOD, failing_checks=frozenset({GOOD["q02"].discrimination.text}))
+    with pytest.raises(RecallCallsFailed) as failed:
+        generate(llm, deck, clusters, Writer(out))
+    assert llm.recalled == [qid for _, qid in ORDER]
+    assert "失敗 1 回、発行 5 / 5" in str(failed.value.code)
+    assert not out.exists()
+
+
+def test_regeneration_log_names_question_id_and_counts_only(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A-9: 作り直しのたびにログが1行出て、問題 ID・検査名・回数だけを含む(NFR-2)。"""
+    caplog.set_level(logging.INFO, logger="quiz_sift.recall.generate")
+    ungrounded = replace(GOOD["q03"], key=RecallKey(("Lambda",)))
+    answer = GOOD["q01"].answers[0].text
+    llm = StubLlm(GOOD, rejections={answer: 1}, sequences={"q03": (ungrounded, ungrounded, GOOD["q03"])})
+    generate(llm, deck, clusters, Writer(tmp_path / "recall.tsv"))
+    lines = [r.getMessage() for r in caplog.records if "作り直す" in r.getMessage()]
+    assert lines == [
+        "recall: 問題 q01 を作り直す(entailment; 1 回目)",
+        "recall: 問題 q03 を作り直す(ungrounded_key; 1 回目)",
+        "recall: 問題 q03 を作り直す(ungrounded_key; 2 回目)",
+    ]
+    # 素材の本文(キーの語句・答え・識別ポイント)はどのログにも出ない。
+    texts = {"Lambda", answer} | {t for d in GOOD.values() for t in (*d.key.terms, d.discrimination.text)}
+    assert not any(text in r.getMessage() for r in caplog.records for text in texts)
+
+
+def test_recall_references_hold_the_right_sections(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
+    out = tmp_path / "recall.tsv"
     llm = StubLlm(GOOD)
     generate(llm, deck, clusters, Writer(out))
     assert out.exists()
+    # 全素材の答えの要素と識別ポイントが1件ずつ判定されてから書き出される。
     expected = [s for d in GOOD.values() for s in (*(e.text for e in d.answers), d.discrimination.text)]
     assert sorted(statement for _, statement in llm.checked) == sorted(expected)
+    # 答えの要素は、その問題の正解・公式解説と、要素が説明する正解を照合先として判定されている。
+    reference = next(ref for ref, statement in llm.checked if statement == GOOD["q01"].answers[0].text)
+    assert "正解: S3 標準-IA" in reference and "ミリ秒単位で取り出せる" in reference
+    assert f"{FOCUS_SECTION}: S3 標準-IA" in reference
+    assert "IAM" not in reference
     # 識別ポイントの reference は参照先の誤答を誤答の節に置く(q05 は B = リードレプリカ)。
-    reference = next(ref for ref, statement in llm.checked if statement == unsure)
+    reference = next(ref for ref, statement in llm.checked if statement == GOOD["q05"].discrimination.text)
     assert f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
     assert "スナップショット" not in reference

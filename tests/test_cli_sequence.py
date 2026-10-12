@@ -361,19 +361,26 @@ def test_every_execution_writes_both_lines(
 def test_overage_or_rejected_stops_the_rest_of_the_stage(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], shape: str, spawned: int
 ) -> None:
-    """A-6: 3クラスタの recall 段で、1つ目が overage か枠切れなら残りを発行しない。SCHEMA なら3つとも発行する。"""
+    """A-6: 3クラスタの recall 段で、1つ目が overage か枠切れなら残りを発行しない。SCHEMA なら3つとも発行する。
+
+    含意判定は1問の検査の最後に掛かる(D-232)ので、生成に成功した問題の後には判定の呼び出しが続く。
+    """
     harness = Harness(tmp_path, capsys)
     assert harness.main("cluster", DECK) == 0
     before = harness.spawned()
     harness.responder.fail_next_recall = SHAPES[shape]
 
     assert isinstance(harness.fails("recall", DECK), RecallCallsFailed)
-    assert harness.systems(before) == [llm_prompts.RECALL_SYSTEM] * spawned
+    systems = harness.systems(before)
+    assert systems.count(llm_prompts.RECALL_SYSTEM) == spawned
+    assert set(systems) <= {llm_prompts.RECALL_SYSTEM, llm_prompts.ENTAILMENT_SYSTEM}
+    if shape != "schema":
+        assert systems == [llm_prompts.RECALL_SYSTEM]
     (summary,) = [line for line in harness.err.splitlines() if "recall summary" in line]
     assert "failure_count=1" in summary
     end = harness.last_end()
     assert end["failed_invocations"] == 1
-    assert end["provider_invocations"] == spawned
+    assert end["provider_invocations"] == len(systems)
 
 
 def ungrounded(spec: CommandSpec) -> CommandResult:
