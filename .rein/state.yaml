@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-12T14:26:30+09:00'
+updated_at: '2026-10-12T19:04:44+09:00'
 gates:
   mandate:
     status: approved
@@ -532,8 +532,13 @@ tasks:
       tree: sha256:71ed088d97b499b4db629c8ba0393c54eea96c68969abf62aa6a815c46cbcb4e
       updated_at: '2026-10-07T00:48:58+09:00'
   T-063:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 3
+    completed_commit: 8fd83c3ac7f7e98399fb5c4286d7d9b136346588
+    handoff:
+      review:
+        findings: []
+      updated_at: '2026-10-12T18:33:10+09:00'
     evidence:
       steps:
       - name: lint
@@ -578,6 +583,9 @@ tasks:
       - name: acceptance:A-8
         image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
         reused: false
+      - name: acceptance:A-9
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
       reported: implemented
       acceptance:
       - id: A-1
@@ -604,12 +612,15 @@ tasks:
       - id: A-8
         kind: command
         reused: false
+      - id: A-9
+        kind: command
+        reused: false
       negative_control:
         result: discriminating
-        base: 667f8cc6a1f4e681b1a5825e8e1047a1e0a13334
+        base: 1a7fa53bb74132aa431cc023ce5a45125288beab
         step: test
-      tree: sha256:ce3632b7379adf1050ca7f74615f6f910b7f405ac1df71eeaa565cdfac464304
-      updated_at: '2026-10-07T01:32:23+09:00'
+      tree: sha256:2554b6fcebf8469d07010d37cc8a42c4dd865d2ff2b6a75c7b19df27fe12fedb
+      updated_at: '2026-10-12T18:33:10+09:00'
   T-064:
     status: done
     attempts: 19
@@ -1005,6 +1016,89 @@ tasks:
         step: test
       tree: sha256:6d3c590e46ff4952ec986a1738d8be976eb587aef4b100e2dd74f7282dd538b4
       updated_at: '2026-10-10T02:28:56+09:00'
+  T-073:
+    status: done
+    attempts: 1
+    completed_commit: b4b16e34b1ed3189cf1dab3c72acd8ceae670d9a
+    handoff:
+      review:
+        findings:
+        - severity: must_fix
+          statement: A-2 と A-4 のテストは呼び出し回数を、基準が名指す「3 回」ではなくモジュールの定数 `1 + MAX_REGENERATIONS` と比べている。そのため上限がずれても赤にならない。A-2
+            は src/quiz_sift/cluster/summary.py の MAX_REGENERATIONS を 5 に変えると 4 つのパラメータすべてが緑のまま(混ざった落ち方でも、最後の生成が同じ検査に落ち続けるので期待する例外になる)。A-4
+            は MAX_REGENERATIONS を 1 にしても 5 にしても緑のまま。上限を固定しているのは A-1・A-3 だけで、各基準の判定コマンドは単独で回る。チケットの試験方針も「2
+            回落ちてから通る」と「3 回落ちる」の両方で上限を固定すること(どちらか一方だけでは 1 でも 5 でも緑になる)と書いている。期待値は 3 を直接書くべきである。
+          anchor: tests/cluster/test_summary.py:338
+        - severity: must_fix
+          statement: A-4 も同じ穴を持つ。`llm.described.count(TARGET) == 1 + MAX_REGENERATIONS` と、判定した回数の `==
+            1 + MAX_REGENERATIONS` は、src/quiz_sift/glossary/verify.py の MAX_REGENERATIONS が何であっても成り立つ。基準どおり
+            3 で固定すべきである。
+          anchor: tests/glossary/test_verify.py:461
+        - severity: must_fix
+          statement: A-5 とチケットは、作り直しのログに検査名(なぜ作り直したか)を載せることを求めている。ところが cluster 段の実在性による作り直しで出る `grounding`
+            はどのテストも確かめていない。A-5 は含意判定の作り直しだけを起こし、`entailment` を正規表現で見ている。そのため summary.py:59 の check の振り分けを
+            `check = "entailment"` に固定しても、全テストが緑のままになる。cluster 段で実在性による作り直しを起こし、ログが `(grounding; 1 回目)`
+            になることを確かめるテストが要る。
+          anchor: src/quiz_sift/cluster/summary.py:59
+      updated_at: '2026-10-12T19:04:44+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 8fd83c3ac7f7e98399fb5c4286d7d9b136346588
+        step: test
+      tree: sha256:e83b1b4b67a7273afdbf49d29d16ae1ce37728585695fcffefc5fbb8ede3cece
+      updated_at: '2026-10-12T19:04:44+09:00'
 dependency_audit:
   ran_at: '2026-10-12T05:03:25+00:00'
   commit: 02be99c7dcf0fc420b0ab9fe29a978682668e79a
