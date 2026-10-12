@@ -9,6 +9,9 @@
 
 照合先は、用語が実在する問題の公式解説(`grounding.presence`)。判定は `safety.entailment` に委ねる
 (文字列比較は言い換えを矛盾と見なすので採らない)。`uncertain` は `contradicted` と同じく止める(D-042)。
+
+`consistent` でなかった用語は、その用語の説明だけを上限 `MAX_REGENERATIONS` 回まで作り直して判定し直す
+(D-232 / ADR-026)。全用語を判定してから、上限を超えた用語の判定値を集約する。`LlmCallError` は作り直さない(D-101)。
 """
 
 import logging
@@ -24,6 +27,9 @@ from quiz_sift.ports.llm import Entailment
 from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, judge
 
 logger = logging.getLogger(__name__)
+
+MAX_REGENERATIONS = 2
+"""1用語あたりの説明の作り直しの上限。生成は最初の1回と合わせて最大 `1 + MAX_REGENERATIONS` 回(D-232)。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,22 +85,44 @@ def _claim(entry: GlossaryEntry, deck: Deck) -> Claim | None:
     return Claim(reference="\n".join(explanations), statement=f"{entry.term}: {entry.description}")
 
 
-def verify(checker: EntailmentChecker, entries: tuple[GlossaryEntry, ...], deck: Deck) -> Verification:
-    """各説明を、その用語が現れる問題の公式解説と1件ずつ照合する。
+def _judged(llm: GlossaryLlm, number: int, entry: GlossaryEntry, deck: Deck) -> tuple[GlossaryEntry, Entailment | None]:
+    """`entry` を判定し、`consistent` でなければ説明だけを上限まで作り直す。照合先が無ければ判定値は `None`。
 
-    矛盾があればその件数の `Contradicted`。矛盾が無く `uncertain` が1件でもあれば
-    `EntailmentRejected`(D-042)。照合先が1件も無ければ `NoReference`。
+    `number` は用語の通し番号で、ログには用語の本文の代わりにこれを載せる(NFR-2)。
     """
-    claims = [claim for entry in entries if (claim := _claim(entry, deck)) is not None]
-    if not claims:
-        return NoReference()
-    verdicts = [judge(checker, [claim]) for claim in claims]
+    claim = _claim(entry, deck)
+    if claim is None:
+        return entry, None
+    for attempt in range(1, MAX_REGENERATIONS + 2):
+        if attempt > 1:
+            logger.info("glossary: 用語 #%d の説明を作り直す(entailment; %d 回目)", number, attempt - 1)
+            entry = GlossaryEntry(entry.term, llm.describe_term(entry.term, deck.language))
+            claim = Claim(reference=claim.reference, statement=f"{entry.term}: {entry.description}")
+        verdict = judge(llm, [claim])
+        if verdict is Entailment.CONSISTENT:
+            break
+    return entry, verdict
+
+
+def verify(
+    llm: GlossaryLlm, entries: tuple[GlossaryEntry, ...], deck: Deck
+) -> tuple[tuple[GlossaryEntry, ...], Verification]:
+    """各説明を、その用語が現れる問題の公式解説と1件ずつ照合し、作り直した説明と照合結果を返す。
+
+    全用語を判定したうえで、上限まで作り直しても矛盾した用語があればその件数の `Contradicted`。
+    矛盾が無く `uncertain` が1件でもあれば `EntailmentRejected`(D-042)。照合先が1件も無ければ `NoReference`。
+    """
+    judged = [_judged(llm, number, entry, deck) for number, entry in enumerate(entries, start=1)]
+    final = tuple(entry for entry, _ in judged)
+    verdicts = [verdict for _, verdict in judged if verdict is not None]
+    if not verdicts:
+        return final, NoReference()
     contradicted = verdicts.count(Entailment.CONTRADICTED)
     if contradicted:
-        return Contradicted(contradicted)
+        return final, Contradicted(contradicted)
     if Entailment.UNCERTAIN in verdicts:
         raise EntailmentRejected(Entailment.UNCERTAIN)
-    return Consistent(len(claims))
+    return final, Consistent(len(verdicts))
 
 
 def verification_summary(verification: Verification, total: int) -> str:
@@ -113,10 +141,9 @@ def verification_summary(verification: Verification, total: int) -> str:
 def emit_glossary[T](llm: GlossaryLlm, deck: Deck, emit: Callable[[Glossary], T]) -> T:
     """用語を抽出して説明を付け、公式解説と照合してから `emit` に成果物を書かせる。
 
-    矛盾が1件でもあれば照合結果をログに残して `EntailmentRejected` を上げ、`emit` を呼ばない。
+    作り直しても矛盾が残れば照合結果をログに残して `EntailmentRejected` を上げ、`emit` を呼ばない。
     """
-    entries = describe_terms(llm, extract_terms(deck), deck.language)
-    verification = verify(llm, entries, deck)
+    entries, verification = verify(llm, describe_terms(llm, extract_terms(deck), deck.language), deck)
     logger.info("%s", verification_summary(verification, len(entries)))
     match verification:
         case Contradicted():

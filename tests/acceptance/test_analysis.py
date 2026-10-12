@@ -1092,3 +1092,32 @@ def test_c013_script_discrimination_is_judged_against_its_distractors(
     assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED
     assert any(s == statement for _, s in llm.judged)
     assert _artifacts(workspace, deck_id, "script") == []
+
+
+def test_regeneration_logs_name_ids_and_counts_only(
+    workspace: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A-5: cluster と glossary の作り直しのたびにログが1行出て、ID と検査名・回数だけを含む(NFR-2)。"""
+    caplog.set_level(logging.INFO)
+    deck_id = _deck(workspace, "regeneration-logs")
+    summary = SUMMARIES["iam"]
+    description = "IAM: IAMの説明"
+    llm = _subset_llm()
+
+    def first_rejected(_: str, statement: str) -> bool:
+        # 要約と説明を、それぞれ最初の1回だけ矛盾と返す。
+        return statement in (summary, description) and llm.checked.count(statement) == 1
+
+    llm.contradicts = first_rejected
+    run = CliRunner(workspace, capsys, llm, StubTts())
+    run("cluster", deck_id)
+    run("glossary", deck_id)
+    assert llm.checked.count(summary) == 2 and llm.checked.count(description) == 2
+
+    lines = [r.getMessage() for r in caplog.records if "作り直す" in r.getMessage()]
+    assert len(lines) == 2
+    cluster_line, glossary_line = lines
+    assert re.fullmatch(r"cluster: クラスタ c\d{3} の要約を作り直す\(entailment; 1 回目\)", cluster_line)
+    assert re.fullmatch(r"glossary: 用語 #\d+ の説明を作り直す\(entailment; 1 回目\)", glossary_line)
+    # 要約・説明・用語の本文はどのログにも出ない。
+    assert not [text for text in (summary, description, "IAM") for line in lines if text in line]
