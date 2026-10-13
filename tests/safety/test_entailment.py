@@ -24,7 +24,6 @@ from quiz_sift.safety.entailment import (
     FOCUS_SECTION,
     Claim,
     EntailmentRejected,
-    emit_if_consistent,
     judge,
     measure_mutations,
     reference_for,
@@ -79,21 +78,16 @@ class FixtureChecker:
         return parse_entailment({"verdict": verdict})
 
 
-class Emitter:
-    """成果物の書き出し役。呼ばれたかどうかだけを記録する。"""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.calls = 0
-
-    def __call__(self) -> Path:
-        self.calls += 1
-        self.path.write_text("artifact", encoding="utf-8")
-        return self.path
-
-
 def claims(*statements: str) -> list[Claim]:
     return [Claim(reference=REFERENCE, statement=s) for s in statements]
+
+
+def test_no_stage_independent_emit_path() -> None:
+    """成果物を書くかどうかは段が `judge` の集約で決める。最後の利用者だった script 段がトラックごとの判定
+    (C-028)に移ったので、段に依らない書き出しの受け口(`emit_if_consistent`)は持たない。"""
+    import quiz_sift.safety.entailment as entailment
+
+    assert not hasattr(entailment, "emit_if_consistent")
 
 
 def test_three_verdicts_and_fail_closed(tmp_path: Path) -> None:
@@ -106,25 +100,15 @@ def test_three_verdicts_and_fail_closed(tmp_path: Path) -> None:
     # 照合が1件も無いものは確かめていないので consistent にしない。
     assert judge(llm, []) is Entailment.UNCERTAIN
 
-    ok = Emitter(tmp_path / "ok.txt")
-    assert emit_if_consistent(llm, claims("良"), ok) == ok.path
-    assert ok.calls == 1
-
-    # contradicted・uncertain・判定不能のどれでも、書き出しは一度も呼ばれない(書いてから消すのではない)。
+    # contradicted・uncertain・判定不能の停止は判定値だけを持ち、本文を終了メッセージに載せない(NFR-3)。
     for name, statements in (("contradicted", ("良", "悪")), ("uncertain", ("謎",)), ("empty", ())):
-        emitter = Emitter(tmp_path / f"{name}.txt")
-        with pytest.raises(EntailmentRejected) as rejected:
-            emit_if_consistent(llm, claims(*statements), emitter)
-        assert emitter.calls == 0
-        assert not emitter.path.exists()
-        assert rejected.value.verdict is (Entailment.CONTRADICTED if name == "contradicted" else Entailment.UNCERTAIN)
-        # 本文を終了メッセージに載せない(NFR-3)。
-        assert all(s not in str(rejected.value.code) for s in statements)
+        rejected = EntailmentRejected(judge(llm, claims(*statements)))
+        assert rejected.verdict is (Entailment.CONTRADICTED if name == "contradicted" else Entailment.UNCERTAIN)
+        assert all(s not in str(rejected.code) for s in statements)
 
-    broken = Emitter(tmp_path / "broken.txt")
+    # 判定の呼び出しが失敗したら、判定値を返さずにそのまま上がる(consistent に倒れない)。
     with pytest.raises(LlmCallError):
-        emit_if_consistent(llm, claims("良", "壊"), broken)
-    assert broken.calls == 0
+        judge(llm, claims("良", "壊"))
 
     # 捕まえずに上がれば、プロセスは非0で終了し成果物は無い。
     for verdict in ("contradicted", "uncertain"):
@@ -132,13 +116,16 @@ def test_three_verdicts_and_fail_closed(tmp_path: Path) -> None:
         script = f"""
 from pathlib import Path
 from quiz_sift.ports.llm import Entailment
-from quiz_sift.safety.entailment import Claim, emit_if_consistent
+from quiz_sift.safety.entailment import Claim, EntailmentRejected, judge
 
 class Checker:
     def check_entailment(self, reference, statement):
         return Entailment({verdict!r})
 
-emit_if_consistent(Checker(), [Claim("r", "s")], lambda: Path({str(artifact)!r}).write_text("x"))
+verdict = judge(Checker(), [Claim("r", "s")])
+if verdict is not Entailment.CONSISTENT:
+    raise EntailmentRejected(verdict)
+Path({str(artifact)!r}).write_text("x")
 """
         src = str(Path(__file__).resolve().parents[2] / "src")
         proc = subprocess.run(
@@ -149,22 +136,16 @@ emit_if_consistent(Checker(), [Claim("r", "s")], lambda: Path({str(artifact)!r})
         assert not artifact.exists()
 
 
-def test_no_false_positive_on_paraphrase(tmp_path: Path) -> None:
+def test_no_false_positive_on_paraphrase() -> None:
     llm = FixtureChecker(dict(FIXTURE_VERDICTS))
 
     # 言い換えは字面が正解とほとんど重ならないが、1件も矛盾扱いにならない。
     false_positives = [p for p in PARAPHRASES if judge(llm, claims(p)) is not Entailment.CONSISTENT]
     assert false_positives == []
-    emitter = Emitter(tmp_path / "paraphrase.txt")
-    emit_if_consistent(llm, claims(*PARAPHRASES), emitter)
-    assert emitter.calls == 1
+    assert judge(llm, claims(*PARAPHRASES)) is Entailment.CONSISTENT
 
-    # 言い換えに混ぜて仕込んだ矛盾は検出され、成果物は書かれない。
-    planted = Emitter(tmp_path / "planted.txt")
-    with pytest.raises(EntailmentRejected) as rejected:
-        emit_if_consistent(llm, claims(*PARAPHRASES[:2], PLANTED_CONTRADICTION, PARAPHRASES[2]), planted)
-    assert rejected.value.verdict is Entailment.CONTRADICTED
-    assert planted.calls == 0
+    # 言い換えに混ぜて仕込んだ矛盾は検出される。
+    assert judge(llm, claims(*PARAPHRASES[:2], PLANTED_CONTRADICTION, PARAPHRASES[2])) is Entailment.CONTRADICTED
     # 判定は全件 LLM に問い合わせている(字面で先に弾いていない)。
     assert PLANTED_CONTRADICTION in llm.asked
 

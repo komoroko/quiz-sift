@@ -6,7 +6,6 @@ spawn だけを fake(`support.claude_fake.FakeRunner`)に差し替え、`Workspa
 
 import ast
 import dataclasses
-import functools
 import hashlib
 import inspect
 import json
@@ -45,7 +44,7 @@ from quiz_sift.pipeline.overhead import skills_digest
 from quiz_sift.ports.llm import Entailment, LlmCallError, TokenUsage
 from quiz_sift.ports.metering import FailureKind, InvocationScope, RateLimitInfo
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.safety.entailment import Claim, emit_if_consistent
+from quiz_sift.safety.entailment import Claim, judge
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "claude_cli"
 MODULE = Path(llm_claude_cli.__file__)
@@ -572,12 +571,10 @@ def test_entailment_uses_the_shared_parser(tmp_path: Path) -> None:
         "PROVIDER_ERROR": failure_shape(FailureKind.PROVIDER_ERROR, keys),
         "TRUNCATED": failure_shape(FailureKind.TRUNCATED, keys),
     }
-    for name, result in failing.items():
+    for result in failing.values():
         llm = build(RecordingMeter(), tmp_path, FakeRunner(returning(result)))
-        emitted: list[str] = []
         with pytest.raises(LlmCallError):
-            emit_if_consistent(llm, [Claim("合成参照", "合成主張")], functools.partial(emitted.append, "書いた"))
-        assert emitted == [], name
+            judge(llm, [Claim("合成参照", "合成主張")])
 
 
 def test_overage_check_passes_on_the_real_fixture_and_fails_on_overage(tmp_path: Path) -> None:

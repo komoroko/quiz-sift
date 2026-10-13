@@ -4,14 +4,14 @@
 このモジュールが持つのは、3値の判定を**書き出しの前に**集約して、`consistent` 以外で止める部分だけ。
 
 - `uncertain` は `contradicted` と同じく止める(D-042)。判定できないものを通さない。
-- 書き出しは `emit` として受け取り、判定が `consistent` のときにだけ呼ぶ。書いてから消す経路が
-  そもそも無い。
+- 段は `judge` の集約が `consistent` のときだけ成果物を書き、それ以外は `EntailmentRejected` で止める。
+  書いてから消す経路がそもそも無い。
 - ミューテーション検出率は数値として記録するが、合格ラインは置かない(D-044)。
 - 問題の正解・解説から reference を作るのは `reference_for` だけ(想起素材・台本・クラスタ要約が共有する)。
 """
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -95,17 +95,6 @@ def judge(checker: EntailmentChecker, claims: Sequence[Claim]) -> Entailment:
         if verdict is Entailment.UNCERTAIN:
             result = verdict
     return result
-
-
-def emit_if_consistent[T](checker: EntailmentChecker, claims: Sequence[Claim], emit: Callable[[], T]) -> T:
-    """判定が `consistent` のときだけ `emit`(成果物の書き出し)を呼ぶ。それ以外は `EntailmentRejected`。
-
-    `LlmCallError` はそのまま上がる。その場合も `emit` は呼ばれていない。
-    """
-    verdict = judge(checker, claims)
-    if verdict is not Entailment.CONSISTENT:
-        raise EntailmentRejected(verdict)
-    return emit()
 
 
 @dataclass(frozen=True, slots=True)
