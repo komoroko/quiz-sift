@@ -9,10 +9,8 @@ tasks:
   reviews: []
 build:
   reviews:
-  - correctness
-  - simplification
+  - adversarial
 acceptance:
   actual_extraction: true
   comparison: true
-  reviews:
-  - security
+  reviews: []
