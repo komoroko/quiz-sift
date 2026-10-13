@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-13T20:53:14+09:00'
+updated_at: '2026-10-13T20:54:35+09:00'
 gates:
   mandate:
     status: approved
@@ -1387,7 +1387,7 @@ tasks:
       tree: sha256:1df1b8035c39179697867bb136d4fa690d1efcb8cc2151806f8d84811e7cb248
       updated_at: '2026-10-13T19:16:28+09:00'
   T-076:
-    status: needs-revision
+    status: todo
     attempts: 1
     handoff:
       report:
