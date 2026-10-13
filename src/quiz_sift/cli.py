@@ -49,7 +49,6 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
-from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.glossary.audio_series import GLOSSARY_DIRNAME, write_glossary_audio
@@ -60,11 +59,11 @@ from quiz_sift.pipeline.meter import Meter
 from quiz_sift.pipeline.run_sequence import UnknownRunError, aggregate, read_log
 from quiz_sift.pipeline.stage import Stage, StageCache
 from quiz_sift.ports.clock import SystemClock
-from quiz_sift.ports.llm import Llm, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Llm, LlmCallError
 from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import Tts
-from quiz_sift.recall.generate import RecallSet, generate_recall_set
-from quiz_sift.recall.verify import RecallMaterial, RecallReport, TermRate
+from quiz_sift.recall.generate import RecallSet, generate_recall_set, material_from, material_json
+from quiz_sift.recall.verify import RecallReport, TermRate
 from quiz_sift.safety.gitignore_guard import ensure_ignored
 from quiz_sift.safety.log_filter import MaterialTextFilter
 from quiz_sift.safety.secret_mask import SecretMaskFilter, mask_secrets
@@ -230,19 +229,7 @@ def _clusters_from(data: dict[str, Any], deck_id: DeckId) -> tuple[Cluster, ...]
 def _recall_json(recall: RecallSet) -> dict[str, Any]:
     report = recall.report
     return {
-        "materials": [
-            {
-                "cluster": m.cluster_id.local_id,
-                "question": m.question_id.local_id,
-                "terms": list(m.draft.key.terms),
-                "answers": [{"option": e.option_id.local_id, "text": e.text} for e in m.draft.answers],
-                "discrimination": {
-                    "text": m.draft.discrimination.text,
-                    "distractors": [o.local_id for o in m.draft.discrimination.distractor_ids],
-                },
-            }
-            for m in recall.materials
-        ],
+        "materials": [material_json(m) for m in recall.materials],
         "report": {
             "ungrounded_keys": report.ungrounded_keys,
             "missing_options": report.missing_options,
@@ -257,26 +244,8 @@ def _recall_json(recall: RecallSet) -> dict[str, Any]:
     }
 
 
-def _recall_draft(row: dict[str, Any], question_id: QuestionId) -> RecallDraft:
-    discrimination = row["discrimination"]
-    return RecallDraft(
-        RecallKey(tuple(row["terms"])),
-        tuple(AnswerElement(OptionId(question_id, e["option"]), e["text"]) for e in row["answers"]),
-        DiscriminationPoint(
-            discrimination["text"], tuple(OptionId(question_id, o) for o in discrimination["distractors"])
-        ),
-    )
-
-
 def _recall_from(data: dict[str, Any], deck_id: DeckId) -> RecallSet:
-    materials = tuple(
-        RecallMaterial(
-            ClusterId(deck_id, row["cluster"]),
-            QuestionId(deck_id, row["question"]),
-            _recall_draft(row, QuestionId(deck_id, row["question"])),
-        )
-        for row in data["materials"]
-    )
+    materials = tuple(material_from(row, deck_id) for row in data["materials"])
     report = data["report"]
     rates = tuple(TermRate(QuestionId(deck_id, q), term, rate) for q, term, rate in report.pop("term_rates"))
     regenerations = tuple((QuestionId(deck_id, q), n) for q, n in report.pop("regenerations").items())
@@ -445,6 +414,8 @@ class Pipeline:
     def recall(self) -> Path:
         deck, clusters = self.deck(), self.clusters()
 
+        upstream = self._recall_upstream()
+
         def produce(out: BinaryIO) -> None:
             generate_recall_set(
                 self.llm,
@@ -453,9 +424,10 @@ class Pipeline:
                 lambda result: _dump(_recall_json(result), out),
                 stop_seen=self._run_meter().stop_seen,
                 failure_kind=_failure_kind,
+                progress=self._cache.progress(RECALL, upstream),
             )
 
-        return self._cache.run(RECALL, self._recall_upstream(), produce)
+        return self._cache.run(RECALL, upstream, produce)
 
     def glossary(self) -> Path:
         deck = self.deck()

@@ -17,7 +17,7 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.ports.llm import Entailment, LlmCallError, RecallDraft
-from quiz_sift.recall.generate import RecallSet, generate_recall_set
+from quiz_sift.recall.generate import ItemProgress, RecallSet, generate_recall_set
 
 DECK = DeckId("aws-saa")
 
@@ -210,8 +210,15 @@ def generate(
     clusters: tuple[Cluster, ...],
     writer: Writer,
     stop_seen: Callable[[], bool] = lambda: False,
+    progress: ItemProgress | None = None,
 ) -> Path:
-    """`generate_recall_set` を、残りを止めない計測と型名だけの失敗種別で呼ぶ。"""
+    """`generate_recall_set` を、残りを止めない計測と型名だけの失敗種別で呼ぶ。`progress` の既定は途中結果なし。"""
     return generate_recall_set(
-        llm, deck, clusters, writer, stop_seen=stop_seen, failure_kind=lambda error: type(error).__name__
+        llm,
+        deck,
+        clusters,
+        writer,
+        stop_seen=stop_seen,
+        failure_kind=lambda error: type(error).__name__,
+        progress=progress,
     )

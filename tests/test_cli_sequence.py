@@ -444,6 +444,36 @@ def test_a_sequence_completes_across_a_rate_limit_stop_and_overage_does_not(
     assert (len(harness.lines()), harness.spawned()) == (lines, spawned)
 
 
+def test_recall_resume_continues_from_the_stopped_question(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """C-028 A-4: --fresh-run の recall が2問目の生成で枠切れになり、同じ列の --resume が残りの問題だけを呼ぶ。"""
+    recalls: list[CommandResult] = []
+
+    def stopping_at_the_second_recall(spec: CommandSpec) -> CommandResult:
+        if flag(spec.argv, "--system-prompt") != llm_prompts.RECALL_SYSTEM:
+            return respond(spec)
+        result = rejected(spec) if len(recalls) == 1 else respond(spec)
+        recalls.append(result)
+        return result
+
+    harness = Harness(tmp_path, capsys, FakeRunner(stopping_at_the_second_recall))
+    assert isinstance(harness.fails("recall", DECK, "--fresh-run"), RecallCallsFailed)
+    run_id = harness.run_id()
+    stopped = harness.last_end()
+    assert stopped["stop"]["kind"] == "rate_limit"
+    assert stopped["sequence"]["status"] == "resumable"
+    assert len(recalls) == 2
+
+    assert harness.main("recall", DECK, "--resume", run_id) == 0
+    with_output = [result for result in recalls if result is not recalls[1]]
+    # 出力のあった生成は2回の実行を通して問題数(作り直しは 0 回)を超えない。枠切れの1回は出力が無い。
+    assert len(with_output) == len(ROWS)
+    assert len(recalls) == len(ROWS) + 1
+    out = harness.root / "out" / DECK / "recall"
+    assert not list(out.glob("*.progress")), "成果物の確定で途中結果は消える"
+    (artifact,) = [p for p in out.iterdir() if not p.name.startswith(".")]
+    assert len(json.loads(artifact.read_text(encoding="utf-8"))["materials"]) == len(ROWS)
+
+
 def replace_environment(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
     for name in list(os.environ):
         monkeypatch.delenv(name)
