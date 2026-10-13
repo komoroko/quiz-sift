@@ -25,7 +25,7 @@ CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
 
 def test_segment_order_is_enforced_by_type(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
     writer = Writer(tmp_path / "script.tsv")
-    generate_scripts(StubChecker(), deck, clusters, recall_set(GOOD), writer)
+    generate_scripts(StubChecker(), deck, clusters, recall_set(GOOD), writer, progress=None)
     assert writer.result is not None
     tracks = writer.result.tracks
     assert [(t.cluster_id.local_id, [q.question_id.local_id for q in t.questions]) for t in tracks] == [
@@ -90,7 +90,7 @@ def test_segment_order_is_enforced_by_type(deck: Deck, clusters: tuple[Cluster, 
 def test_script_goes_through_entailment(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
     # 矛盾の無い台本は、全問の答えと識別ポイントがその問題の正解・解説と照合されたうえで書かれる。
     ok = StubChecker()
-    generate_scripts(ok, deck, clusters, recall_set(GOOD), Writer(tmp_path / "ok.tsv"))
+    generate_scripts(ok, deck, clusters, recall_set(GOOD), Writer(tmp_path / "ok.tsv"), progress=None)
     assert (tmp_path / "ok.tsv").exists()
     statements = [s for _, s in ok.checked]
     for draft in GOOD.values():
@@ -107,7 +107,7 @@ def test_script_goes_through_entailment(deck: Deck, clusters: tuple[Cluster, ...
     }.items():
         out = tmp_path / f"{name}.tsv"
         with pytest.raises(EntailmentRejected) as exc:
-            generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out))
+            generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out), progress=None)
         assert isinstance(exc.value, SystemExit) and exc.value.code
         assert exc.value.verdict.value == name
         assert CONTRADICTING in [s for _, s in checker.checked]

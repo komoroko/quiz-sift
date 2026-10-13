@@ -94,7 +94,7 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
     checker = StubChecker()
     out = tmp_path / "script.tsv"
     with pytest.raises(ScriptTooLong) as exc:
-        generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out))
+        generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out), progress=None)
     assert exc.value.code
     assert [c.local_id for c in exc.value.cluster_ids] == ["c001", "c002"]
     assert checker.checked == []
@@ -107,7 +107,7 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
         "q02": discriminated(GOOD["q02"], GOOD["q02"].discrimination.text * 15),
     }
     writer = Writer(tmp_path / "split.tsv")
-    generate_scripts(StubChecker(), deck, clusters, recall_set(drafts), writer)
+    generate_scripts(StubChecker(), deck, clusters, recall_set(drafts), writer, progress=None)
     assert writer.result is not None
     assert [c.local_id for c in writer.result.split] == ["c001"]
     assert [(t.cluster_id.local_id, t.part) for t in writer.result.tracks] == [("c001", 0), ("c001", 1), ("c002", 0)]
