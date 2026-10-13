@@ -3,12 +3,17 @@
 import logging
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
+from quiz_sift.domain.language import Language
+from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
+from quiz_sift.pipeline.stage import Progress
+from quiz_sift.ports.llm import LlmCallError, RecallDraft
 from quiz_sift.recall.generate import ENTAILMENT, MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
 from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION
 
@@ -230,3 +235,143 @@ def test_recall_references_hold_the_right_sections(deck: Deck, clusters: tuple[C
     reference = next(ref for ref, statement in llm.checked if statement == GOOD["q05"].discrimination.text)
     assert f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
     assert "スナップショット" not in reference
+
+
+def _progress(tmp_path: Path) -> Progress:
+    return Progress(tmp_path / "recall.progress")
+
+
+def test_resume_skips_questions_that_passed(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A-2(ADR-028): 止まった後の再実行は残りの問題だけを呼び、重複の検査は戻した問題を前の問題として数える。"""
+    caplog.set_level(logging.INFO, logger="quiz_sift.recall.generate")
+    progress, out = _progress(tmp_path), tmp_path / "recall.tsv"
+    # q04 の1回目は q01 と同じキー(別クラスタ)。q01 を前の問題として数えれば duplicate_key でも落ちる。
+    duplicated = replace(GOOD["q04"], key=GOOD["q01"].key)
+    sequences: dict[str, tuple[RecallDraft, ...]] = {"q04": (duplicated, GOOD["q04"])}
+
+    first = StubLlm(GOOD, sequences=sequences)
+    # 2問目の後に枠切れを見たことにする。
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.recalled) >= 2, progress=progress)
+    assert first.recalled == ["q01", "q02"]
+    assert not out.exists()
+
+    caplog.clear()
+    second = StubLlm(GOOD, sequences=sequences)
+    writer = Writer(out)
+    generate(second, deck, clusters, writer, progress=progress)
+    # 通過していた問題は呼ばず、判定にもかけない。
+    assert second.recalled == ["q03", "q04", "q04", "q05"]
+    assert judged(second) == {"q03", "q04", "q05"}
+    regenerations = {"q01": 0, "q02": 0, "q03": 0, "q04": 1, "q05": 0}
+    assert len(first.recalled) + len(second.recalled) == len(ORDER) + sum(regenerations.values())
+    # 成果物は全問の想起素材で書かれる。
+    assert writer.result is not None
+    assert [(m.cluster_id.local_id, m.question_id.local_id) for m in writer.result.materials] == ORDER
+    assert [m.draft for m in writer.result.materials] == list(GOOD.values())
+    assert {q.local_id: n for q, n in writer.result.report.regenerations} == regenerations
+    (regenerated,) = [r.getMessage() for r in caplog.records if "を作り直す" in r.getMessage()]
+    assert "q04" in regenerated and "duplicate_key" in regenerated
+    assert "recall resume: reused=2 remaining=3" in caplog.messages
+
+
+class StopsOnCall(StubLlm):
+    """`stop_after` 回目の `generate_recall` の呼び出しを、枠切れの失敗(出力なし)にする。"""
+
+    def __init__(self, drafts: dict[str, RecallDraft], stop_after: int, **kwargs: Any) -> None:
+        super().__init__(drafts, **kwargs)
+        self.stop_after = stop_after
+        self.stopped = False
+
+    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+        if len(self.recalled) + 1 == self.stop_after:
+            self.recalled.append(question.question_id.local_id)
+            self.stopped = True
+            raise LlmCallError("合成の枠切れ")
+        return super().generate_recall(question, language)
+
+
+def test_regeneration_cap_holds_across_resumes(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
+    """A-3(ADR-028、AR-14、AR-25): 作り直しの上限は再開をまたいで数え、判定値のある主張は聞き直さない。"""
+    ungrounded = replace(GOOD["q01"], key=RecallKey(("Lambda",)))
+
+    # (a) 上限を超えた q01 の後に枠切れで止まると、再開しても q01 を作り直さずに RegenerationExhausted。
+    progress, out = Progress(tmp_path / "a"), tmp_path / "a.tsv"
+    first = StubLlm({**GOOD, "q01": ungrounded})
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.recalled) >= 4, progress=progress)
+    assert first.recalled == ["q01"] * 3 + ["q02"]
+    second = StubLlm(GOOD)  # 作り直せば通る素材を返す。
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(second, deck, clusters, Writer(out), progress=progress)
+    assert "q01" not in second.recalled and "q02" not in second.recalled
+    assert [(e.question_id.local_id, e.failures, e.attempts) for e in exc.value.exhausted] == [
+        ("q01", ("ungrounded_key",), 1 + MAX_REGENERATIONS)
+    ]
+    assert not out.exists()
+
+    # (b) 2回不合格の後、3回目の生成の呼び出しが枠切れで失敗して止まると、再開ではそれを3回目として生成する。
+    progress, out = Progress(tmp_path / "b"), tmp_path / "b.tsv"
+    stopping = StopsOnCall({**GOOD, "q01": ungrounded}, stop_after=3)
+    with pytest.raises(RecallCallsFailed):
+        generate(stopping, deck, clusters, Writer(out), stop_seen=lambda: stopping.stopped, progress=progress)
+    assert stopping.recalled == ["q01"] * 3  # 3回目は出力なし
+    second = StubLlm({**GOOD, "q01": ungrounded})
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(second, deck, clusters, Writer(out), progress=progress)
+    assert second.recalled.count("q01") == 1
+    outputs = (len(stopping.recalled) - 1) + second.recalled.count("q01")
+    assert outputs == 1 + MAX_REGENERATIONS
+    assert [(e.question_id.local_id, e.attempts) for e in exc.value.exhausted] == [("q01", 1 + MAX_REGENERATIONS)]
+    assert not out.exists()
+
+    # (c) 判定の途中、uncertain の後で判定の呼び出しが枠切れで失敗して止まると、再開では判定値のある主張を
+    # 聞き直さず、その生成を不合格(entailment)として数えて作り直す。
+    progress, out = Progress(tmp_path / "c"), tmp_path / "c.tsv"
+    answer = GOOD["q01"].answers[0].text
+    discrimination = GOOD["q01"].discrimination.text
+    first = StubLlm(GOOD, uncertain=frozenset({answer}), failing_checks=frozenset({discrimination}))
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.checked) >= 2, progress=progress)
+    assert first.recalled == ["q01"]
+    assert [s for _, s in first.checked] == [answer, discrimination]
+    second = StubLlm(GOOD)  # どの主張にも consistent を返す。
+    writer = Writer(out)
+    generate(second, deck, clusters, writer, progress=progress)
+    # 判定値の無かった主張だけを聞き、uncertain が残るので q01 を2回目として作り直す。
+    assert [s for _, s in second.checked][:3] == [discrimination, answer, discrimination]
+    assert second.recalled.count("q01") == 1
+    assert writer.result is not None
+    assert dict((q.local_id, n) for q, n in writer.result.report.regenerations)["q01"] == 1
+
+
+def test_resumed_pass_cannot_share_a_key_with_a_question_filled_in_before_it(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """前方の問題の呼び出しが失敗し、後方の問題だけが通過して戻される経路でも、成果物に重複キーは入らない。
+
+    戻した通過の問題は重複の検査を受け直さない。それで足りるのは、別クラスタの2問が同じ組のキーを持つと、
+    全 term が両方の問題文にあって互いの他クラスタに出現するので、どちらも `generic` で落ちるからである。
+    この前提が崩れたら、このテストが赤になる。
+    """
+    caplog.set_level(logging.INFO, logger="quiz_sift.recall.generate")
+    progress, out = _progress(tmp_path), tmp_path / "recall.tsv"
+    shared = RecallKey(("S3",))  # q01(c001)と q04(c002)の両方の問題文にある。
+    drafts = {**GOOD, "q01": replace(GOOD["q01"], key=shared)}
+    sequences: dict[str, tuple[RecallDraft, ...]] = {"q04": (replace(GOOD["q04"], key=shared), GOOD["q04"])}
+
+    # 1回目: q01 の呼び出しが失敗する(枠切れではないので残りは回る)。q04 は q01 が無いまま検査される。
+    first = StubLlm(drafts, sequences=sequences, failing=frozenset({"q01"}))
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), progress=progress)
+    (regenerated,) = [r.getMessage() for r in caplog.records if "を作り直す" in r.getMessage()]
+    assert "q04" in regenerated and "generic" in regenerated
+    assert first.recalled == ["q01", "q02", "q03", "q04", "q04", "q05"]
+
+    # 再開: q01 を q04 と同じ組のキーで埋めようとしても、q01 自身が generic で落ちて成果物は書かれない。
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(StubLlm(drafts), deck, clusters, Writer(out), progress=progress)
+    assert [(e.question_id.local_id, e.failures) for e in exc.value.exhausted] == [("q01", ("generic",))]
+    assert not out.exists()

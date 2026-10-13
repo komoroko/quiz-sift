@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from support.claude_fake import FakeRunner, exited, fake_stdout
 from support.cli_harness import DECK, CliLlms, flag, no_preflight, recall_output, respond, write_root
+from support.cli_harness import DRAFTS as DECK_DRAFTS
 from support.cli_harness import ROWS as DECK_ROWS
 
 from quiz_sift import cli
@@ -687,6 +688,50 @@ def test_c004_regenerations_are_counted_as_calls_and_invocations(
     assert len(recalled) == len(issued) == len(DECK_ROWS) + 1
     assert recalled[0] == recalled[1]
     assert llms.methods.count("generate_recall") == len(DECK_ROWS) + 1
+
+
+def test_recall_resume_logs_counts_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """C-028 A-5: recall 段の再開のログは、途中結果から使った件数と残りの件数だけを含む(NFR-2)。"""
+    caplog.set_level(logging.INFO)
+    root = tmp_path / "root"
+    root.mkdir()
+    write_root(root)
+    recalls: list[str] = []
+
+    def stop_at_the_second_recall(spec: CommandSpec) -> CommandResult:
+        if "terms" not in json.loads(flag(spec.argv, "--json-schema"))["properties"]:
+            return respond(spec)
+        recalls.append(json.loads(spec.stdin)["question"]["stem"])
+        if len(recalls) == 2:
+            stdout = fake_stdout(
+                subtype="error_during_execution", is_error=True, structured_output=None, rate_limit_status="rejected"
+            )
+            return exited(stdout, 1)
+        return respond(spec)
+
+    llms = CliLlms(tmp_path, FakeRunner(stop_at_the_second_recall))
+    stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", stderr)
+
+    def main(*argv: str) -> int:
+        return cli.main(["--root", str(root), "recall", DECK, *argv], llm_factory=llms, preflight=no_preflight)
+
+    with pytest.raises(RecallCallsFailed):
+        main("--fresh-run")
+    (run_id,) = {line.split("run_id: ")[1] for line in stderr.getvalue().splitlines() if "run_id: " in line}
+    caplog.clear()
+    assert main("--resume", run_id) == 0
+
+    messages = [r.getMessage() for r in caplog.records]
+    resumes = [m for m in messages if m.startswith("recall resume:")]
+    assert resumes == [f"recall resume: reused=1 remaining={len(DECK_ROWS) - 1}"]
+    # 想起素材と教材の本文は、再開の実行のどのログにも出ない。
+    texts = [text for _, stem, options, _, explanation in DECK_ROWS for text in (stem, *options, explanation)]
+    for draft in DECK_DRAFTS.values():
+        texts += [*draft.key.terms, *(e.text for e in draft.answers), draft.discrimination.text]
+    assert not [text for text in texts for message in messages if text in message]
 
 
 # ---- C-005 ----

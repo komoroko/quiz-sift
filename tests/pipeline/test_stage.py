@@ -1,5 +1,6 @@
 """NFR-4: 段階キャッシュによる再実行性(C-016)。"""
 
+import os
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
@@ -157,3 +158,65 @@ def test_run_id_separates_sequences_and_leaves_the_normal_digest_alone(tmp_path:
         raise AssertionError("同じ列の成果物にヒットしなかった")
 
     assert sequences["run-a"].run(stage, b"questions", rerun) == paths["run-a"]
+
+
+def test_progress_is_keyed_by_the_stage_digest_and_removed_on_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-1(ADR-028): 途中結果は列の実行だけが鍵ごとに持ち、同じ鍵でだけ読み戻せ、成果物の確定で消える。"""
+    stage, upstream = STAGES[1], b"clusters"
+    cache = StageCache(tmp_path, DECK, "run-1")
+    progress = cache.progress(stage, upstream)
+    assert progress is not None
+    assert progress.load() == {}
+
+    # 項目1件を通し番号のファイル名で書き、一時パスから os.replace で確定する。
+    replaced: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def recording_replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        replaced.append((Path(src).name, Path(dst).name))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", recording_replace)
+    progress.save(0, b"first")
+    progress.save(2, b"third")
+    progress.save(0, b"first-again")
+    monkeypatch.undo()
+    assert [dst for _, dst in replaced] == ["000000", "000002", "000000"]
+    assert all(src.startswith(".") for src, _ in replaced)
+    location = tmp_path / DECK / stage.name / f"{inputs_digest(stage, upstream, 'run-1')}.progress"
+    assert sorted(p.name for p in location.iterdir()) == ["000000", "000002"]
+
+    # 同じ鍵なら別のインスタンスからも読み戻せる。書きかけの一時ファイルは読まない。
+    (location / ".000001.partial").write_bytes(b"torn")
+    same = StageCache(tmp_path, DECK, "run-1").progress(stage, upstream)
+    assert same is not None
+    assert same.load() == {0: b"first-again", 2: b"third"}
+
+    # run_id・モデル・前段成果物のどれかが違う鍵からは見えない。
+    others = (
+        StageCache(tmp_path, DECK, "run-2").progress(stage, upstream),
+        StageCache(tmp_path, DECK, "run-1").progress(replace(stage, model="claude-other"), upstream),
+        StageCache(tmp_path, DECK, "run-1").progress(stage, b"other-clusters"),
+    )
+    for other in others:
+        assert other is not None
+        assert other.load() == {}
+
+    # 段が例外で抜けたら途中結果は残り、成果物を確定するとその鍵の途中結果は消える。
+    def failing(out: BinaryIO) -> None:
+        raise RuntimeError("合成の停止")
+
+    with pytest.raises(RuntimeError):
+        cache.run(stage, upstream, failing)
+    assert location.is_dir()
+    other_key = StageCache(tmp_path, DECK, "run-2").progress(stage, upstream)
+    assert other_key is not None
+    other_key.save(0, b"kept")
+    cache.run(stage, upstream, writes(b"artifact"))
+    assert not location.exists()
+    assert other_key.load() == {0: b"kept"}, "他の鍵の途中結果は消さない"
+
+    # 通常モード(run_id なし)は途中結果を持たない。
+    assert StageCache(tmp_path, DECK).progress(stage, upstream) is None
