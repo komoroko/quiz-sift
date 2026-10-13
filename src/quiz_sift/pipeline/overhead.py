@@ -37,29 +37,39 @@ def skills_digest(names: Sequence[str] | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-_SKILLS_2026_10_06 = "348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14"
+_SKILLS_2026_10_13 = "348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14"
 
 OVERHEAD: Mapping[str, OverheadConstant] = MappingProxyType(
     {
-        # 切片 1060.3333333333335 / num_turns 2。
+        # 切片 1064.3333333333335 / num_turns 2。
         "claude-opus-5-5": OverheadConstant(
             model="claude-opus-5-5",
-            per_turn_tokens=530.1666666666667,
+            per_turn_tokens=532.1666666666667,
             bucket="cache_creation_input_tokens",
-            measured_at=date(2026, 10, 6),
-            cli_version="2.1.290",
+            measured_at=date(2026, 10, 13),
+            cli_version="2.1.296",
             argv_digest="7be15268ad5b8c2990489105260475a37ed97b7305bfc1a6706663709d9fde86",
-            skills_digest=_SKILLS_2026_10_06,
+            skills_digest=_SKILLS_2026_10_13,
         ),
-        # 切片 1224.3333333333335 / num_turns 2。
+        # 切片 1065.0 / num_turns 2。
+        "claude-sonnet-5-5": OverheadConstant(
+            model="claude-sonnet-5-5",
+            per_turn_tokens=532.5,
+            bucket="cache_creation_input_tokens",
+            measured_at=date(2026, 10, 13),
+            cli_version="2.1.296",
+            argv_digest="ecad8eb0cb14906e78a8fe8f23cc29b8b1dc210e2f5034458ce1dee2046a4e06",
+            skills_digest=_SKILLS_2026_10_13,
+        ),
+        # 切片 1226.6666666666665 / num_turns 2。
         "claude-haiku-4-5": OverheadConstant(
             model="claude-haiku-4-5",
-            per_turn_tokens=612.1666666666667,
+            per_turn_tokens=613.3333333333333,
             bucket="input_tokens",
-            measured_at=date(2026, 10, 6),
-            cli_version="2.1.290",
+            measured_at=date(2026, 10, 13),
+            cli_version="2.1.296",
             argv_digest="66c1b01769d3385b32422acb877cdeef860ff266d144d816e701b7a7bab0dcb2",
-            skills_digest=_SKILLS_2026_10_06,
+            skills_digest=_SKILLS_2026_10_13,
         ),
     }
 )
