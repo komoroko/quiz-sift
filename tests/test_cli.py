@@ -22,6 +22,7 @@ from support.cli_harness import DECK, DRAFTS, CliLlms, StubTts, no_preflight, re
 
 from quiz_sift import cli
 from quiz_sift.adapters import llm_prompts
+from quiz_sift.audio.voices import VOICE_TABLE, Voice
 from quiz_sift.domain.attempt import AttemptRecord
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import OptionId, QuestionId, SessionId
@@ -32,12 +33,13 @@ from quiz_sift.pipeline.stage import Stage, inputs_digest
 from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft
 from quiz_sift.ports.metering import FailureKind, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.ports.tts import Tts
+from quiz_sift.ports.tts import PcmAudio, Tts
 from quiz_sift.store.deck_scope import DeckScopedStore
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 
-STAGES = {"ingest", "cluster", "recall", "glossary", "script", "audio", "review", "serve"}
+STAGES = {"ingest", "cluster", "recall", "glossary", "script", "audio", "glossary-audio", "review", "serve"}
+TTS_STAGES = {"audio", "glossary-audio"}
 
 
 @dataclass
@@ -92,7 +94,7 @@ class Runner:
 
     def __call__(self, *argv: str) -> str:
         self.capsys.readouterr()
-        extra = ["--tts-model", self.tts_model] if argv[0] == "audio" else []
+        extra = ["--tts-model", self.tts_model] if argv[0] in TTS_STAGES else []
         code = cli.main(
             ["--root", str(self.root), *argv, *extra],
             llm_factory=self._llm,
@@ -123,7 +125,9 @@ def test_every_stage_has_an_entry_point(
     root: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for stage in STAGES:
-        argv = [stage] if stage == "serve" else [stage, DECK, "--tts-model", "m"] if stage == "audio" else [stage, DECK]
+        argv = (
+            [stage] if stage == "serve" else [stage, DECK, "--tts-model", "m"] if stage in TTS_STAGES else [stage, DECK]
+        )
         assert cli._parser().parse_args(argv).stage == stage
 
     llm, tts = StubLlm(), StubTts()
@@ -160,8 +164,10 @@ def test_every_stage_has_an_entry_point(
         "003_aws-saa_c003.mp3",
     ]
     assert (audio / "playlist.m3u").is_file()
-    assert (out / "glossary" / "glossary.m3u").is_file()
     assert tts.calls > 0
+
+    assert Path(run("glossary-audio", DECK)) == out / "glossary"
+    assert (out / "glossary" / "glossary.m3u").is_file()
 
     # 学習記録に誤答が1件あれば、そのクラスタだけの復習系列ができる。
     question_id = QuestionId(DECK, "q03")
@@ -181,12 +187,14 @@ def test_every_stage_has_an_entry_point(
             path.unlink()
     assert Path(run("audio", DECK)) == out / "audio"
     assert len(list((out / "audio").glob("*.mp3"))) == 3
+    assert Path(run("glossary-audio", DECK)) == out / "glossary"
     assert (out / "glossary" / "glossary.m3u").is_file()
     assert (len(llm.calls), tts.calls) == (llm_calls, tts_calls)
 
     # TTS のモデルを差し替えたら、台本もグロッサリも前のモデルの音声を返さず合成し直す(NFR-4)。
     run.tts_model = "other-model-dir"
     run("audio", DECK)
+    run("glossary-audio", DECK)
     assert tts.calls > tts_calls
     for stage in ("tracks", "glossary-audio"):
         assert len([p for p in (out / stage).iterdir() if not p.name.startswith(".")]) == 2
@@ -200,6 +208,99 @@ def test_every_stage_has_an_entry_point(
     monkeypatch.setattr(cli, "make_server", fake_make_server)
     assert run("serve", "--port", "8765") == "quiz-sift API: http://127.0.0.1:8765"
     assert [(s.root, s.server_port, s.served) for s in servers] == [(root, 8765, True)]
+
+
+class NoGlossaryLlm(StubLlm):
+    """グロッサリの用語説明を求められたら落ちる。"""
+
+    def describe_term(self, term: str, language: Language) -> str:
+        raise AssertionError(f"describe_term が呼ばれた: {term}")
+
+
+def test_audio_does_not_build_the_glossary(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A-1(D-234): audio 段はグロッサリを作らず読まない。フル処理は cluster → recall → script → audio。"""
+    llm, tts = NoGlossaryLlm(), StubTts()
+    run = Runner(root, capsys, llm, tts)
+    out = root / "out" / DECK
+    for stage in ("cluster", "recall", "script"):
+        run(stage, DECK)
+    assert Path(run("audio", DECK)) == out / "audio"
+    assert len(list((out / "audio").glob("*.mp3"))) == 3
+    assert "describe" not in llm.calls
+    assert not (out / "glossary").exists()
+    assert not (out / cli.GLOSSARY.name).exists()
+    assert not (out / "glossary-audio").exists()
+
+
+@dataclass
+class VoiceRecordingTts(StubTts):
+    """合成に渡されたボイスを記録する。"""
+
+    voices: list[str] = field(default_factory=list)
+
+    def synthesize(self, text: str, voice_id: str) -> PcmAudio:
+        self.voices.append(voice_id)
+        return super().synthesize(text, voice_id)
+
+
+def test_glossary_audio_stage_writes_the_glossary_series(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-2(D-239): glossary-audio 段はグロッサリの音声とプレイリストを書き、用語が0件なら書かない。"""
+    assert "glossary-audio" in cli.LLM_STAGES
+    root = tmp_path / "terms"
+    root.mkdir()
+    write_root(root)
+    llm, tts = StubLlm(), StubTts()
+    run = Runner(root, capsys, llm, tts)
+    out = root / "out" / DECK
+
+    glossary_dir = Path(run("glossary-audio", DECK))
+    assert glossary_dir == out / "glossary"
+    assert (glossary_dir / "glossary.m3u").is_file()
+    tracks = list(glossary_dir.glob("*.mp3"))
+    assert tracks and "describe" in llm.calls
+    assert not (out / "audio").exists(), "glossary-audio 段は台本の音声を書かない"
+    assert not (out / "tracks").exists()
+
+    # TTS のモデルを変えるとキャッシュ鍵が変わり、合成し直す。
+    tts_calls = tts.calls
+    run("glossary-audio", DECK)
+    assert tts.calls == tts_calls
+    run.tts_model = "other-model-dir"
+    run("glossary-audio", DECK)
+    assert tts.calls > tts_calls
+    assert len([p for p in (out / "glossary-audio").iterdir() if not p.name.startswith(".")]) == 2
+
+    # --voice は TTS に渡り、ボイスを変えるとキャッシュ鍵が変わって合成し直す(audio 段と同じ扱い)。
+    voiced = VoiceRecordingTts()
+    run.tts = voiced
+    monkeypatch.setitem(VOICE_TABLE, "合成ボイス", Voice(Language.JA))
+    run("glossary-audio", DECK, "--voice", "合成ボイス")
+    assert voiced.calls > 0 and set(voiced.voices) == {"合成ボイス"}
+    assert len([p for p in (out / "glossary-audio").iterdir() if not p.name.startswith(".")]) == 3
+
+    # 用語が0件なら書かず、前回の配信ディレクトリも残さない。
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    write_root(empty)
+    stale = empty / "out" / DECK / "glossary"
+    stale.mkdir(parents=True)
+    (stale / "glossary.m3u").write_text("", encoding="utf-8")
+    monkeypatch.setattr("quiz_sift.glossary.verify.extract_terms", lambda deck: ())
+    empty_tts = StubTts()
+    capsys.readouterr()
+    code = cli.main(
+        ["--root", str(empty), "glossary-audio", DECK, "--tts-model", "model-dir"],
+        llm_factory=lambda meter: StubLlm(),
+        preflight=no_preflight,
+        tts_factory=lambda model_dir: empty_tts,
+    )
+    assert code == 0
+    assert capsys.readouterr().out == ""
+    assert not stale.exists()
+    assert empty_tts.calls == 0
+    assert not (empty / "out" / DECK / "glossary-audio").exists()
 
 
 def test_llm_use_is_metered(root: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -1,15 +1,15 @@
 """quiz-sift の CLI 入口(NFR-4 / NFR-5 / D-033)。
 
 `python -m quiz_sift.cli [--root DIR] <段> ...` で、取り込み・クラスタリング・想起素材・グロッサリ・
-台本・音声・復習リスト・serve の各段を個別に起動する。
+台本・音声・グロッサリの音声・復習リスト・serve の各段を個別に起動する。
 
 各段は前段を `pipeline.stage.StageCache` 越しに呼ぶ。前段の成果物がキャッシュにあればそれを読み、
 無ければその場で作る。どの段から起動しても同じ digest の成果物は作り直さないので、途中の段からの
 再実行で前段の LLM / TTS 呼び出しは 0 回になる。LLM と TTS は最初に要ったときに1度だけ組み立てる —
 キャッシュだけで済む実行は `claude` も CosyVoice も要らない。
 
-LLM を呼びうる段(cluster / recall / glossary / script / audio)は、起動前検査 → 開始行 → 段 → `finally` で終了行、
-の順に動く(NFR-7 節「実行の列」、ADR-018)。`--fresh-run` は新しい列を始めて段キャッシュを迂回し、
+LLM を呼びうる段(cluster / recall / glossary / script / audio / glossary-audio)は、起動前検査 → 開始行 → 段 →
+`finally` で終了行、の順に動く(NFR-7 節「実行の列」、ADR-018)。`--fresh-run` は新しい列を始めて段キャッシュを迂回し、
 `--resume RUN_ID` は `resumable` の列に実行を1つ足す。無指定は通常のキャッシュを使う1実行だけの列になる。
 1回の実行は `signal.alarm` で 12 時間に制限する(D-138)。ingest / review / serve は LLM を呼ばないので、
 検査も列への登録もしない(D-143)。
@@ -83,7 +83,7 @@ type TtsFactory = Callable[[str], Tts]
 type Preflight = Callable[[], None]
 """起動前検査(NFR-8 (b))。落ちたら `SystemExit` の派生を上げる。"""
 
-LLM_STAGES = ("cluster", "recall", "glossary", "script", "audio")
+LLM_STAGES = ("cluster", "recall", "glossary", "script", "audio", "glossary-audio")
 """LLM を呼びうる段。起動前検査と実行の列への登録はこの段だけが行う(D-143)。"""
 
 EXECUTION_LIMIT_SEC = 12 * 60 * 60
@@ -476,13 +476,13 @@ class Pipeline:
         return self._cache.run(SCRIPT, self._recall_upstream() + b"\0" + recall_path.read_bytes(), produce)
 
     def audio(self, tts: Callable[[], Tts], tts_model: str, voice_id: str | None) -> Path:
-        """台本とグロッサリを音声にし、`out/<deck>/audio/` と `out/<deck>/glossary/` を作り直す。
+        """台本を音声にし、`out/<deck>/audio/` を作り直す。グロッサリは作らず読まない(D-234)。
 
         `tts_model`(`--tts-model` の値)は digest に入れる。モデルを差し替えたら合成し直す(NFR-4)。
         """
         deck = self.deck()
         voice = voice_id or DEFAULT_VOICES[deck.language]
-        script_path, glossary_path = self.script(), self.glossary()
+        script_path = self.script()
 
         def produce_tracks(out: BinaryIO) -> None:
             with tempfile.TemporaryDirectory(dir=self.out_dir, prefix=".audio-") as tmp:
@@ -491,15 +491,21 @@ class Pipeline:
                 _pack(Path(tmp), out)
 
         stage = Stage("tracks", model=tts_model, params={"voice_id": voice})
-        audio_dir = _deliver(
-            self._cache.run(stage, script_path.read_bytes(), produce_tracks), self.out_dir / AUDIO_DIRNAME
-        )
+        return _deliver(self._cache.run(stage, script_path.read_bytes(), produce_tracks), self.out_dir / AUDIO_DIRNAME)
 
+    def glossary_audio(self, tts: Callable[[], Tts], tts_model: str, voice_id: str | None) -> Path | None:
+        """グロッサリを音声にし、`out/<deck>/glossary/` を作り直す。用語が0件なら書かず `None`(D-239)。
+
+        `tts_model` と `voice_id` の扱いは `audio` と同じ。
+        """
+        deck = self.deck()
+        voice = voice_id or DEFAULT_VOICES[deck.language]
+        glossary_path = self.glossary()
         glossary = _glossary_from(_load(glossary_path))
         if not glossary.entries:
             logger.info("glossary audio: 用語が0件なので書かない")
             shutil.rmtree(self.out_dir / GLOSSARY_DIRNAME, ignore_errors=True)
-            return audio_dir
+            return None
 
         def produce_glossary(out: BinaryIO) -> None:
             with tempfile.TemporaryDirectory(dir=self.out_dir, prefix=".glossary-") as tmp:
@@ -509,8 +515,9 @@ class Pipeline:
                 _pack(written.playlist.parent, out)
 
         stage = Stage("glossary-audio", model=tts_model, params={"voice_id": voice})
-        _deliver(self._cache.run(stage, glossary_path.read_bytes(), produce_glossary), self.out_dir / GLOSSARY_DIRNAME)
-        return audio_dir
+        return _deliver(
+            self._cache.run(stage, glossary_path.read_bytes(), produce_glossary), self.out_dir / GLOSSARY_DIRNAME
+        )
 
     def review(self) -> Path | None:
         """学習記録から誤答率降順の復習系列を `out/<deck>/review/` に作る。誤答が無ければ `None`。"""
@@ -539,7 +546,8 @@ def _parser() -> argparse.ArgumentParser:
         ("recall", "想起素材"),
         ("glossary", "グロッサリ"),
         ("script", "台本"),
-        ("audio", "音声(台本とグロッサリ)"),
+        ("audio", "台本の音声"),
+        ("glossary-audio", "グロッサリの音声"),
         ("review", "復習リスト"),
     ):
         stage = stages.add_parser(name, help=text)
@@ -552,7 +560,7 @@ def _parser() -> argparse.ArgumentParser:
                 help="新しい実行の列を始め、段キャッシュを迂回する(run_id は stderr)",
             )
             sequence.add_argument("--resume", metavar="RUN_ID", help="resumable の実行の列に実行を1つ足す")
-        if name == "audio":
+        if name in ("audio", "glossary-audio"):
             stage.add_argument("--tts-model", required=True, help="CosyVoice のモデルディレクトリ")
             stage.add_argument("--voice", help="ボイス(省略時はデッキの言語の既定)")
     serve = stages.add_parser("serve", help="ローカル HTTP API")
@@ -713,7 +721,7 @@ def _run(
 
 def _stage(args: argparse.Namespace, pipeline: Pipeline, tts_factory: TtsFactory) -> Path | None:
     match args.stage:
-        case "audio":
+        case "audio" | "glossary-audio":
             model_dir: str = args.tts_model
             built: list[Tts] = []
 
@@ -722,7 +730,8 @@ def _stage(args: argparse.Namespace, pipeline: Pipeline, tts_factory: TtsFactory
                     built.append(tts_factory(model_dir))
                 return built[0]
 
-            return pipeline.audio(tts, model_dir, args.voice)
+            synthesize = pipeline.audio if args.stage == "audio" else pipeline.glossary_audio
+            return synthesize(tts, model_dir, args.voice)
         case "review":
             return pipeline.review()
         case _:
