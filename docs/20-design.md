@@ -83,7 +83,7 @@
   - **含意判定**: 答えの要素は `reference_for(q, focus=要素の option_id)`、識別ポイントは `reference_for(q, distractors=distractor_ids)`(D-192)。機械検査を通った素材だけを判定し、不合格は検査名 `entailment` として同じ上限の中で作り直す(D-232、ADR-026。当初の「再生成せず `EntailmentRejected`」を改めた)。
   - **reference の形**: 誤答の本文を「正しい情報」として渡すと、「X は当てはまらない」という正しい識別ポイントが contradicted になる。そこで reference を「正解: …」と「誤答選択肢(この問題では正しくない記述): …」の節に分け、`ENTAILMENT_SYSTEM` に「誤答選択肢の節は、この問題の答えとして正しくない記述の一覧である。statement が誤答選択肢を正しくないと述べることは矛盾ではない」と足す。プロンプトの変更は ADR-019 の運用の変更で、実判定での効果は合成リハーサル(C-026)で確かめる。
   - **成果物**: recall の JSON に `answers[{option, text}]` と `discrimination{text, distractors[]}`、report に `regenerations`(問題ごとの回数)を足す(検査ごとの延べ件数は作らない、D-219)。ログは件数だけ。
-- **Existing assets to reuse**: `is_present`、`original_ratio`、`RecallKey.term_set`、`emit_if_consistent`、`ContractError`、`parse_proposals` の keyed 方式、`Meter`。
+- **Existing assets to reuse**: `is_present`、`original_ratio`、`RecallKey.term_set`、`judge`、`ContractError`、`parse_proposals` の keyed 方式、`Meter`。
 - **Corresponding technical choice**: ADR-022
 - **What this requires of a person**: なし(合成リハーサルは NFR-7 に書く)。
 - **Reversibility**: 可逆。コミットを戻せば元に戻る。

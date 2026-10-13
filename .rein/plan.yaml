@@ -1716,6 +1716,9 @@ tasks:
     - tests/test_cli.py
     - tests/test_cli_sequence.py
     - tests/acceptance/test_analysis.py
+    - src/quiz_sift/safety/entailment.py
+    - tests/safety/test_entailment.py
+    - tests/adapters/test_llm_claude_cli.py
   acceptance:
   - id: A-1
     statement: script 段は含意判定をトラックごとに行い、判定値を途中結果に残す。判定の途中で枠切れの LlmCallError が出て止まり、同じ鍵で走らせ直すと、check_entailment は consistent だったトラックの主張については呼ばれず、成果物が書かれる。
@@ -2527,6 +2530,16 @@ decisions:
   requirement_ids:
   - NFR-7
   - R-5
+- id: D-240
+  subject: script 段が使わなくなった safety.entailment.emit_if_consistent の扱い
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: T-076 の scope に src/quiz_sift/safety/entailment.py、tests/safety/test_entailment.py、tests/adapters/test_llm_claude_cli.py を足し、呼び出し元の無くなった emit_if_consistent を T-076 で消す。
+  rationale: T-076 で script 段がトラックごとの判定値を途中結果に残すようになり、emit_if_consistent を呼ぶ箇所が src から無くなった。build の reviewer がこれを指摘し、実装者が関数とテストを直したところ、scope 外として止まった(2026-10-13)。使わない関数を残さないため、scope を広げて再承認する(人の判断)。T-076 の受入基準は変えない。
+  requirement_ids:
+  - NFR-7
+  - NFR-1
 
 lenses:
 - id: L-REQ-AMBIGUITY
