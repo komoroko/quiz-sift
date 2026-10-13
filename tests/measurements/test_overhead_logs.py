@@ -3,7 +3,8 @@
 サンドボックスには `claude` が無いので、証拠は `tests/measurements/measure_overhead.py` がホストで書いた
 `docs/test/measurements/overhead-<model>.md` で、このテストは表から切片を再計算して機械判定する。
 
-- A-1: 2モデルとも k = 1, 2, 3 の3点があり、`ClaudeCliLlm` と同じ argv(`--safe-mode` を含む)で測った。
+- A-1: 製品の `llm_prompts.MODELS` が使う各モデルに k = 1, 2, 3 の3点があり、`ClaudeCliLlm` と同じ argv
+  (`--safe-mode` を含む)で測った。
 - A-2: 最小二乗の切片 c を num_turns で割った値と出所が `pipeline/overhead.py` の定数と一致する。
 - A-3: 3点の回帰残差と、`overhead × turns + material = 入力合計` がどちらも相対誤差 `TOLERANCE` 以内。
   material は記録した既知長 × k からだけ出し、表の `material` 列もそれと一致しなければならない。
@@ -21,13 +22,15 @@ from typing import Any
 import pytest
 import yaml
 
+from quiz_sift.adapters import llm_prompts
 from quiz_sift.adapters.llm_claude_cli import argv_digest, build_argv
 from quiz_sift.pipeline.overhead import OVERHEAD, OverheadConstant
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 MEASUREMENTS = ROOT / "docs" / "test" / "measurements"
 COLLECTOR = "tests/measurements/measure_overhead.py"
-MODELS = ("claude-opus-5-5", "claude-haiku-4-5")
+MODELS = tuple(sorted(set(llm_prompts.MODELS.values())))
+"""製品が使うモデル。割り当てを変えると、較正表か定数の欠けがここで赤になる(T-079)。"""
 KS = [1, 2, 3]
 TOLERANCE = 0.01
 """相対誤差の許容幅。計画で凍結した値(AR-145)。"""
@@ -135,7 +138,7 @@ def check_linearity_and_identity(log: Log, constant: OverheadConstant) -> None:
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_three_point_tables_exist_for_both_models(model: str) -> None:
+def test_three_point_tables_exist_for_every_product_model(model: str) -> None:
     check_table(model, load(model))
 
 
