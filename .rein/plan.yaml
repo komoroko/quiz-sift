@@ -118,6 +118,11 @@ claims:
   statement: adapters/llm_anthropic.py が存在せず src と tests から参照されず、既定構成の実行が SDK を読み込まないことのテストが、anthropic
     を import する合成のアダプタを差し込むと赤になる陰性対照とともに緑である(依存 anthropic の削除は次サイクル)。
   risk: medium
+- id: C-028
+  requirement_ids:
+  - NFR-7
+  statement: 実行の列で、recall・script 段は、枠切れで止まった後に同じ列を --resume すると、前の実行で判定まで済んだ項目(recall は問題、script はトラック)を呼び直さずに残りから続け、作り直しの上限は再開をまたいで数え、1回で走れば止まる項目(上限超過の問題、contradicted か uncertain のトラック)は、判定の途中で止まった場合も含めて再開しても止まり、途中結果は段のキャッシュ鍵(run_id・モデル・プロンプト・前段成果物)が違えば使われず、段の成果物は全項目が検査を通ったときだけ書かれ、成果物の確定で途中結果が消え、再開のログは件数だけである。
+  risk: high
 tasks:
 - id: T-054
   title: 【ホスト】子 CLI のフラグの実測 第1段(ユーザ設定の遮断と有効ツールの許可リスト)
@@ -1445,6 +1450,301 @@ tasks:
       - tests/acceptance/test_analysis.py::test_regeneration_logs_name_ids_and_counts_only
       executor_profile: quality
   operator_surface: []
+- id: T-074
+  title: 含意判定を Sonnet 5.5、用語説明を Opus 5.5 にし、Sonnet 5.5 の単価を足す
+  kind: parallel
+  blocked_by: []
+  claim_ids:
+  - C-025
+  domains:
+  - adapters
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/pipeline/meter.py
+    - tests/adapters/test_llm_claude_cli.py
+    - tests/adapters/test_llm_contract.py
+    - tests/test_cli.py
+    - tests/pipeline/test_meter.py
+    - tests/measurements/test_claude_cli_logs.py
+  acceptance:
+  - id: A-1
+    statement: llm_prompts.MODELS が classify_clusters・summarize_cluster・describe_term を claude-opus-5-5、generate_recall を claude-haiku-4-5、check_entailment を claude-sonnet-5-5 に割り当て、それ以外のメソッドを持たない(ADR-027)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_model_per_method_follows_adr_027
+      executor_profile: quality
+  - id: A-2
+    statement: meter.PRICES が claude-sonnet-5-5 を入力 2.00・キャッシュ書き込み 2.50・キャッシュ読み出し 0.10・出力 10.00(USD / MTok、料金ページ、priced_at 2026-10-13)で持ち、3モデルすべてが取得元を持つ。Sonnet 5.5 のトークンを含む実行の推定コストが recorded になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_price_table_has_three_models_with_sources
+      executor_profile: quality
+  - id: A-3
+    statement: cluster・recall・glossary・script の各段のキャッシュ鍵のモデルが、ADR-027 の割り当て(各段が使うメソッドと check_entailment)を表す。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_stage_digest_carries_the_models_it_uses
+      executor_profile: quality
+  operator_surface: []
+- id: T-079
+  title: 【ホスト】Sonnet 5.5 の固定オーバーヘッドを較正し、定数を足す
+  kind: parallel
+  blocked_by:
+  - T-074
+  claim_ids:
+  - C-019
+  domains:
+  - measurement
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/pipeline/overhead.py
+    - tests/measurements/measure_overhead.py
+    - tests/measurements/test_overhead_logs.py
+    - docs/test/measurements/overhead-claude-sonnet-5-5.md
+    - docs/test/measurements/overhead-claude-opus-5-5.md
+    - docs/test/measurements/overhead-claude-haiku-4-5.md
+  acceptance:
+  - id: A-1
+    statement: 製品の llm_prompts.MODELS が使う3モデルそれぞれについて、最終 argv で k = 1, 2, 3 の較正表が docs/test/measurements/overhead-<model>.md にあり、overhead.OVERHEAD の定数が表の回帰と一致し、argv_digest が製品の argv と一致する。test_overhead_logs.py のモデルの一覧は製品の MODELS から作る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_overhead_logs.py
+      executor_profile: quality
+  - id: A-2
+    statement: Sonnet 5.5 の較正表がコミットされている。
+    evidence:
+      kind: artifact
+      paths:
+      - docs/test/measurements/overhead-claude-sonnet-5-5.md
+  operator_surface:
+  - kind: default_value
+    name: 固定オーバーヘッドの定数(Sonnet 5.5 を足し、Opus 5.5 と Haiku 4.5 を取り直す)
+    paths:
+    - src/quiz_sift/pipeline/overhead.py
+    reversible: true
+  requires:
+  - probe:
+    - which
+    - claude
+    says: ホストの PATH に claude(Claude Code CLI)がある
+  - probe:
+    - python3
+    - -c
+    - import os,sys; sys.exit(0 if os.path.lexists(os.path.expanduser('~/.quiz-sift-claude-home/.claude/.credentials.json'))
+      else 1)
+    says: 最小ホーム ~/.quiz-sift-claude-home が用意され、資格情報ファイルがある(HOME=~/.quiz-sift-claude-home claude /login
+      を1回。ファイルは開かずに存在だけを見る)
+  environment:
+    allow:
+    - uv run python tests/measurements/measure_overhead.py
+- id: T-080
+  title: audio 段からグロッサリの音声を外し、glossary-audio 段に分ける
+  kind: parallel
+  blocked_by:
+  - T-074
+  claim_ids:
+  - C-025
+  - C-007
+  domains:
+  - audio
+  - glossary
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/cli.py
+    - tests/test_cli.py
+    - tests/test_cli_sequence.py
+    - tests/acceptance/test_audio_and_review.py
+    - tests/acceptance/test_analysis.py
+    - tests/acceptance/test_cross_cutting.py
+  acceptance:
+  - id: A-1
+    statement: audio 段はグロッサリの成果物を作らず読まない。glossary の LLM 呼び出しが一度も無い作業ルートで、cluster → recall → script → audio が exit 0 になり、out/<deck>/audio/ だけが書かれ、out/<deck>/glossary/ は作られない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_audio_does_not_build_the_glossary
+      executor_profile: quality
+  - id: A-2
+    statement: glossary-audio 段は glossary の成果物を音声にして out/<deck>/glossary/ に書き(プレイリストを含む)、用語が 0 件なら書かない。--tts-model と --voice は audio 段と同じ扱いで、TTS のモデルを変えるとキャッシュ鍵が変わる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_glossary_audio_stage_writes_the_glossary_series
+      executor_profile: quality
+  operator_surface:
+  - kind: public_interface
+    name: CLI の段 glossary-audio(audio 段はグロッサリの音声を書かなくなる)
+    paths:
+    - src/quiz_sift/cli.py
+    reversible: true
+- id: T-078
+  title: フル処理の記録が、列で最後に成功した cluster の割当を使い、再現性の列の分類の呼び出し数を出し直しを除いて数える
+  kind: parallel
+  blocked_by: []
+  claim_ids:
+  - C-025
+  domains:
+  - measurement
+  risk: medium
+  scope:
+    include:
+    - tests/measurements/test_full_run_logs.py
+  acceptance:
+  - id: A-1
+    statement: render は、フル処理の列の中で最後に exit 0 で終わった cluster の実行の割当とクラスタ段のサマリを full-run.md と audio-silence.md に使う。cluster が2回成功した合成の journal で、2回目の割当が記録に入り、1回目の割当は入らない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_render_uses_the_last_successful_cluster
+      executor_profile: quality
+  - id: A-2
+    statement: 再現性の列の classify_clusters の llm_calls は、終了行の llm_calls から、他メソッドの子のうち TRUNCATED で出し直されたものでない子の数(標準エラーの子プロセスの記録から数える)を引いて出し、メソッド別の内訳の比較も出し直しを除いた数で行う。summarize_cluster か check_entailment で TRUNCATED の出し直しが起きた合成の列でも、classify_clusters の llm_calls が 1 になり、判定が通る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_repro_classify_calls_survive_reissues
+      executor_profile: quality
+  operator_surface: []
+- id: T-075
+  title: 段のキャッシュに項目ごとの途中結果を足し、recall 段が --resume で済んだ問題を呼び直さずに続ける
+  kind: foundation
+  blocked_by:
+  - T-080
+  claim_ids:
+  - C-028
+  domains:
+  - pipeline
+  - recall
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/pipeline/stage.py
+    - src/quiz_sift/recall/generate.py
+    - src/quiz_sift/cli.py
+    - tests/pipeline/test_stage.py
+    - tests/recall/
+    - tests/test_cli.py
+    - tests/test_cli_sequence.py
+    - tests/acceptance/test_analysis.py
+  acceptance:
+  - id: A-1
+    statement: StageCache は実行の列(run_id がある)のときだけ、段のキャッシュ鍵(inputs_digest)ごとに途中結果の場所を持ち、項目1件を通し番号のファイル名で、一時パスから os.replace で確定して書き、同じ鍵でだけ読み戻せる。run_id かモデルが違う鍵からは見えず、段の成果物を確定するとその鍵の途中結果は消える。通常モード(run_id なし)は途中結果を読みも書きもしない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_stage.py::test_progress_is_keyed_by_the_stage_digest_and_removed_on_commit
+      executor_profile: quality
+  - id: A-2
+    statement: recall 段で、スタブが k 問目の後にレート枠の停止を返して段が止まり、同じ鍵で走らせ直すと、generate_recall は残りの問題についてだけ呼ばれ(1回目と2回目の呼び出しの和が問題数と作り直しの回数の和に等しい)、成果物は全問の想起素材で書かれる。途中結果から戻した問題と同じキーを持つ後の問題は、クラスタをまたぐ重複の検査で作り直される。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_resume_skips_questions_that_passed
+      executor_profile: quality
+  - id: A-3
+    statement: recall 段で、作り直しの上限は再開をまたいで数える。(a) 上限を超えた問題の後に枠切れで止まると、再開しても、その問題を作り直さずに RegenerationExhausted で非0終了し、成果物を書かない。(b) 2回不合格の後、3回目の generate_recall の呼び出しが枠切れで失敗して止まると、再開ではその問題を3回目として生成し、2回の実行を通して出力のあった生成はその問題で 3 回を超えない。(c) 生成物の判定の途中、uncertain が返った後で判定の呼び出しが枠切れで失敗して止まると、再開では判定値のある主張を判定器に聞き直さず、その生成を不合格として数える。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_regeneration_cap_holds_across_resumes
+      executor_profile: quality
+  - id: A-4
+    statement: 実行の列で、--fresh-run の recall がレート枠の停止で非0終了したあと、同じ列の --resume で recall が exit 0 になり、2回の実行を通した generate_recall の呼び出しが、問題数と作り直しの回数の和を超えない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli_sequence.py::test_recall_resume_continues_from_the_stopped_question
+      executor_profile: quality
+  - id: A-5
+    statement: recall 段の再開のログは、途中結果から使った問題の件数と残りの件数だけを含み、想起素材と教材の本文を含まない(NFR-2)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_recall_resume_logs_counts_only
+      executor_profile: quality
+  operator_surface: []
+- id: T-076
+  title: script 段がトラックごとの判定値を途中結果に残し、--resume で続きから進める
+  kind: integration
+  blocked_by:
+  - T-075
+  claim_ids:
+  - C-028
+  - C-013
+  domains:
+  - script
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/script/generate.py
+    - src/quiz_sift/cli.py
+    - tests/script/
+    - tests/test_cli.py
+    - tests/test_cli_sequence.py
+    - tests/acceptance/test_analysis.py
+  acceptance:
+  - id: A-1
+    statement: script 段は含意判定をトラックごとに行い、判定値を途中結果に残す。判定の途中で枠切れの LlmCallError が出て止まり、同じ鍵で走らせ直すと、check_entailment は consistent だったトラックの主張については呼ばれず、成果物が書かれる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_generate.py::test_resume_skips_tracks_that_were_judged_consistent
+      executor_profile: quality
+  - id: A-2
+    statement: script 段で contradicted か uncertain のトラックがあれば、1回の実行では従来どおり EntailmentRejected で非0終了して成果物を書かない。そのトラックの後に枠切れで止まった場合も、トラックの判定の途中で uncertain が返った後に枠切れで止まった場合も、再開では判定値のある主張を判定し直さずに EntailmentRejected で止まり、成果物を書かない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_generate.py::test_rejected_track_stops_the_stage_across_resumes
+      executor_profile: quality
+  - id: A-3
+    statement: script 段の再開のログは、途中結果から使ったトラックの件数と残りの件数だけを含み、台本の本文を含まない(NFR-2)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_script_resume_logs_counts_only
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
   title: 【人・不可逆】実デッキでフル処理を完走させる(人がホストで exec と render)
   kind: integration
@@ -1459,6 +1759,11 @@ tasks:
   - T-070
   - T-072
   - T-073
+  - T-074
+  - T-075
+  - T-076
+  - T-078
+  - T-080
   claim_ids:
   - C-025
   - C-007
@@ -1514,8 +1819,7 @@ tasks:
     says: 合成デッキで recall 段まで(実 CLI)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
     max: 3
-    cost: 1本あたり子プロセス 1,000〜1,500・壁時計 5〜8 時間・週次枠の相当部分(前サイクルからの推定、notional $150〜250 で実課金ではない)。全段が1回の失敗で止まる列なので、T-068
-      の外挿値を見てから始める
+    cost: 1本あたり子プロセス 1,200〜1,600・5時間枠 2〜3 個・週次枠の約 30%・枠待ちを含め壁時計 10〜20 時間(推定)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
   says: 'T-054 の実測で、ホストの claude CLI にユーザ設定を読まない指定があった(記録の結論が「ユーザ設定の遮断: あり」)。'
@@ -2164,6 +2468,66 @@ decisions:
   requirement_ids:
   - NFR-1
   - R-4
+- id: D-234
+  subject: グロッサリをこのサイクルのフル処理に含めるか(実デッキで用語 9,516 件、照合先が1用語あたり中央値 13 万字)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 含めない。audio 段はグロッサリを作らず、グロッサリの音声は glossary-audio 段に分ける。フル処理は cluster → recall → script → audio。R-5 の基準と glossary 段の実装は変えず、用語の選び方と照合先は次サイクルで決める。
+  rationale: ADR-010 の抽出を実デッキ(190 問)に当てると 9,516 件になる。出現の多い上位 100 件に絞る案(人が一度選んだ)も、照合先が用語の現れる全問題の公式解説の連結なので、1用語あたり中央値 13 万字・最大 57 万字・100 件で約 1,700 万字になり、判定だけで recall 全体の数倍の枠を使う(件数と文字数だけを数えた。2026-10-13)。照合先を先頭 3 問に絞る案は R-5 の「公式解説と矛盾 0」を弱めるので採らず、glossary を外すことを人が選んだ。
+  requirement_ids:
+  - NFR-7
+  - R-5
+- id: D-235
+  subject: 枠をまたぐ段の再開(試行3の recall 段が 5 時間枠で止まり、--resume が1問目からやり直す)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: recall・script 段は、判定まで済んだ項目(問題・トラック)を段のキャッシュ鍵ごとの途中結果に残し、同じ列の --resume で残りから続ける。作り直しの上限は再開をまたいで数え、1回で走れば止まる項目は再開しても止まる。再開できるのは枠切れの停止だけで終わった列に限る。成果物を書く条件は変えない(ADR-028)。
+  rationale: 試行3(列 876150982ad54c5395c299ac94fde264、2026-10-13)の recall 段は 5 時間枠を 21% 使って 27 / 190 問を発行したところで枠切れになった。段単位のキャッシュでは止まった段は何も残さず、190 問には枠の約 150% が要るので、何度再開しても完走しない。上限を再開ごとに数え直すと、上限超過や不合格の後に枠切れが来た実行で上限が実質的に増え、判定器への聞き直しで NFR-1 を回避できる(敵対的レビュー AR-14)。
+  requirement_ids:
+  - NFR-7
+  - NFR-1
+  - R-4
+- id: D-236
+  subject: メソッドごとのモデルの割り当て(ADR-015・ADR-019 の改訂)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: classify_clusters・summarize_cluster・describe_term は claude-opus-5-5、generate_recall は claude-haiku-4-5 のまま、check_entailment は claude-sonnet-5-5(ADR-027)。
+  rationale: 人の回答(2026-10-13)。要約などの本作業は Opus、含意判定は Sonnet でよい。recall の生成を Opus にすると recall の消費が約 1.8 倍になるので Haiku に残す。試行3の recall 区間では、推定コストの約3分の2が Opus の含意判定だった。判定器が変わるので cluster 段のキャッシュ鍵が動き、試行3の列は cluster から作り直す(試行は消費しない)。
+  requirement_ids:
+  - NFR-7
+  - NFR-1
+- id: D-237
+  subject: cluster 段を途中結果の対象にするか、収まらないときの扱い
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 対象にしない。作り直した cluster 段が枠切れで2回続けて止まったら、再開をやめて /revise に戻る。
+  rationale: 分類はデッキ全体の1回の処理で、途中で区切ると割当が再開の前後で食い違う。試行3では cluster 段が Opus の判定で1つの枠に収まった(5時間枠 0.01 → 0.79)。Sonnet の判定が要約の作り直しを増やせば消費は上がりうる。収まらない段を再開し続けると枠を使い切って前に進まないので、打ち切りの条件を決めた(人の判断。敵対的レビュー AR-15 で reach を local から mandate に改めた)。
+  requirement_ids:
+  - NFR-7
+- id: D-238
+  subject: タスクの順序と、固定オーバーヘッドの較正の置き方
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: T-074 → T-080 → T-075 → T-076 の直列にする(どれも cli.py か tests/test_cli.py を触る)。T-078 は他と重ならないので辺を持たない。Sonnet 5.5 の較正は T-079 に分け、T-071 を待たせない。較正の道具は製品の全モデルを測るので、Opus と Haiku の表と定数も取り直す。
+  rationale: 並列にすると同じファイルの衝突でタスクが止まる。T-071 の判定は overhead の状態を読まないので、較正が線形性の判定に落ちても(Sonnet 5.5 で既知長の単位が1トークンでない場合。AR-19)最後の試行を止めない。較正の道具にモデルを選ぶ引数を足すのは要求にない一般化になる。
+  requirement_ids:
+  - NFR-7
+- id: D-239
+  subject: glossary をフル処理から外す方法
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: audio 段からグロッサリの音声を外し、新しい段 glossary-audio に分ける(T-080)。audio 段がグロッサリを作るかどうかを選ぶフラグは足さない。
+  rationale: audio 段がグロッサリの成果物を前提にしている(cli.Pipeline.audio が self.glossary() を呼ぶ)ので、外すにはその依存を切る必要がある。フラグにすると同じ段に2つの振る舞いが残る。段に分ければ、R-5 の「グロッサリの音声は想起素材の音声とは別ファイル」も段の単位で保たれる。覆すなら T-080 だけを作り直す。
+  requirement_ids:
+  - NFR-7
+  - R-5
+
 lenses:
 - id: L-REQ-AMBIGUITY
   stage: requirements
