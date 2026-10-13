@@ -345,3 +345,33 @@ def test_regeneration_cap_holds_across_resumes(deck: Deck, clusters: tuple[Clust
     assert second.recalled.count("q01") == 1
     assert writer.result is not None
     assert dict((q.local_id, n) for q, n in writer.result.report.regenerations)["q01"] == 1
+
+
+def test_resumed_pass_cannot_share_a_key_with_a_question_filled_in_before_it(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """前方の問題の呼び出しが失敗し、後方の問題だけが通過して戻される経路でも、成果物に重複キーは入らない。
+
+    戻した通過の問題は重複の検査を受け直さない。それで足りるのは、別クラスタの2問が同じ組のキーを持つと、
+    全 term が両方の問題文にあって互いの他クラスタに出現するので、どちらも `generic` で落ちるからである。
+    この前提が崩れたら、このテストが赤になる。
+    """
+    caplog.set_level(logging.INFO, logger="quiz_sift.recall.generate")
+    progress, out = _progress(tmp_path), tmp_path / "recall.tsv"
+    shared = RecallKey(("S3",))  # q01(c001)と q04(c002)の両方の問題文にある。
+    drafts = {**GOOD, "q01": replace(GOOD["q01"], key=shared)}
+    sequences: dict[str, tuple[RecallDraft, ...]] = {"q04": (replace(GOOD["q04"], key=shared), GOOD["q04"])}
+
+    # 1回目: q01 の呼び出しが失敗する(枠切れではないので残りは回る)。q04 は q01 が無いまま検査される。
+    first = StubLlm(drafts, sequences=sequences, failing=frozenset({"q01"}))
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), progress=progress)
+    (regenerated,) = [r.getMessage() for r in caplog.records if "を作り直す" in r.getMessage()]
+    assert "q04" in regenerated and "generic" in regenerated
+    assert first.recalled == ["q01", "q02", "q03", "q04", "q04", "q05"]
+
+    # 再開: q01 を q04 と同じ組のキーで埋めようとしても、q01 自身が generic で落ちて成果物は書かれない。
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(StubLlm(drafts), deck, clusters, Writer(out), progress=progress)
+    assert [(e.question_id.local_id, e.failures) for e in exc.value.exhausted] == [("q01", ("generic",))]
+    assert not out.exists()
