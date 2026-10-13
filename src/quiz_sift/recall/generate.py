@@ -266,17 +266,16 @@ def _log_rates(result: RecallReport) -> None:
     )
 
 
-def _restore(
-    progress: ItemProgress | None, order: Sequence[tuple[ClusterId, QuestionId]]
-) -> dict[int, _Generated | _Pending]:
-    """途中結果を読み、通し番号(`order` の位置)ごとの状態にする。件数だけをログに出す(NFR-2)。"""
+def _restore(progress: ItemProgress | None, clusters: Sequence[Cluster]) -> dict[int, _Generated | _Pending]:
+    """途中結果を読み、通し番号(クラスタ順の問題の位置)ごとの状態にする。件数だけをログに出す(NFR-2)。"""
     if progress is None:
         return {}
+    order = [qid for c in clusters for qid in c.question_ids]
     raw = progress.load()
     unknown = sorted(set(raw) - set(range(len(order))))
     if unknown:
         raise ValueError(f"途中結果に問題の無い通し番号がある: {unknown}")
-    restored = {index: _state_from(data, order[index][1]) for index, data in raw.items()}
+    restored = {index: _state_from(data, order[index]) for index, data in raw.items()}
     reused = sum(isinstance(state, _Generated) for state in restored.values())
     if restored:
         logger.info("recall resume: reused=%d remaining=%d", reused, len(order) - reused)
@@ -306,7 +305,7 @@ def generate_recall_set[T](
     questions = {q.question_id: q for q in deck.questions}
     texts = cluster_texts({c.cluster_id: c.question_ids for c in clusters}, questions)
     order = [(c.cluster_id, qid) for c in clusters for qid in c.question_ids]
-    restored = _restore(progress, order)
+    restored = _restore(progress, clusters)
     done: list[_Generated] = []
     exhausted: list[Exhausted] = []
     failures = 0
