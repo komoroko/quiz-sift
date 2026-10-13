@@ -26,6 +26,7 @@ from support.cli_harness import DRAFTS as DECK_DRAFTS
 from support.cli_harness import ROWS as DECK_ROWS
 
 from quiz_sift import cli
+from quiz_sift.adapters import llm_prompts
 from quiz_sift.cluster.metrics import ClusterMetrics, degeneracy_violations
 from quiz_sift.cluster.run import ClassificationFailed
 from quiz_sift.cluster.summary import UngroundedSummary
@@ -728,6 +729,71 @@ def test_recall_resume_logs_counts_only(
     resumes = [m for m in messages if m.startswith("recall resume:")]
     assert resumes == [f"recall resume: reused=1 remaining={len(DECK_ROWS) - 1}"]
     # 想起素材と教材の本文は、再開の実行のどのログにも出ない。
+    texts = [text for _, stem, options, _, explanation in DECK_ROWS for text in (stem, *options, explanation)]
+    for draft in DECK_DRAFTS.values():
+        texts += [*draft.key.terms, *(e.text for e in draft.answers), draft.discrimination.text]
+    assert not [text for text in texts for message in messages if text in message]
+
+
+def test_script_resume_logs_counts_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """C-028 A-3: script 段の再開のログは、途中結果から使ったトラックの件数と残りの件数だけを含む(NFR-2)。"""
+    caplog.set_level(logging.INFO)
+    stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", stderr)
+
+    def is_entailment(spec: CommandSpec) -> bool:
+        return flag(spec.argv, "--system-prompt") == llm_prompts.ENTAILMENT_SYSTEM
+
+    # 前段(cluster・recall)の含意判定の回数を、別の作業ルートで数える。
+    counting = tmp_path / "counting"
+    counting.mkdir()
+    write_root(counting)
+    before_script: list[CommandSpec] = []
+
+    def count(spec: CommandSpec) -> CommandResult:
+        if is_entailment(spec):
+            before_script.append(spec)
+        return respond(spec)
+
+    llms = CliLlms(counting, FakeRunner(count))
+    assert cli.main(["--root", str(counting), "recall", DECK], llm_factory=llms, preflight=no_preflight) == 0
+
+    # script 段の3回目の判定(2本目のトラックの最初の主張)を枠切れにする。
+    root = tmp_path / "root"
+    root.mkdir()
+    write_root(root)
+    entailments: list[CommandSpec] = []
+
+    def stop_at_the_third_script_check(spec: CommandSpec) -> CommandResult:
+        if not is_entailment(spec):
+            return respond(spec)
+        entailments.append(spec)
+        if len(entailments) == len(before_script) + 3:
+            stdout = fake_stdout(
+                subtype="error_during_execution", is_error=True, structured_output=None, rate_limit_status="rejected"
+            )
+            return exited(stdout, 1)
+        return respond(spec)
+
+    llms = CliLlms(root, FakeRunner(stop_at_the_third_script_check))
+
+    def main(*argv: str) -> int:
+        return cli.main(["--root", str(root), "script", DECK, *argv], llm_factory=llms, preflight=no_preflight)
+
+    counted = len(stderr.getvalue())
+    with pytest.raises(LlmCallError):
+        main("--fresh-run")
+    lines = stderr.getvalue()[counted:].splitlines()
+    (run_id,) = {line.split("run_id: ")[1] for line in lines if "run_id: " in line}
+    caplog.clear()
+    assert main("--resume", run_id) == 0
+
+    messages = [r.getMessage() for r in caplog.records]
+    resumes = [m for m in messages if m.startswith("script resume:")]
+    assert resumes == [f"script resume: reused=1 remaining={len(DECK_ROWS) - 1}"]
+    # 台本の本文(想起素材)と教材の本文は、再開の実行のどのログにも出ない。
     texts = [text for _, stem, options, _, explanation in DECK_ROWS for text in (stem, *options, explanation)]
     for draft in DECK_DRAFTS.values():
         texts += [*draft.key.terms, *(e.text for e in draft.answers), draft.discrimination.text]

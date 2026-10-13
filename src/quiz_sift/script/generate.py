@@ -10,11 +10,16 @@
    問題の選択肢数の最小値(D-211)。
 3. **含意判定**(NFR-1 / D-042): 各問の答えと識別ポイントが、その問題の正解・公式解説と矛盾しないこと。
    識別ポイントの reference には、参照する誤答の本文を「正しくない記述」の節として入れる(D-192)。
-   `safety.entailment.emit_if_consistent` 越しに書き出すので、`consistent` 以外で成果物は書かれない。
+   集約は `safety.entailment.judge` と同じで、`contradicted` が出た時点で残りを問い合わせずに止め、
+   `uncertain` は残りを判定したうえで止める。`consistent` 以外で成果物は書かれない。
+4. **途中結果からの再開**(ADR-028): 実行の列では、判定値が返った主張ごとに、トラックの通し番号の途中結果へ
+   そのトラックの判定値を書く。再開では判定値のある主張を判定し直さず、残りの主張だけを判定する。
+   `contradicted` か `uncertain` の判定値が戻れば、1回で走った場合と同じく止まる。
 
 安い検査から順に行い、LLM の含意判定は機械検査をすべて通った台本にだけかける。
 """
 
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -25,9 +30,10 @@ from quiz_sift.domain.ids import ClusterId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
-from quiz_sift.recall.generate import RecallSet
+from quiz_sift.ports.llm import Entailment
+from quiz_sift.recall.generate import ItemProgress, RecallSet
 from quiz_sift.recall.verify import RecallMaterial
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, emit_if_consistent, reference_for
+from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, reference_for
 from quiz_sift.script.label_guard import find_enumerations
 from quiz_sift.script.segments import QuestionScript, Track
 from quiz_sift.script.split import TRACK_LIMIT_SECONDS, plan_tracks
@@ -123,17 +129,78 @@ def _option_count(track: Track, questions: Mapping[QuestionId, Question]) -> int
     return min(len(questions[q.question_id].options) for q in track.questions)
 
 
+def _verdicts_json(track: Track, verdicts: Sequence[Entailment]) -> bytes:
+    data = {"cluster": track.cluster_id.local_id, "part": track.part, "verdicts": [v.value for v in verdicts]}
+    return json.dumps(data, sort_keys=True).encode("utf-8")
+
+
+def _restore(
+    progress: ItemProgress | None, tracks: Sequence[Track], claims: Sequence[int]
+) -> dict[int, list[Entailment]]:
+    """途中結果を読み、トラックの通し番号ごとの判定値にする。件数だけをログに出す(NFR-2)。
+
+    `claims` はトラックごとの主張の数。全主張の判定値が揃ったトラックを「使った」と数える。
+    """
+    if progress is None:
+        return {}
+    restored: dict[int, list[Entailment]] = {}
+    for index, raw in progress.load().items():
+        if index >= len(tracks):
+            raise ValueError(f"途中結果にトラックの無い通し番号がある: {index}")
+        data = json.loads(raw)
+        track = tracks[index]
+        if (data["cluster"], data["part"]) != (track.cluster_id.local_id, track.part):
+            raise ValueError(f"途中結果のトラックが通し番号と合わない: {index}")
+        restored[index] = [Entailment(v) for v in data["verdicts"]]
+    if restored:
+        reused = sum(len(verdicts) >= claims[index] for index, verdicts in restored.items())
+        logger.info("script resume: reused=%d remaining=%d", reused, len(tracks) - reused)
+    return restored
+
+
+def _judge_tracks(
+    checker: EntailmentChecker,
+    tracks: Sequence[Track],
+    questions: Mapping[QuestionId, Question],
+    progress: ItemProgress | None,
+) -> Entailment:
+    """全トラックの主張を `safety.entailment.judge` と同じ規則で集約する。判定値はトラックごとに途中結果へ書く。"""
+    per_track = [_claims(track, questions) for track in tracks]
+    if not any(per_track):
+        return Entailment.UNCERTAIN
+    restored = _restore(progress, tracks, [len(claims) for claims in per_track])
+    result = Entailment.CONSISTENT
+    for index, (track, claims) in enumerate(zip(tracks, per_track, strict=True)):
+        verdicts = restored.get(index, [])
+        for position, claim in enumerate(claims):
+            if position < len(verdicts):
+                verdict = verdicts[position]
+            else:
+                verdict = checker.check_entailment(claim.reference, claim.statement)
+                verdicts.append(verdict)
+                if progress is not None:
+                    progress.save(index, _verdicts_json(track, verdicts))
+            if verdict is Entailment.CONTRADICTED:
+                return verdict
+            if verdict is Entailment.UNCERTAIN:
+                result = verdict
+    return result
+
+
 def generate_scripts[T](
     checker: EntailmentChecker,
     deck: Deck,
     clusters: Sequence[Cluster],
     recall: RecallSet,
     emit: Callable[[ScriptSet], T],
+    *,
+    progress: ItemProgress | None,
 ) -> T:
     """`clusters` の全クラスタの台本を作り、すべての検査を通ったときだけ `emit` に成果物を書かせる。
 
     割れないクラスタがあれば `ScriptTooLong`、ラベル列挙があれば `LabelEnumerationFound`、
     含意判定が `consistent` でなければ `EntailmentRejected`。どれも `emit` を呼ぶ前に上がる。
+    `progress` はトラックごとの判定値の途中結果(通し番号はトラックの位置)。`None` なら読みも書きもしない。
     """
     foreign = [c.cluster_id for c in clusters if c.cluster_id.deck_id != deck.deck_id]
     if foreign:
@@ -158,6 +225,7 @@ def generate_scripts[T](
     enumerating = [t for t in plan.tracks if find_enumerations(t.segments, deck.language, _option_count(t, questions))]
     if enumerating:
         raise LabelEnumerationFound(enumerating)
-    claims = [claim for track in plan.tracks for claim in _claims(track, questions)]
-    result = ScriptSet(plan.tracks, plan.split)
-    return emit_if_consistent(checker, claims, lambda: emit(result))
+    verdict = _judge_tracks(checker, plan.tracks, questions, progress)
+    if verdict is not Entailment.CONSISTENT:
+        raise EntailmentRejected(verdict)
+    return emit(ScriptSet(plan.tracks, plan.split))

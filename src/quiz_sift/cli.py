@@ -441,11 +441,19 @@ class Pipeline:
         deck, clusters = self.deck(), self.clusters()
         recall_path = self.recall()
         recall = _recall_from(_load(recall_path), self.deck_id)
+        upstream = self._recall_upstream() + b"\0" + recall_path.read_bytes()
 
         def produce(out: BinaryIO) -> None:
-            generate_scripts(self.llm, deck, clusters, recall, lambda result: _dump(_script_json(result), out))
+            generate_scripts(
+                self.llm,
+                deck,
+                clusters,
+                recall,
+                lambda result: _dump(_script_json(result), out),
+                progress=self._cache.progress(SCRIPT, upstream),
+            )
 
-        return self._cache.run(SCRIPT, self._recall_upstream() + b"\0" + recall_path.read_bytes(), produce)
+        return self._cache.run(SCRIPT, upstream, produce)
 
     def audio(self, tts: Callable[[], Tts], tts_model: str, voice_id: str | None) -> Path:
         """台本を音声にし、`out/<deck>/audio/` を作り直す。グロッサリは作らず読まない(D-234)。
