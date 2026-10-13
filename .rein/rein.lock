@@ -2,12 +2,12 @@
 # Records the document format, the tool version/source, and a hash per installed file so
 # upgrades never overwrite local edits. Do not edit by hand.
 format: rein-grounded-v12
-tool_version: 0.14.0
+tool_version: 0.14.1
 source: git+https://github.com/komoroko/loose-rein-kit@v0.10.0
 prompts:
-  version: 0.14.0
+  version: 0.14.1
   files:
-    AGENTS.rein.md: sha256:cc8701bd28d8deb789d1085c7abac1f8d4e9bef8023d49075bf192ee6a5e7a4e
+    AGENTS.rein.md: sha256:fe5e99c042f2dc7e46608587b0830938859b76f8a28c0cf6979da774e85e1d6f
     prompts/agents/adversarial-reviewer.md: sha256:ce74b38d44df0dd709608c4769cb2ba5b2b1237eb72a2dd77d9863325b5a568a
     prompts/agents/architect.md: sha256:2f5d25fbbb939eab00a26db15241c1418283f7c627fb3c639ede199f4a4bdf8f
     prompts/agents/implementer.md: sha256:310bc58074601ba7a855cf93242e1da395926479b5a274ff0fc5a818a2cd58ef
@@ -23,7 +23,7 @@ prompts:
     prompts/rules/gate-workflow.md: sha256:37e8048a4d2ae31bbf3f13a5030558756e27ef5cad602d54d84cc3bb58d533a0
 integrations:
   claude:
-    version: 0.14.0
+    version: 0.14.1
     installed_at: '2026-09-25'
     files:
       .claude/agents/adversarial-reviewer.md: sha256:a4fd4c68f39502bad42327168e79fbb43402d7ddff17788237ffb0d32eab4d8f
@@ -48,4 +48,4 @@ seeded:
   .rein/review.yaml: sha256:e909db2b8d15c4638043d1202cf2e02a536b1b2964e13b95f1b52e537432456d
   .rein/config.yaml: sha256:e238a24168e6c5d170523684c0936e464ca484cf16962c8f27da44b0489d118d
 created_at: '2026-09-25'
-updated_at: '2026-10-11'
+updated_at: '2026-10-13'
