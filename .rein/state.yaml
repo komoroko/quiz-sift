@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-13T20:54:35+09:00'
+updated_at: '2026-10-13T21:06:31+09:00'
 gates:
   mandate:
     status: approved
@@ -1387,49 +1387,59 @@ tasks:
       tree: sha256:1df1b8035c39179697867bb136d4fa690d1efcb8cc2151806f8d84811e7cb248
       updated_at: '2026-10-13T19:16:28+09:00'
   T-076:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 2
+    completed_commit: 54797432d64956913665bf6dc08b190a11433ce2
     handoff:
-      report:
-        outcome: implemented
-        summary: '指摘どおり、src から呼び出し元が無くなった safety.entailment.emit_if_consistent を削除し、モジュール docstring の書き出しの説明を直した。テストは
-          judge の検査に直した: tests/safety/test_entailment.py(判定不能時は EntailmentRejected が判定値だけを持つ、LlmCallError
-          は判定値を返さずに上がる、捕まえずに上がった EntailmentRejected で非0終了し成果物が無い、言い換えは consistent・仕込んだ矛盾は contradicted)、tests/adapters/test_llm_claude_cli.py(check_entailment
-          の各失敗形で judge が LlmCallError を上げ consistent を返さない)。削除の回帰テストとして test_no_stage_independent_emit_path
-          を追加。scope 外への書き込み: src/quiz_sift/safety/entailment.py、tests/safety/test_entailment.py、tests/adapters/test_llm_claude_cli.py(指摘の対象)。残る言及は記録類で直していない:
-          docs/20-design.md:86 の再利用資産の一覧、docs/test/measurements/recall-rehearsal.md と、それを生成する tests/measurements/test_recall_rehearsal_logs.py:345
-          の本文(過去の計測時点の説明)。'
-        at: '2026-10-13T19:36:04+09:00'
-        touched:
-        - src/quiz_sift/safety/entailment.py
-        - tests/safety/test_entailment.py
-        - tests/adapters/test_llm_claude_cli.py
-      updated_at: '2026-10-13T19:36:19+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 18e1badc-471d-4bec-899e-28ac8d8d2113
-        output_tail: "指摘どおり、呼び出し元がなくなった `emit_if_consistent` を削除し、コミット `44c86de` を作成して `rein report --outcome\
-          \ implemented` で報告しました。全件テストは 540 件成功、3 件スキップです。最後に `tests/adapters/test_llm_claude_cli.py`\
-          \ のループの書き方を直した後は、lint・format・types と、変更した2つのテストファイルだけを再実行して green を確認しました。docs と smoke は全件テストの時点で\
-          \ green です。\n\n**直したテスト:** 削除した関数を使っていた2ファイルを、集約関数 `judge` を確かめる形にしました。\n- `tests/safety/test_entailment.py`:\n\
-          \  - 判定が通らないときの停止(`EntailmentRejected`)が判定値だけを持ち、本文を載せないこと。\n  - 判定の呼び出しが失敗したら `consistent`\
-          \ に倒れず、そのまま例外が上がること。\n  - 停止を捕まえずに上げるとプロセスが非0で終わり、成果物が残らないこと。\n  - 言い換えは `consistent`、仕込んだ矛盾は\
-          \ `contradicted` と判定されること。\n- `tests/adapters/test_llm_claude_cli.py`: 判定の呼び出しがどの失敗の形でも、`judge`\
-          \ が `consistent` を返さずに `LlmCallError` を上げること。\n\n削除が後で元に戻されたら気づけるよう、関数がないことを確かめる `test_no_stage_independent_emit_path`\
-          \ も足しました。\n\n**担当範囲外に書いたファイル:** 指摘の対象である `src/quiz_sift/safety/entailment.py`、`tests/safety/test_entailment.py`、`tests/adapters/test_llm_claude_cli.py`\
-          \ の3つです。\n\n**手を付けていない言及:** 次の3か所は記録類なので直していません。\n- `docs/20-design.md:86` の再利用資産の一覧\n- `docs/test/measurements/recall-rehearsal.md`\
-          \ の本文\n- その本文を生成する `tests/measurements/test_recall_rehearsal_logs.py:345`(過去の計測時点の説明)"
-        at: '2026-10-13T19:36:13+09:00'
       review:
-        findings:
-        - severity: must_fix
-          statement: この変更で script/generate.py が emit_if_consistent を使わなくなり、src 内の呼び出し元が0件になった(base では
-            script/generate.py:163 が唯一の呼び出し元。cluster/summary・glossary/verify・recall/generate は judge を直接呼ぶ)。残る利用は
-            tests/adapters/test_llm_claude_cli.py:579 だけで、本番に無い経路を検査している。デッドコードとして emit_if_consistent
-            を削除し、そのテストは judge か実際の段の経路で LlmCallError 時に成果物を書かないことを確かめる形に直す。
-          anchor: src/quiz_sift/safety/entailment.py:100
+        findings: []
+      updated_at: '2026-10-13T21:06:31+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: e8dd6157031fb09e59b8f467a8d5d5b156e93e5f
+        step: test
+      tree: sha256:ffa7069c69e3af1a79fea49f1a5ca92ceb60b9375648de6677e6d31b3d1bcce4
+      updated_at: '2026-10-13T21:06:31+09:00'
 dependency_audit:
   ran_at: '2026-10-13T11:16:27+00:00'
   commit: e752c8db61991f6a3ce0f3addb4740082fd30619
