@@ -733,9 +733,10 @@ def test_c005_glossary_reports_no_reference_and_separate_series(
     assert error.verdict is Entailment.CONTRADICTED
     assert _artifacts(workspace, contradicting, "glossary-terms") == []
 
-    # 音声: グロッサリは想起素材とは別のディレクトリ・別の再生リストに出る。
+    # 音声: グロッサリは想起素材とは別の段(glossary-audio)・別のディレクトリ・別の再生リストに出る(D-234)。
     audio_dir = Path(run("audio", deck_id))
-    glossary_dir = workspace / "out" / deck_id / "glossary"
+    glossary_dir = Path(run("glossary-audio", deck_id, "--tts-model", run.tts_model))
+    assert glossary_dir == workspace / "out" / deck_id / "glossary"
     assert audio_dir == workspace / "out" / deck_id / "audio"
     recall_tracks = sorted(p.name for p in audio_dir.glob("*.mp3"))
     glossary_tracks = sorted(p.name for p in glossary_dir.glob("*.mp3"))

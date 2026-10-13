@@ -345,9 +345,12 @@ def test_c016_rerun_from_a_middle_stage_calls_nothing_upstream(
 
     run("audio", deck_id)
     assert {"classify", "summarize", "recall"} <= set(llm.calls)
+    assert "describe" not in llm.calls, "audio 段はグロッサリを作らない(D-234)"
     assert tts.inputs
+    run("glossary-audio", deck_id, "--tts-model", run.tts_model)
+    assert "describe" in llm.calls
     # 中間成果物は段ごとに1つずつ、digest 名で永続化されている。
-    for stage in ("ingest", "cluster", "recall", "glossary-terms", "script", "tracks"):
+    for stage in ("ingest", "cluster", "recall", "glossary-terms", "script", "tracks", "glossary-audio"):
         assert len(_stage_files(out_dir, stage)) == 1, stage
 
     # 途中の段(想起素材)の成果物を消して台本から起動する: 前段(取り込み・クラスタリング)の呼び出しは 0。

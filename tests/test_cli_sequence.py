@@ -97,7 +97,7 @@ class Harness:
 
     def main(self, *argv: str, preflight: Callable[[], None] = no_preflight) -> int:
         """`cli.main` を呼び、終了コードを返す。`SystemExit` で抜けたらその例外をそのまま上げる。"""
-        extra = ["--tts-model", "model-dir"] if argv[0] == "audio" else []
+        extra = ["--tts-model", "model-dir"] if argv[0] in ("audio", "glossary-audio") else []
         self.capsys.readouterr()
         try:
             return cli.main(
@@ -222,7 +222,7 @@ def test_resume_is_allowed_only_for_a_resumable_sequence(
     assert llm_prompts.SUMMARIZE_SYSTEM not in systems
 
 
-LLM_STAGES = ("cluster", "recall", "glossary", "script", "audio")
+LLM_STAGES = ("cluster", "recall", "glossary", "script", "audio", "glossary-audio")
 
 
 def test_preflight_runs_before_registration_on_llm_stages_only(
