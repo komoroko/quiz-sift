@@ -69,7 +69,7 @@ VALUED_FLAGS = {
     "--permission-mode",
 }
 BARE_FLAGS = {"-p", "--verbose", "--exclude-dynamic-system-prompt-sections", "--strict-mcp-config", "--safe-mode"}
-MODELS = {"claude-opus-5-5", "claude-haiku-4-5"}
+MODELS = {"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"}
 
 
 def meta(name: str) -> dict[str, Any]:

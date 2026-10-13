@@ -14,15 +14,16 @@ from quiz_sift.grounding.targets import RECALL_KEY_FIELDS, QuestionField
 from quiz_sift.ports.llm import Entailment
 
 _OPUS = "claude-opus-5-5"
+_SONNET = "claude-sonnet-5-5"
 _HAIKU = "claude-haiku-4-5"
 MODELS: Final = {
     "classify_clusters": _OPUS,
     "summarize_cluster": _OPUS,
     "generate_recall": _HAIKU,
-    "describe_term": _HAIKU,
-    "check_entailment": _OPUS,
+    "describe_term": _OPUS,
+    "check_entailment": _SONNET,
 }
-"""`ports.llm.Llm` のメソッドごとのモデル ID(ADR-015)。"""
+"""`ports.llm.Llm` のメソッドごとのモデル ID(ADR-027)。"""
 
 CLASSIFY_BATCH_SIZE: Final = 25
 """分類の分割呼び出し1回あたりの問題数。`unassigned` の分だけ応答が増えるので 50 から下げた(AR-62)。"""
