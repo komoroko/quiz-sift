@@ -78,7 +78,7 @@ def test_cross_segment_enumeration_goes_red(deck: Deck, clusters: tuple[Cluster,
     checker = StubChecker()
     out = tmp_path / "script.tsv"
     with pytest.raises(LabelEnumerationFound) as exc:
-        generate_scripts(checker, deck, clusters, recall_set(enumerating), Writer(out))
+        generate_scripts(checker, deck, clusters, recall_set(enumerating), Writer(out), progress=None)
     assert exc.value.code
     assert [(t.cluster_id.local_id, t.part) for t in exc.value.tracks] == [("c002", 0)]
     assert checker.checked == []
