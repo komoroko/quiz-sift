@@ -267,14 +267,26 @@ def test_notional_cost_computed_declared_and_unavailable(tmp_path: Path) -> None
     }}  # fmt: skip
 
 
-def test_price_table_has_two_models_with_sources() -> None:
-    assert set(PRICES) == {"claude-opus-5-5", "claude-haiku-4-5"}
+def test_price_table_has_three_models_with_sources(tmp_path: Path) -> None:
+    assert set(PRICES) == {"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"}
     for price in PRICES.values():
         assert (
             min(price.input_per_mtok, price.cache_write_per_mtok, price.cache_read_per_mtok, price.output_per_mtok) > 0
         )
         assert isinstance(price.priced_at, date)
-        assert price.source.startswith("https://")
+        assert price.source == meter_module.PRICING_SOURCE
+    assert PRICES["claude-sonnet-5-5"] == ModelPrice(
+        2.00, 2.50, 0.10, 10.00, priced_at=date(2026, 10, 13), source=meter_module.PRICING_SOURCE
+    )
+
+    # Sonnet 5.5 のトークンだけを持つ実行の推定コストは unknown_model でなく recorded になる(T-071 が読む値)。
+    meter = make_meter(tmp_path / "meter.jsonl")
+    meter.begin_invocation("a")
+    meter.end_invocation("claude-sonnet-5-5", 1, TokenUsage(1_000_000, 0, 0, 1_000_000), None, False, None)
+    cost = finish(meter)["estimated_cost"]
+    assert isinstance(cost, dict)
+    assert cost["status"] == "recorded"
+    assert cost["computed"] == pytest.approx(12.00)
 
 
 def test_price_table_carries_its_date() -> None:

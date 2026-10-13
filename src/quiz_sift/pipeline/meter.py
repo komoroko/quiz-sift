@@ -87,13 +87,21 @@ class ModelPrice:
 
 PRICES: Mapping[str, ModelPrice] = MappingProxyType(
     {
-        # 書き込みは入力の 1.25 倍。読み出しは Opus 5.5 だけ 0.05 倍、他は 0.1 倍(料金ページの脚注)。
+        # 書き込みは入力の 1.25 倍。読み出しは Opus 5.5 と Sonnet 5.5 は 0.05 倍、他は 0.1 倍(料金ページの脚注)。
         "claude-opus-5-5": ModelPrice(
             input_per_mtok=4.00,
             cache_write_per_mtok=5.00,
             cache_read_per_mtok=0.20,
             output_per_mtok=20.00,
             priced_at=date(2026, 9, 25),
+            source=PRICING_SOURCE,
+        ),
+        "claude-sonnet-5-5": ModelPrice(
+            input_per_mtok=2.00,
+            cache_write_per_mtok=2.50,
+            cache_read_per_mtok=0.10,
+            output_per_mtok=10.00,
+            priced_at=date(2026, 10, 13),
             source=PRICING_SOURCE,
         ),
         "claude-haiku-4-5": ModelPrice(

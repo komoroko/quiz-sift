@@ -1,4 +1,4 @@
-"""共有のプロンプト・スキーマと応答パーサ(R-3 の ID 完全性、ADR-015、AR-67、T-040)。
+"""共有のプロンプト・スキーマと応答パーサ(R-3 の ID 完全性、ADR-027、AR-67、T-040)。
 
 期待値は要件と設計からリテラルで書き写し、製品の定数を読まない(AR-30)。
 """
@@ -89,13 +89,13 @@ def test_schema_requires_unassigned_and_batch_is_25() -> None:
     assert llm_prompts.CLASSIFY_BATCH_SIZE == 25
 
 
-def test_model_per_method_follows_adr_015() -> None:
+def test_model_per_method_follows_adr_027() -> None:
     assert llm_prompts.MODELS == {
         "classify_clusters": "claude-opus-5-5",
         "summarize_cluster": "claude-opus-5-5",
         "generate_recall": "claude-haiku-4-5",
-        "describe_term": "claude-haiku-4-5",
-        "check_entailment": "claude-opus-5-5",
+        "describe_term": "claude-opus-5-5",
+        "check_entailment": "claude-sonnet-5-5",
     }
 
 
