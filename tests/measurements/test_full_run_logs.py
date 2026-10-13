@@ -27,7 +27,8 @@
   `sequence.estimated_cost.status` が `recorded`、`relative_diff` が数値。問題数が 100〜200。
 - A-2: 再現性の列がちょうど2本で、どちらも `cluster --fresh-run` の1実行だけで exit 0。各列で
   `classify_clusters` の `llm_calls` が 1、`provider_invocations` が ⌈N/25⌉ で、2本の和がその2倍。
-  メソッド別の内訳の和が終了行の値と一致する。割当一致率が、記録した2つの割当から計算し直した値と一致する。
+  メソッド別の内訳の和が終了行の値と一致し、他メソッドの `llm_calls` が子プロセス数から TRUNCATED の出し直しを
+  除いた数と一致する。割当一致率が、記録した2つの割当から計算し直した値と一致する。
 - A-3: 無音判定の結果が全クラスタについて真で、クラスタ一覧のどのクラスタにも判定したファイルがある。
 - A-4: full-run.md に M/N・最大クラスタ比率・「その他」比率が数値としてあり、記録した割当から計算し直した
   値と一致する。
@@ -270,17 +271,25 @@ def _method_of_prompt() -> dict[str, str]:
     }
 
 
-def invocations_by_method(stderr: str) -> dict[str, int]:
-    """標準エラーの `claude` 子プロセスの記録を、`--system-prompt` の値でメソッドに振り分けて数える。"""
+def invocations_by_method(stderr: str) -> tuple[dict[str, int], dict[str, int]]:
+    """標準エラーの `claude` 子プロセスの記録を、`--system-prompt` の値でメソッドに振り分けて数える。
+
+    返すのは (子プロセス数, そのうち TRUNCATED で終わり出し直された子の数)。exit 0 で終わった実行では、TRUNCATED の
+    子はすべて出し直されている(出し直しが尽きた呼び出しは段を止める。D-231)。
+    """
     methods = _method_of_prompt()
     counts: Counter[str] = Counter()
+    reissued: Counter[str] = Counter()
     for raw in _INVOCATION_LINE.findall(stderr):
-        argv = json.loads(raw)["argv"]
+        record = json.loads(raw)
+        argv = record["argv"]
         prompt = argv[argv.index("--system-prompt") + 1]
         if prompt not in methods:
             raise ValueError("既知のどのメソッドの system プロンプトでもない子プロセスの記録がある")
         counts[methods[prompt]] += 1
-    return dict(counts)
+        if record["failure_kind"] == "truncated":
+            reissued[methods[prompt]] += 1
+    return dict(counts), dict(reissued)
 
 
 def _parse_stderr(out_root: Path, deck: str, name: str) -> dict[str, Any]:
@@ -290,7 +299,8 @@ def _parse_stderr(out_root: Path, deck: str, name: str) -> dict[str, Any]:
     summary = summaries[-1] if summaries else None
     if summary is not None and not _SUMMARY_FIELDS.fullmatch(summary):
         raise ValueError("クラスタ段の実行サマリが数値の項目だけでない")
-    return {"invocations_by_method": invocations_by_method(err), "cluster_summary": summary}
+    counts, reissued = invocations_by_method(err)
+    return {"invocations_by_method": counts, "reissues_by_method": reissued, "cluster_summary": summary}
 
 
 def _meter_lines(out_root: Path, deck: str) -> list[tuple[str, dict[str, Any]]]:
@@ -519,19 +529,23 @@ def render_repro_log(
 ) -> str:
     parts = []
     for i, ((entry, start, end), clusters) in enumerate(sequences, start=1):
-        counts = entry["invocations_by_method"]
+        counts, reissued = entry["invocations_by_method"], entry["reissues_by_method"]
         end_line = json.loads(end)
-        others = sum(counts.get(method, 0) for method in CLUSTER_METHODS if method != "classify_clusters")
-        calls = {method: counts.get(method, 0) for method in CLUSTER_METHODS}
-        calls["classify_clusters"] = end_line["llm_calls"] - others
-        rows = "\n".join(f"| {method} | {calls[method]} | {counts.get(method, 0)} |" for method in CLUSTER_METHODS)
+        calls = {method: counts.get(method, 0) - reissued.get(method, 0) for method in CLUSTER_METHODS}
+        calls["classify_clusters"] = end_line["llm_calls"] - sum(
+            calls[method] for method in CLUSTER_METHODS if method != "classify_clusters"
+        )
+        rows = "\n".join(
+            f"| {method} | {calls[method]} | {counts.get(method, 0)} | {reissued.get(method, 0)} |"
+            for method in CLUSTER_METHODS
+        )
         parts.append(
             _execution_block(f"列 {i}", entry, start, end)
             + f"""
 メソッド別の内訳:
 
-| メソッド | llm_calls | provider_invocations |
-|---|---|---|
+| メソッド | llm_calls | provider_invocations | 出し直し |
+|---|---|---|---|
 {rows}
 
 割当:
@@ -550,9 +564,10 @@ R-3(C-025)の「キャッシュを迂回して再クラスタリングした2回
 
 開始行と終了行は `out/{deck}/meter.jsonl` の行を加工せずに写している。メソッド別の内訳は、標準エラーにある
 `claude` 子プロセス1本ずつの記録を `--system-prompt` の値でメソッドに振り分けて数えた(標準エラーそのものは
-写さない)。`summarize_cluster` と `check_entailment` は1回の呼び出しが子プロセス1本で再試行しない(D-101)ので
-`llm_calls` は子プロセス数と同じ。`classify_clusters` の `llm_calls` は終了行の `llm_calls` からその2つを引いた
-値である。
+写さない)。「出し直し」は、そのうち TRUNCATED で終わり同じ argv と stdin で出し直された子の数(D-231)。
+`summarize_cluster` と `check_entailment` は1回の呼び出しが子プロセス1本で、出し直しのほかは再試行しない(D-101)
+ので、`llm_calls` は子プロセス数から出し直しを除いた数。`classify_clusters` の `llm_calls` は終了行の
+`llm_calls` からその2つを引いた値である。
 
 ## 実行条件
 
@@ -633,7 +648,8 @@ def render_records(out_root: Path, deck: str) -> tuple[str, str, str]:
     full = [e for e in executions if e["kind"] == "full"]
     run_id = full[-1]["run_id"]
     full_paired = _paired([e for e in full if e["run_id"] == run_id], meter)
-    cluster_entry = next(e for e, _, _ in full_paired if _stage_of(e) == "cluster" and e["exit_code"] == 0)
+    # 下流が使ったのは最後に成功した cluster の割当(列の途中で cluster を作り直すことがある。AR-13)。
+    cluster_entry = [e for e, _, _ in full_paired if _stage_of(e) == "cluster" and e["exit_code"] == 0][-1]
     clusters = _clusters_of(cluster_entry["stdout"])
     since = min(datetime.fromisoformat(e["started_at"]) for e in journal if e["entry"] == "execution")
     attempts = attempts_of(meter, since, {e["run_id"] for e in executions if e["kind"] == "repro"})
@@ -811,15 +827,19 @@ def check_reproducibility(text: str) -> None:
         run_ids.add(start["run_id"])
         assignment = _assignment(body)
         n = compression_metrics(assignment)["N"]
-        rows = dict(
-            (m, (int(c), int(i))) for m, c, i in re.findall(r"^\| (\w+) \| (\d+) \| (\d+) \|$", body, re.MULTILINE)
-        )
+        rows = {
+            m: (int(c), int(i), int(r))
+            for m, c, i, r in re.findall(r"^\| (\w+) \| (\d+) \| (\d+) \| (\d+) \|$", body, re.MULTILINE)
+        }
         assert set(rows) == set(CLUSTER_METHODS), f"メソッド別の内訳が揃っていない: {sorted(rows)}"
-        assert sum(c for c, _ in rows.values()) == end["llm_calls"], "内訳の llm_calls の和が終了行と違う"
-        assert sum(i for _, i in rows.values()) == end["provider_invocations"], "内訳の子プロセス数の和が終了行と違う"
+        assert sum(c for c, _, _ in rows.values()) == end["llm_calls"], "内訳の llm_calls の和が終了行と違う"
+        assert sum(i for _, i, _ in rows.values()) == end["provider_invocations"], (
+            "内訳の子プロセス数の和が終了行と違う"
+        )
         for method in CLUSTER_METHODS[1:]:
-            assert rows[method][0] == rows[method][1], f"{method} の llm_calls が子プロセス数と違う"
-        calls, invocations = rows["classify_clusters"]
+            c, i, r = rows[method]
+            assert c == i - r, f"{method} の llm_calls が子プロセス数から出し直しを除いた数と違う"
+        calls, invocations, _ = rows["classify_clusters"]
         assert calls == 1, f"classify_clusters の llm_calls が 1 でない: {calls}"
         assert invocations == math.ceil(n / CLASSIFY_BATCH_SIZE), f"分類の子プロセス数が ⌈{n}/25⌉ でない: {invocations}"
         classify_calls += calls
@@ -940,15 +960,26 @@ class _SyntheticRoot:
         self.clock += timedelta(minutes=1)
         return self.clock.isoformat()
 
-    def _stderr(self, run_id: str, stage: str, clusters: Mapping[str, Sequence[str]] | None) -> str:
+    def _stderr(
+        self, run_id: str, stage: str, clusters: Mapping[str, Sequence[str]] | None, reissued: Sequence[str]
+    ) -> str:
         from quiz_sift.adapters import llm_prompts
 
         lines = [f"run_id: {run_id}", f"WARNING quiz_sift.cli: 応答 {_SENTINEL}"]
         if stage == "cluster" and clusters is not None:
-            prompts = [llm_prompts.CLASSIFY_SYSTEM] * math.ceil(_N / CLASSIFY_BATCH_SIZE)
-            prompts += [llm_prompts.SUMMARIZE_SYSTEM, llm_prompts.ENTAILMENT_SYSTEM] * len(clusters)
-            for prompt in prompts:
-                record = {"argv": ["claude", "-p", "--system-prompt", prompt], "stdin_sha256": "0" * 64}
+            system = {method: prompt for prompt, method in _method_of_prompt().items()}
+            children: list[tuple[str, str | None]] = [(llm_prompts.CLASSIFY_SYSTEM, None)] * math.ceil(
+                _N / CLASSIFY_BATCH_SIZE
+            )
+            # 出し直された子は TRUNCATED で終わり、同じ argv の子がその後に続く(D-231)。
+            children += [(system[method], "truncated") for method in reissued]
+            children += [(llm_prompts.SUMMARIZE_SYSTEM, None), (llm_prompts.ENTAILMENT_SYSTEM, None)] * len(clusters)
+            for prompt, failure_kind in children:
+                record = {
+                    "argv": ["claude", "-p", "--system-prompt", prompt],
+                    "failure_kind": failure_kind,
+                    "stdin_sha256": "0" * 64,
+                }
                 lines.append(
                     f"INFO quiz_sift.safety.invocation_log: claude invocation {json.dumps(record, ensure_ascii=False)}"
                 )
@@ -972,8 +1003,12 @@ class _SyntheticRoot:
         quota: bool = True,
         rate_limited: bool = False,
         events_missing: int = 0,
+        reissued: Sequence[str] = (),
     ) -> None:
-        """製品の CLI の1実行ぶんの journal の行と、meter.jsonl の開始行・終了行を書く。"""
+        """製品の CLI の1実行ぶんの journal の行と、meter.jsonl の開始行・終了行を書く。
+
+        `reissued` は cluster 段で TRUNCATED で終わり出し直された子のメソッド名(1つが子1本)。
+        """
         from quiz_sift.pipeline.run_sequence import aggregate
 
         self.number += 1
@@ -985,7 +1020,7 @@ class _SyntheticRoot:
             artifact.write_text(json.dumps({"clusters": rows}, ensure_ascii=False), encoding="utf-8")
             stdout = str(artifact)
         stderr = f"{self.number:03d}.stderr"
-        (self.dir / stderr).write_text(self._stderr(run_id, stage, clusters), encoding="utf-8")
+        (self.dir / stderr).write_text(self._stderr(run_id, stage, clusters, reissued), encoding="utf-8")
         cache = ["--fresh-run"] if fresh else ["--resume", run_id]
         argv = ["python", "-m", "quiz_sift.cli", "--root", str(self.root), stage, _DECK, *cache]
         entry = {
@@ -1002,7 +1037,11 @@ class _SyntheticRoot:
         _append_journal(self.root, _DECK, entry)
         start = self._start(run_id, stage, fresh=fresh)
         execution_id = start["execution_id"]
-        invocations = math.ceil(_N / CLASSIFY_BATCH_SIZE) + 2 * len(clusters) if stage == "cluster" and clusters else 3
+        invocations = (
+            math.ceil(_N / CLASSIFY_BATCH_SIZE) + len(reissued) + 2 * len(clusters)
+            if stage == "cluster" and clusters
+            else 3
+        )
         calls = 1 + 2 * len(clusters) if stage == "cluster" and clusters else 3
         window = {"status": "allowed", "utilization": 0.25, "resets_at": "2026-10-17T08:00:00+09:00"}
         end = {
@@ -1089,11 +1128,15 @@ def _synthetic_records(
     stopped: int = 0,
     unjournaled: int = 0,
     previous_cycle: int = 0,
+    recluster: Mapping[str, Sequence[str]] | None = None,
+    repro_reissued: Sequence[str] = (),
 ) -> tuple[str, str, str]:
     """合成の作業ルートを作って render する。
 
-    本列の前に、止まった --fresh-run の列を `earlier_attempts` 本置く。本列は cluster --fresh-run の後、週次枠で
-    止まった recall を `stopped` 回 --resume し、recall から audio までを --resume で通して completed にする。
+    本列の前に、止まった --fresh-run の列を `earlier_attempts` 本置く。本列は cluster --fresh-run の後、
+    `recluster` があればその割当で cluster を --resume で作り直し、週次枠で止まった recall を `stopped` 回 --resume
+    し、recall から audio までを --resume で通して completed にする。無音判定は下流が使った割当のクラスタに掛ける。
+    再現性の列の cluster 段では、`repro_reissued` のメソッドの子が TRUNCATED で出し直される。
     `previous_cycle` 本は journal の最初の実行より前の、`unjournaled` 本は journal の実行の間の、exec を通さない
     --fresh-run の開始行である。
     """
@@ -1105,16 +1148,18 @@ def _synthetic_records(
         synthetic.execute("full", "cluster", prior, fresh=True, exit_code=1)
         synthetic.execute("full", "cluster", prior, fresh=False, exit_code=1)
     for i, clusters in enumerate(_ASSIGNMENTS):
-        synthetic.execute("repro", "cluster", f"{'cd'[i]}" * 32, fresh=True, clusters=clusters)
+        synthetic.execute("repro", "cluster", f"{'cd'[i]}" * 32, fresh=True, clusters=clusters, reissued=repro_reissued)
     for i in range(unjournaled):
         synthetic.unjournaled_fresh_run(f"{i + 1:x}" * 31 + "f")
     main = "a" * 32
     synthetic.execute("full", "cluster", main, fresh=True, clusters=_ASSIGNMENTS[0], quota=False)
+    if recluster is not None:
+        synthetic.execute("full", "cluster", main, fresh=False, clusters=recluster)
     for _ in range(stopped):
         synthetic.execute("full", "recall", main, fresh=False, exit_code=75, rate_limited=True)
     for stage in ("recall", "glossary", "script", "audio"):
         synthetic.execute("full", stage, main, fresh=False, events_missing=events_missing)
-    synthetic.silence(sorted(_ASSIGNMENTS[0]))
+    synthetic.silence(sorted(_ASSIGNMENTS[0] if recluster is None else recluster))
     return render_records(root, _DECK)
 
 
@@ -1195,6 +1240,36 @@ def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
     check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=2, previous_cycle=3)[0])
     _red(check_attempt_budget, full.replace("| 1 | 5 |", "| 1 | 4 |"))
     _red(check_attempt_budget, full.replace(f"| `{'1' * 32}` | 1 |", f"| `{'1' * 32}` | 2 |"))
+
+
+def test_render_uses_the_last_successful_cluster(tmp_path: Path) -> None:
+    """T-078 A-1: cluster が2回成功した列では、2回目(M−1 クラスタ)の割当とサマリが記録に入り、1回目は入らない。"""
+    first = _ASSIGNMENTS[0]
+    second = {"c001": first["c001"], "c002": [*first["c002"], *first["c003"]], OTHER_CLUSTER: first[OTHER_CLUSTER]}
+    full, repro, silence = _synthetic_records(tmp_path, recluster=second)
+    _every_judge(full, repro, silence)
+    assert _assignment(_section(full, "クラスタの割当")) == second
+    assert f" m={len(second)} " in _section(full, "圧縮の指標")
+    assert set(_blocks(_section(silence, "クラスタ一覧"), "text")[0].split()) == set(second)
+    # 1回目の割当を使った記録は、無音判定したファイルの無いクラスタがあり赤になる。
+    stale = silence.replace("\n".join(sorted(second)), "\n".join(sorted(first)))
+    assert stale != silence
+    _red(check_audio_silence, stale)
+
+
+def test_repro_classify_calls_survive_reissues(tmp_path: Path) -> None:
+    """T-078 A-2: summarize_cluster・check_entailment の TRUNCATED の出し直しがあっても classify の llm_calls は 1。"""
+    _, repro, _ = _synthetic_records(tmp_path / "other", repro_reissued=("summarize_cluster", "check_entailment"))
+    check_reproducibility(repro)
+    for _, body in _sections(repro, "列 "):
+        assert "| classify_clusters | 1 | 4 | 0 |" in body
+        assert "| summarize_cluster | 4 | 5 | 1 |" in body
+        assert "| check_entailment | 4 | 5 | 1 |" in body
+    # 出し直しを数えない内訳は、他メソッドの比較で赤になる。
+    _red(check_reproducibility, repro.replace("| summarize_cluster | 4 | 5 | 1 |", "| summarize_cluster | 4 | 5 | 0 |"))
+    # classify の分割呼び出しで出し直しが起きた列は、子プロセス数が ⌈N/25⌉ でなく赤のまま(取り直す)。
+    _, classify, _ = _synthetic_records(tmp_path / "classify", repro_reissued=("classify_clusters",))
+    _red(check_reproducibility, classify)
 
 
 def test_render_output_holds_no_material_text(tmp_path: Path) -> None:
