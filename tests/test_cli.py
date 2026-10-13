@@ -22,6 +22,7 @@ from support.cli_harness import DECK, DRAFTS, CliLlms, StubTts, no_preflight, re
 
 from quiz_sift import cli
 from quiz_sift.adapters import llm_prompts
+from quiz_sift.audio.voices import VOICE_TABLE, Voice
 from quiz_sift.domain.attempt import AttemptRecord
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import OptionId, QuestionId, SessionId
@@ -32,7 +33,7 @@ from quiz_sift.pipeline.stage import Stage, inputs_digest
 from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft
 from quiz_sift.ports.metering import FailureKind, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.ports.tts import Tts
+from quiz_sift.ports.tts import PcmAudio, Tts
 from quiz_sift.store.deck_scope import DeckScopedStore
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -231,6 +232,17 @@ def test_audio_does_not_build_the_glossary(root: Path, capsys: pytest.CaptureFix
     assert not (out / "glossary-audio").exists()
 
 
+@dataclass
+class VoiceRecordingTts(StubTts):
+    """合成に渡されたボイスを記録する。"""
+
+    voices: list[str] = field(default_factory=list)
+
+    def synthesize(self, text: str, voice_id: str) -> PcmAudio:
+        self.voices.append(voice_id)
+        return super().synthesize(text, voice_id)
+
+
 def test_glossary_audio_stage_writes_the_glossary_series(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -259,6 +271,14 @@ def test_glossary_audio_stage_writes_the_glossary_series(
     run("glossary-audio", DECK)
     assert tts.calls > tts_calls
     assert len([p for p in (out / "glossary-audio").iterdir() if not p.name.startswith(".")]) == 2
+
+    # --voice は TTS に渡り、ボイスを変えるとキャッシュ鍵が変わって合成し直す(audio 段と同じ扱い)。
+    voiced = VoiceRecordingTts()
+    run.tts = voiced
+    monkeypatch.setitem(VOICE_TABLE, "合成ボイス", Voice(Language.JA))
+    run("glossary-audio", DECK, "--voice", "合成ボイス")
+    assert voiced.calls > 0 and set(voiced.voices) == {"合成ボイス"}
+    assert len([p for p in (out / "glossary-audio").iterdir() if not p.name.startswith(".")]) == 3
 
     # 用語が0件なら書かず、前回の配信ディレクトリも残さない。
     empty = tmp_path / "empty"

@@ -155,8 +155,8 @@ def test_c007_tracks_are_ordered_with_inner_silence(workspace: Path, capsys: pyt
     assert [p.name for p in tracks] == expected
     # ファイル名の昇順も m3u の順も、クラスタ順(台本の順)に一致する。
     assert _m3u_entries(audio_dir / "playlist.m3u") == expected
-    # 台本のトラックが先に読まれ、後ろにグロッサリ系列(選択肢の語も読む)が続く。
-    spoken_order = [text for text, _ in tts.inputs if text in set(ANSWERS.values())][:QUESTIONS]
+    # audio 段は台本のトラックだけを読む(グロッサリは glossary-audio 段。D-234)。
+    spoken_order = [text for text, _ in tts.inputs if text in set(ANSWERS.values())]
     assert spoken_order == [ANSWERS[q] for c in clusters for q in c["questions"]]
 
     # 各トラックに、先頭と末尾を除く位置の3秒以上の無音区間が機械判定で見つかる。
