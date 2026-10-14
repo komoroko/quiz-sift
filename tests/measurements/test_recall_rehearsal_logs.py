@@ -237,7 +237,10 @@ def _exec(out_root: Path, number: int, stage_args: Sequence[str]) -> dict[str, A
 
 
 def _rehearse(args: argparse.Namespace) -> int:
-    """空の作業ルートに合成デッキを写し、cluster を新しい列で、続けて recall を同じ列で走らせる。"""
+    """空の作業ルートに合成デッキを写し、cluster を新しい列で、続けて recall と script を同じ列で走らせる。
+
+    どの段も exit 0 なら、ミューテーションを1問1回のまとめた判定で実 CLI に聞く(`_mutate`)。
+    """
     out_root: Path = args.out_root.resolve()
     if out_root.exists() and any(out_root.iterdir()):
         raise SystemExit(f"作業ルートが空でない(使い捨ての作業ルートを渡す): {out_root}")
@@ -815,14 +818,32 @@ def test_record_with_a_nonzero_check_is_red() -> None:
     _broken(check_recall_passed, text, "検査 missing_options の件数が 0 でない")
 
 
-def test_record_with_a_failed_recall_is_red() -> None:
-    """表と終了行の両方を非0にして、整合の判定を越えて exit 0 の判定に届かせる。"""
+def _failed_stage(stage: str) -> None:
+    """`stage` の実行の節だけ、表と終了行の両方を非0にして、整合の判定を越えて exit 0 の判定に届かせる。"""
     text = _read()
-    heading, body = _sections(text, "実行 ")[-1]
+    heading, body = next(section for section in _sections(text, "実行 ") if f"({stage})" in section[0])
     failed = body.replace("| 終了コード | `0` |", "| 終了コード | `1` |").replace(
         '"stop": {"exit_code": 0,', '"stop": {"exit_code": 1,'
     )
     _broken(check_recall_passed, text.replace(body, failed, 1), f"{heading} が exit 0 で終わっていない")
+
+
+def test_record_with_a_failed_recall_is_red() -> None:
+    _failed_stage("recall")
+
+
+def test_record_with_a_failed_script_is_red() -> None:
+    _failed_stage("script")
+
+
+def test_record_taken_with_another_classify_prompt_is_red() -> None:
+    """分類の入力から解説を外す前(ADR-029)の分類のプロンプトで取った記録。"""
+    current = code_conditions()["classify_digest"]
+    _broken(
+        check_recall_passed,
+        _read().replace(current, "sha256:" + "1" * 64, 1),
+        "分類のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
+    )
 
 
 def test_record_taken_with_another_entailment_prompt_is_red() -> None:
@@ -898,6 +919,22 @@ def test_record_missing_a_regeneration_is_red() -> None:
     text = _read()
     first = _rows(_section(text, "問題ごとの再生成回数"))[0]
     _broken(check_usage_recorded, text.replace(f"| `{first[0]}` | {first[1]} |\n", "", 1), "再生成回数が全問ぶん無い")
+
+
+def test_record_with_a_wrong_stage_count_is_red() -> None:
+    """合計ではなく、段ごとの表の recall の行の呼び出し数を壊す。"""
+    text = re.sub(
+        r"^\| recall \| (\d+) \|", lambda m: f"| recall | {int(m.group(1)) + 1} |", _read(), count=1, flags=re.M
+    )
+    _broken(check_usage_recorded, text, "recall の呼び出し数が終了行と違う")
+
+
+def test_record_with_a_wrong_raw_utilization_is_red() -> None:
+    """終了行ではなく、レート枠の表の1行目の開始時の utilization を壊す。"""
+    head, marker, tail = _read().partition("| 実行 | execution_id | 枠 | 開始時 | 終了時 | resetsAt |")
+    assert marker, "utilization の生の値の表が無い"
+    tail = re.sub(r"^(\| 1 \| `[0-9a-f]+` \| five_hour \| )[^|]+\|", r"\g<1>9.99 |", tail, count=1, flags=re.M)
+    _broken(check_usage_recorded, head + marker + tail, "utilization の生の値が終了行と違う")
 
 
 def test_record_with_a_wrong_extrapolation_is_red() -> None:
