@@ -152,6 +152,8 @@ class _Invocation:
     quota_events: int = 0
     overage: bool = False
     """`isUsingOverage` が1回でも真だったか。"""
+    reissued: bool = False
+    """後に出し直しの子が続いたか。真ならレート枠による停止の判定から外す(D-241)。"""
 
 
 class Meter:
@@ -217,7 +219,14 @@ class Meter:
     def begin_call(self, method: str) -> None:
         self._llm_calls += 1
 
-    def begin_invocation(self, argv_digest: str) -> InvocationScope:
+    def begin_invocation(self, argv_digest: str, *, reissue: bool = False) -> InvocationScope:
+        if reissue:
+            if not self._invocations:
+                raise RuntimeError("出し直す子プロセスがまだ無い")
+            previous = self._invocations[-1]
+            if previous.failure is not FailureKind.TRUNCATED:
+                raise RuntimeError(f"出し直しの前の子が TRUNCATED で終わっていない: {previous.failure}")
+            previous.reissued = True
         self._invocations.append(_Invocation(argv_digest))
         return InvocationScope(index=len(self._invocations) - 1, argv_digest=argv_digest)
 
@@ -410,9 +419,9 @@ class Meter:
         )
 
     def _ended_by_rate_limit(self) -> dict[str, object]:
-        # 失敗した子が1本以上あり、そのすべてが述語を満たすときだけ真(D-128)。status と3つの resetsAt は
-        # その実行の最後のイベントの値を、真偽に関わらず生のまま残す。
-        failed = [invocation for invocation in self._invocations if invocation.failure is not None]
+        # 失敗した子が1本以上あり、そのすべてが述語を満たすときだけ真(D-128)。出し直された子は回復の途中なので
+        # 外す(D-241)。status と3つの resetsAt はその実行の最後のイベントの値を、真偽に関わらず生のまま残す。
+        failed = [i for i in self._invocations if i.failure is not None and not i.reissued]
         last = self._quota_at_end
         return {
             "value": bool(failed) and all(self._stopped_by_rate_limit(invocation) for invocation in failed),
