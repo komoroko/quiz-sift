@@ -8,10 +8,11 @@
   で `cluster --fresh-run` を走らせ、exit 0 なら同じ列に `recall --resume <run_id>`、続けて `script --resume <run_id>`
   を足す。各実行の argv・実行時刻・コミット ID・終了コード・run_id・標準出力(成果物のパス)を
   `<作業ルート>/out/synthetic-nofm/t068/journal.jsonl` へ追記する。標準エラーは同じディレクトリのファイルに置き、
-  render は読まない。実行条件(`conditions.json`)には、そのときのコードの分類・判定のプロンプトとスキーマの
-  ダイジェストと、generate_recall の子の環境の鍵を書く。script まで exit 0 なら、合成デッキの各問題の誤答を正解と
-  述べるミューテーションを、1問1回のまとめた判定で実 CLI(`ClaudeCliLlm.check_entailments`)に聞き、判定値の件数を
-  `mutations.json` に、その呼び出しの計測を `mutation-meter.jsonl` に書く。
+  render は読まない。実行条件(`conditions.json`)には、そのときのコードの分類・要約・想起素材・判定の
+  プロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵を書く。script まで exit 0 なら、
+  合成デッキの各問題の誤答を正解と述べるミューテーションを、1問1回のまとめた判定で実 CLI
+  (`ClaudeCliLlm.check_entailments`)に聞き、判定値の件数を `mutations.json` に
+  その呼び出しの計測を `mutation-meter.jsonl` に書く。
 - `... render --out-root <作業ルート>` は journal・`meter.jsonl`・recall と script の成果物・`mutations.json` から
   `docs/test/measurements/recall-rehearsal.md` を書く。LLM は呼ばない。開始行と終了行は加工せずに写す。
   レート枠の推定に使う前サイクルの列は、書庫の原本 `docs/archive/2026-10-06-fisrt/test/measurements/full-run.md` の
@@ -116,7 +117,7 @@ def prompt_digest(system: str, schema: Mapping[str, object]) -> str:
 
 
 def code_conditions() -> dict[str, Any]:
-    """今のコードの、分類・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵。
+    """今のコードの、分類・要約・想起素材・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵。
 
     子の環境は `ClaudeCliLlm._spawn` が `workspace.child_env()` に `CHILD_ENV` を重ねたもので、`SubprocessRunner` は
     鍵が `CHILD_ENV_KEYS` と `model_env` の和に一致しなければ起動しない。exit 0 の recall はこの鍵で走っている。
@@ -127,6 +128,8 @@ def code_conditions() -> dict[str, Any]:
     model = llm_prompts.MODELS["generate_recall"]
     return {
         "classify_digest": prompt_digest(llm_prompts.CLASSIFY_SYSTEM, llm_prompts.CLASSIFY_SCHEMA),
+        "summarize_digest": prompt_digest(llm_prompts.SUMMARIZE_SYSTEM, llm_prompts.SUMMARIZE_SCHEMA),
+        "recall_digest": prompt_digest(llm_prompts.RECALL_SYSTEM, llm_prompts.RECALL_SCHEMA),
         "entailment_digest": prompt_digest(llm_prompts.ENTAILMENT_SYSTEM, llm_prompts.ENTAILMENT_SCHEMA),
         "recall_env_keys": sorted(CHILD_ENV_KEYS | llm_prompts.model_env(model).keys()),
     }
@@ -446,6 +449,8 @@ NFR-7 の合成リハーサル(C-026)。合成デッキ `tests/fixtures/decks/sy
 | CLI | `{conditions["cli_version"]}` |
 | 実行数 | {len(executions)} |
 | 分類のプロンプトとスキーマのダイジェスト | `{conditions["classify_digest"]}` |
+| 要約のプロンプトとスキーマのダイジェスト | `{conditions["summarize_digest"]}` |
+| 想起素材のプロンプトとスキーマのダイジェスト | `{conditions["recall_digest"]}` |
 | 判定のプロンプトとスキーマのダイジェスト | `{conditions["entailment_digest"]}` |
 | generate_recall の子の環境の鍵 | `{",".join(conditions["recall_env_keys"])}` |
 
@@ -660,6 +665,8 @@ def check_recall_passed(text: str) -> None:
     code = code_conditions()
     for label, key in (
         ("分類のプロンプトとスキーマのダイジェスト", "classify_digest"),
+        ("要約のプロンプトとスキーマのダイジェスト", "summarize_digest"),
+        ("想起素材のプロンプトとスキーマのダイジェスト", "recall_digest"),
         ("判定のプロンプトとスキーマのダイジェスト", "entailment_digest"),
     ):
         assert conditions[label][0] == code[key], f"{label} が今のコードの値と違う"
@@ -825,6 +832,26 @@ def test_record_taken_with_another_entailment_prompt_is_red() -> None:
         check_recall_passed,
         _read().replace(current, "sha256:" + "1" * 64, 1),
         "判定のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
+    )
+
+
+def test_record_taken_with_another_summary_prompt_is_red() -> None:
+    """作り直しの理由を渡す前(D-245)の要約のプロンプトで取った記録。"""
+    current = code_conditions()["summarize_digest"]
+    _broken(
+        check_recall_passed,
+        _read().replace(current, "sha256:" + "1" * 64, 1),
+        "要約のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
+    )
+
+
+def test_record_taken_with_another_recall_prompt_is_red() -> None:
+    """作り直しの理由を渡す前(D-245)の想起素材のプロンプトで取った記録。"""
+    current = code_conditions()["recall_digest"]
+    _broken(
+        check_recall_passed,
+        _read().replace(current, "sha256:" + "1" * 64, 1),
+        "想起素材のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
     )
 
 
