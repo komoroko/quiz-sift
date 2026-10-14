@@ -166,49 +166,45 @@ def test_runner_allows_thinking_env_only_for_generate_recall(tmp_path: Path) -> 
 
     runner はメソッドを知らないので、argv の `--model` から許す追加の環境を決める。
     """
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    env_bin = shutil.which("env", path=os.defpath)
-    sh = shutil.which("sh", path=os.defpath)
-    assert env_bin is not None and sh is not None
-    # 子の PATH で解決される `claude` は、引数を無視して受け取った環境を出すだけの実行ファイル。
-    claude = bin_dir / "claude"
-    claude.write_text(f"#!{sh}\nexec {env_bin} -0\n")
-    claude.chmod(0o755)
-    env = {"HOME": str(tmp_path), "PATH": str(bin_dir), "LANG": "C.UTF-8", "TZ": "UTC"}
+    # 品質ゲートの /tmp は noexec なので、子は実行可能なマウント上の Python にし、受け取った環境を JSON で出させる。
+    # 後ろの `--model` は Python の sys.argv に入るだけで、runner はそこからモデルを読む。
+    dump_env = (sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))")
+    marker = tmp_path / "spawned"
+    touch = (sys.executable, "-c", f"open({str(marker)!r}, 'w').close()")
+    env = {"HOME": str(tmp_path), "PATH": os.defpath, "LANG": "C.UTF-8", "TZ": "UTC"}
     thinking = {**env, "MAX_THINKING_TOKENS": "0"}
     runner = SubprocessRunner()
 
-    def argv(model: str) -> tuple[str, ...]:
-        return ("claude", "--model", model)
+    def model(name: str) -> tuple[str, ...]:
+        return ("--model", name)
 
-    result = runner.run(CommandSpec(argv("claude-haiku-4-5"), thinking, tmp_path, ""))
+    result = runner.run(CommandSpec((*dump_env, *model("claude-haiku-4-5")), thinking, tmp_path, ""))
     assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
-    child_env = dict(item.split("=", 1) for item in result.stdout.decode().split("\0") if item)
-    child_env.pop("PWD")  # fake の `claude` を走らせる sh が足す
-    assert child_env == thinking
+    assert json.loads(result.stdout) == thinking
 
     refused = [
         # 他のメソッド(Opus 5.5・Sonnet 5.5)の子に思考を止める鍵が来た。
-        (argv("claude-opus-5-5"), thinking),
-        (argv("claude-sonnet-5-5"), thinking),
-        (("claude",), thinking),
+        (model("claude-opus-5-5"), thinking),
+        (model("claude-sonnet-5-5"), thinking),
+        ((), thinking),
         # generate_recall の子でも、値が違うか鍵が欠けていれば表と一致しない。
-        (argv("claude-haiku-4-5"), {**env, "MAX_THINKING_TOKENS": "1024"}),
-        (argv("claude-haiku-4-5"), env),
+        (model("claude-haiku-4-5"), {**env, "MAX_THINKING_TOKENS": "1024"}),
+        (model("claude-haiku-4-5"), env),
     ]
-    marker = tmp_path / "spawned"
     for args, bad in refused:
         # 起動されれば marker を作る argv。検査が起動の前に落とすので作られない。
         with pytest.raises(ValueError, match="^子プロセスの環境は"):
-            runner.run(CommandSpec((sh, "-c", f"touch {marker}", *args[1:]), bad, tmp_path, ""))
-        with pytest.raises(ValueError, match="^子プロセスの環境は"):
-            runner.run(CommandSpec(args, bad, tmp_path, ""))
+            runner.run(CommandSpec((*touch, *args), bad, tmp_path, ""))
     assert not marker.exists(), "起動の前に落ちていない"
+    # 対照: 同じ argv でも許される環境なら起動して marker を作る(検査が空振りしていない)。
+    result = runner.run(CommandSpec((*touch, *model("claude-haiku-4-5")), thinking, tmp_path, ""))
+    assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
+    assert marker.exists()
     # 対照: Opus と Sonnet の子は基本の4つだけで起動する。
-    for model in ("claude-opus-5-5", "claude-sonnet-5-5"):
-        result = runner.run(CommandSpec(argv(model), env, tmp_path, ""))
+    for name in ("claude-opus-5-5", "claude-sonnet-5-5"):
+        result = runner.run(CommandSpec((*dump_env, *model(name)), env, tmp_path, ""))
         assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == env
 
 
 def test_workspace_makes_an_empty_cwd_outside_the_repo_and_cleans_it(tmp_path: Path) -> None:
