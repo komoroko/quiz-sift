@@ -23,12 +23,12 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Final
 
-from quiz_sift.domain.ids import ClusterId, QuestionId
+from quiz_sift.domain.ids import ClusterId, OptionId, QuestionId
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import RecallKey
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.targets import OTHER_CLUSTER_FIELDS, RECALL_KEY_FIELDS, QuestionField, texts_for
-from quiz_sift.ports.llm import RecallDraft
+from quiz_sift.ports.llm import Problem, RecallDraft
 
 MIN_ORIGINAL_RATIO = 0.30
 """識別ポイントのうち、誤答選択肢のどれとも一致しない部分が占めるべき最低割合。"""
@@ -55,23 +55,34 @@ def missing_key_terms(
     return tuple(term for term in key.terms if not is_present(term, texts))
 
 
-def has_empty_element(draft: RecallDraft) -> bool:
-    """想起キーの term・答えの要素・識別ポイントのどれかが空白だけか。"""
-    texts = (*draft.key.terms, *(element.text for element in draft.answers), draft.discrimination.text)
-    return any(not text.strip() for text in texts)
+def empty_elements(draft: RecallDraft) -> tuple[str, ...]:
+    """空白だけの要素の位置(`terms[i]`・`answers[i]`・`discrimination`)。"""
+    texts = (
+        *((f"terms[{i}]", term) for i, term in enumerate(draft.key.terms)),
+        *((f"answers[{i}]", element.text) for i, element in enumerate(draft.answers)),
+        ("discrimination", draft.discrimination.text),
+    )
+    return tuple(name for name, text in texts if not text.strip())
 
 
-def answer_mismatch(draft: RecallDraft, question: Question) -> bool:
-    """答えの要素の選択肢 ID が、正解の集合と重複なく一致しないか(不足・超過・重複・正解でない ID)。"""
+def mismatched_answers(draft: RecallDraft, question: Question) -> tuple[OptionId, ...]:
+    """答えの要素の選択肢 ID と正解の集合の食い違い: 重複した ID、正解でない ID、答えに無い正解の ID。"""
     ids = [element.option_id for element in draft.answers]
-    return len(ids) != len(set(ids)) or set(ids) != set(question.correct_option_ids)
+    duplicated = [option_id for i, option_id in enumerate(ids) if option_id in ids[:i]]
+    extra = [option_id for option_id in ids if option_id not in question.correct_option_ids]
+    lacking = [option_id for option_id in question.correct_option_ids if option_id not in ids]
+    return tuple(dict.fromkeys((*duplicated, *extra, *lacking)))
+
+
+def misreferenced_options(draft: RecallDraft, question: Question) -> tuple[OptionId, ...]:
+    """識別ポイントが参照する ID のうち、その問題の誤答選択肢でないもの。"""
+    wrong = {o.option_id for o in question.options} - set(question.correct_option_ids)
+    return tuple(option_id for option_id in draft.discrimination.distractor_ids if option_id not in wrong)
 
 
 def missing_options(draft: RecallDraft, question: Question) -> bool:
     """識別ポイントが誤答選択肢を1件も参照しないか、誤答選択肢でない ID を参照しているか。"""
-    wrong = {o.option_id for o in question.options} - set(question.correct_option_ids)
-    referenced = draft.discrimination.distractor_ids
-    return not referenced or any(option_id not in wrong for option_id in referenced)
+    return not draft.discrimination.distractor_ids or bool(misreferenced_options(draft, question))
 
 
 def cluster_texts(
@@ -145,10 +156,15 @@ class TermRate:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class QuestionCheck:
-    """1問分の検査の結果。`failures` は落ちた検査の名前(空なら合格)。`rates` は合否に関わらず記録する。"""
+    """1問分の検査の結果。`failures` は落ちた検査の名前(空なら合格)。`rates` は合否に関わらず記録する。
+
+    `problems` は落ちた検査ごとの対象で、作り直しの呼び出しに渡す(D-245)。成果物と途中結果の通過・失格の記録は
+    名前だけを持つので、そこから読み戻した結果では空になる。
+    """
 
     failures: tuple[str, ...]
     rates: tuple[TermRate, ...]
+    problems: tuple[Problem, ...] = ()
 
 
 def check_question(
@@ -160,18 +176,28 @@ def check_question(
     """1問分の素材を検査する。`earlier` はクラスタ順で前の問題の素材(重複の判定にだけ使う)。"""
     draft = material.draft
     key_rates = other_cluster_rates(draft.key, material.cluster_id, cluster_texts)
+    terms = draft.key.terms
+    empty = empty_elements(draft)
+    ungrounded = missing_key_terms(draft.key, question)
+    mismatched = mismatched_answers(draft, question)
     checks = (
-        (EMPTY, has_empty_element(draft)),
-        (UNGROUNDED_KEY, bool(missing_key_terms(draft.key, question))),
-        (ANSWER_MISMATCH, answer_mismatch(draft, question)),
-        (MISSING_OPTIONS, missing_options(draft, question)),
-        (GENERIC, is_generic(key_rates)),
-        (VERBATIM, is_verbatim(draft.discrimination.text, question)),
-        (DUPLICATE_KEY, is_duplicate(material, earlier)),
+        (EMPTY, bool(empty), Problem(EMPTY, elements=empty)),
+        (UNGROUNDED_KEY, bool(ungrounded), Problem(UNGROUNDED_KEY, ungrounded)),
+        (ANSWER_MISMATCH, bool(mismatched), Problem(ANSWER_MISMATCH, options=mismatched)),
+        (
+            MISSING_OPTIONS,
+            missing_options(draft, question),
+            Problem(MISSING_OPTIONS, options=misreferenced_options(draft, question)),
+        ),
+        (GENERIC, is_generic(key_rates), Problem(GENERIC, terms)),
+        (VERBATIM, is_verbatim(draft.discrimination.text, question), Problem(VERBATIM)),
+        (DUPLICATE_KEY, is_duplicate(material, earlier), Problem(DUPLICATE_KEY, terms)),
     )
+    failed = [(name, problem) for name, failed, problem in checks if failed]
     return QuestionCheck(
-        failures=tuple(name for name, failed in checks if failed),
+        failures=tuple(name for name, _ in failed),
         rates=tuple(TermRate(material.question_id, term, rate) for term, rate in key_rates.items()),
+        problems=tuple(problem for _, problem in failed),
     )
 
 

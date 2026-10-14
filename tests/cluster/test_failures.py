@@ -13,7 +13,7 @@ import pytest
 from quiz_sift.cluster.run import ClassificationFailed, Clustering, cluster_deck
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import QuestionId
-from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, EntailmentStatement, GroupProposal
+from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, EntailmentStatement, GroupProposal, Retry
 
 type Groups = dict[str, tuple[QuestionId, ...]]
 
@@ -31,7 +31,7 @@ class PartiallyFailingLlm:
         failed = [CallFailure(self.groups[label], "LlmCallError: 429") for label in ("rds", "eventbridge")]
         return ClassificationResult(assignments=tuple(ok), failures=tuple(failed))
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         self.summarized += 1
         return members.questions[0].stem.split(" ")[0]
 

@@ -7,6 +7,7 @@
    reference(問題の正解 N 件と解説)と、答えの各要素・識別ポイントの主張をまとめて聞く(ADR-029)。答えの要素には
    その要素が説明する正解を `focus` に、識別ポイントには参照先の誤答の本文を `distractors` に付ける(D-192、D-210)。
    `consistent` でなければ検査名 `entailment` の不合格として、同じ上限の中でその問題を作り直す。
+   作り直しの呼び出しには、前回の素材と、それまでの全回の落ちた検査とその対象を渡す(D-245)。
 3. **呼び出しの失敗は作り直さない**(D-101): 含意判定の呼び出しの失敗もその問題の失敗に数える。失敗しても
    残りの問題を回し、段を終えてから `RecallCallsFailed`。overage か枠切れを見たら残りを発行しない(D-144)。
 4. **上限超過**: 全問を回し切ってから、上限を超えた問題をすべて列挙して `RegenerationExhausted`(D-217)。
@@ -15,6 +16,7 @@
    出力のあった生成1回ごとと、判定値が返った呼び出しごとに書き、出力の無い生成は回数に数えない。再開では、
    通過・失格の問題を呼び出さずに戻し(重複の検査でも前の問題として数える)、途中の問題は使った回数の続きから
    数え、判定値のある生成物を判定し直さない。失格の問題は作り直さないので、1回で走った場合と同じく止まる。
+   途中の問題は作り直しに渡す前回の素材と落ちた検査も持ち、再開しても同じ理由で作り直す。
 """
 
 import json
@@ -29,7 +31,15 @@ from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
-from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import (
+    Entailment,
+    EntailmentStatement,
+    LlmCallError,
+    Problem,
+    RecallDraft,
+    Retry,
+    with_problems,
+)
 from quiz_sift.recall.verify import (
     QuestionCheck,
     RecallMaterial,
@@ -52,7 +62,9 @@ ENTAILMENT = "entailment"
 class RecallLlm(EntailmentChecker, Protocol):
     """`ports.llm.Llm` のうち想起素材の生成と含意判定だけを使う。`Llm` の実装はそのまま渡せる。"""
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft: ...
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft: ...
 
 
 class ItemProgress(Protocol):
@@ -105,25 +117,23 @@ class _Generated:
     attempts: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class _Pending:
     """途中の問題1件。`attempts` は出力のあった生成の回数、`material` は判定中の生成物(無ければ次を生成する)、
-    `verdicts` はその生成物の主張の判定値を主張の順に並べたもの(まだ判定していなければ `None`)。"""
+    `verdicts` はその生成物の主張の判定値を主張の順に並べたもの(まだ判定していなければ `None`)、`retry` は
+    `material` を作ったか次に作る呼び出しに渡す前回の素材と落ちた検査(最初の生成なら `None`)。"""
 
     attempts: int
     material: RecallMaterial | None
     verdicts: tuple[Entailment, ...] | None
+    retry: Retry[RecallDraft] | None
 
 
-_START = _Pending(0, None, None)
+_START = _Pending(0, None, None, None)
 
 
-def material_json(material: RecallMaterial) -> dict[str, Any]:
-    """想起素材1件の JSON。成果物と途中結果が同じ形を使う。"""
-    draft = material.draft
+def _draft_json(draft: RecallDraft) -> dict[str, Any]:
     return {
-        "cluster": material.cluster_id.local_id,
-        "question": material.question_id.local_id,
         "terms": list(draft.key.terms),
         "answers": [{"option": e.option_id.local_id, "text": e.text} for e in draft.answers],
         "discrimination": {
@@ -133,18 +143,62 @@ def material_json(material: RecallMaterial) -> dict[str, Any]:
     }
 
 
-def material_from(row: Mapping[str, Any], deck_id: DeckId) -> RecallMaterial:
-    """`material_json` の逆。"""
-    question_id = QuestionId(deck_id, row["question"])
+def _draft_from(row: Mapping[str, Any], question_id: QuestionId) -> RecallDraft:
     discrimination = row["discrimination"]
-    draft = RecallDraft(
+    return RecallDraft(
         RecallKey(tuple(row["terms"])),
         tuple(AnswerElement(OptionId(question_id, e["option"]), e["text"]) for e in row["answers"]),
         DiscriminationPoint(
             discrimination["text"], tuple(OptionId(question_id, o) for o in discrimination["distractors"])
         ),
     )
-    return RecallMaterial(ClusterId(deck_id, row["cluster"]), question_id, draft)
+
+
+def material_json(material: RecallMaterial) -> dict[str, Any]:
+    """想起素材1件の JSON。成果物と途中結果が同じ形を使う。"""
+    return {
+        "cluster": material.cluster_id.local_id,
+        "question": material.question_id.local_id,
+        **_draft_json(material.draft),
+    }
+
+
+def material_from(row: Mapping[str, Any], deck_id: DeckId) -> RecallMaterial:
+    """`material_json` の逆。"""
+    question_id = QuestionId(deck_id, row["question"])
+    return RecallMaterial(ClusterId(deck_id, row["cluster"]), question_id, _draft_from(row, question_id))
+
+
+def _retry_json(retry: Retry[RecallDraft] | None) -> dict[str, Any] | None:
+    if retry is None:
+        return None
+    problems = [
+        {
+            "check": p.check,
+            "terms": list(p.terms),
+            "options": [o.local_id for o in p.options],
+            "elements": list(p.elements),
+            "statements": [[text, verdict.value] for text, verdict in p.statements],
+        }
+        for p in retry.problems
+    ]
+    return {"previous": _draft_json(retry.previous), "problems": problems}
+
+
+def _retry_from(data: Mapping[str, Any] | None, question_id: QuestionId) -> Retry[RecallDraft] | None:
+    if data is None:
+        return None
+    problems = tuple(
+        Problem(
+            p["check"],
+            tuple(p["terms"]),
+            tuple(OptionId(question_id, o) for o in p["options"]),
+            tuple(p["elements"]),
+            tuple((text, Entailment(verdict)) for text, verdict in p["statements"]),
+        )
+        for p in data["problems"]
+    )
+    return Retry(_draft_from(data["previous"], question_id), problems)
 
 
 def _state_json(question_id: QuestionId, state: _Generated | _Pending) -> bytes:
@@ -155,10 +209,11 @@ def _state_json(question_id: QuestionId, state: _Generated | _Pending) -> bytes:
             data["material"] = material_json(material)
             data["failures"] = list(check.failures)
             data["rates"] = [[r.question_id.local_id, r.term, r.rate] for r in check.rates]
-        case _Pending(material=material, verdicts=verdicts):
+        case _Pending(material=material, verdicts=verdicts, retry=retry):
             data["state"] = "pending"
             data["material"] = None if material is None else material_json(material)
             data["verdicts"] = None if verdicts is None else [v.value for v in verdicts]
+            data["retry"] = _retry_json(retry)
     return json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
@@ -175,7 +230,7 @@ def _state_from(raw: bytes, question_id: QuestionId) -> _Generated | _Pending:
         case "pending":
             material = None if data["material"] is None else material_from(data["material"], deck_id)
             verdicts = None if data["verdicts"] is None else tuple(Entailment(v) for v in data["verdicts"])
-            return _Pending(data["attempts"], material, verdicts)
+            return _Pending(data["attempts"], material, verdicts, _retry_from(data["retry"], question_id))
         case other:
             raise ValueError(f"途中結果の状態が不明: {other}")
 
@@ -194,26 +249,33 @@ def _generate_one(
     """1問を検査と含意判定に通るか上限まで作る。生成の前に `stop_seen` が真なら `None`。
 
     `pending` の回数の続きから数え、判定中の生成物があればその判定値を使う(無ければ判定する)。出力のあった生成と
-    返った判定値ごとに `save` を呼ぶ。`LlmCallError`(生成と含意判定のどちらの呼び出しでも)はそのまま上がる。
+    返った判定値ごとに `save` を呼ぶ。作り直しには前回の素材と、それまでの全回の落ちた検査を渡す(D-245)。
+    `LlmCallError`(生成と含意判定のどちらの呼び出しでも)はそのまま上がる。
     """
-    attempts, material, verdicts = pending.attempts, pending.material, pending.verdicts
+    attempts, material, verdicts, retry = pending.attempts, pending.material, pending.verdicts, pending.retry
     while True:
         if material is None:
             if stop_seen():
                 return None
-            material = RecallMaterial(cluster_id, question.question_id, llm.generate_recall(question, language))
+            draft = llm.generate_recall(question, language, retry=retry)
+            material = RecallMaterial(cluster_id, question.question_id, draft)
             attempts, verdicts = attempts + 1, None
-            save(_Pending(attempts, material, None))
+            save(_Pending(attempts, material, None, retry))
         check = check_question(material, question, texts, earlier)
         if not check.failures:
             statements = _statements(material, question)
             if verdicts is None:
                 verdicts = ask(llm, reference_for(question), statements)
-                save(_Pending(attempts, material, verdicts))
+                save(_Pending(attempts, material, verdicts, retry))
             elif len(verdicts) != len(statements):
                 raise ValueError(f"途中結果の判定値 {len(verdicts)} 件が主張 {len(statements)} 件と合わない")
             if aggregate(verdicts) is not Entailment.CONSISTENT:
-                check = replace(check, failures=(ENTAILMENT,))
+                rejected = tuple(
+                    (s.statement, v)
+                    for s, v in zip(statements, verdicts, strict=True)
+                    if v is not Entailment.CONSISTENT
+                )
+                check = replace(check, failures=(ENTAILMENT,), problems=(Problem(ENTAILMENT, statements=rejected),))
         if not check.failures or attempts > MAX_REGENERATIONS:
             return _Generated(material, check, attempts)
         logger.info(
@@ -222,8 +284,9 @@ def _generate_one(
             ",".join(check.failures),
             attempts,
         )
+        retry = with_problems(retry, material.draft, check.problems)
         material, verdicts = None, None
-        save(_Pending(attempts, None, None))
+        save(_Pending(attempts, None, None, retry))
 
 
 def _statements(material: RecallMaterial, question: Question) -> list[EntailmentStatement]:

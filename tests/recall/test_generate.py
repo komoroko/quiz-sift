@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from quiz_sift.adapters import llm_prompts
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, OptionId, QuestionId
@@ -15,7 +16,7 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.stage import Progress
-from quiz_sift.ports.llm import EntailmentStatement, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft, Retry
 from quiz_sift.recall.generate import (
     ENTAILMENT,
     MAX_REGENERATIONS,
@@ -25,7 +26,7 @@ from quiz_sift.recall.generate import (
 )
 from quiz_sift.recall.verify import RecallMaterial
 
-from .conftest import DECK, GOOD, ROWS, StubLlm, Writer, generate, option
+from .conftest import DECK, GOOD, ROWS, StubLlm, Writer, generate, option, question
 
 # 語句も参照もすべて実在するが、正解・解説(標準-IA はミリ秒単位で取り出せる)と矛盾する答え。
 CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
@@ -364,12 +365,14 @@ class StopsOnCall(StubLlm):
         self.stop_after = stop_after
         self.stopped = False
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
         if len(self.recalled) + 1 == self.stop_after:
             self.recalled.append(question.question_id.local_id)
             self.stopped = True
             raise LlmCallError("合成の枠切れ")
-        return super().generate_recall(question, language)
+        return super().generate_recall(question, language, retry)
 
 
 def test_regeneration_cap_holds_across_resumes(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
@@ -485,3 +488,71 @@ def test_statements_refuse_a_misplaced_focus_or_distractor(deck: Deck) -> None:
         bad = replace(good, discrimination=DiscriminationPoint(text, distractors))
         with pytest.raises(ValueError, match="^distractors はこの問題の誤答の選択肢でなければならない$"):
             _statements(material(bad), q01)
+
+
+def test_regeneration_receives_the_previous_material_and_why_it_failed(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """T-086 A-2: 作り直しは前回の素材と、それまでの全回の落ちた検査とその対象を受け取る。再開しても同じ(D-245)。"""
+    caplog.set_level(logging.INFO)
+    good = GOOD["q01"]  # 正解は B、識別ポイントは誤答 C を参照する
+    # 1回目: キーが問題文に無く(ungrounded_key)、答えが誤答 A を指し(answer_mismatch)、識別ポイントが正解 B を指す。
+    first = replace(
+        good,
+        key=RecallKey(("Lambda",)),
+        answers=(AnswerElement(option("q01", "A"), "S3 標準"),),
+        discrimination=DiscriminationPoint(good.discrimination.text, (option("q01", "B"),)),
+    )
+    # 2回目: 機械検査は通るが、答えが正解・解説と矛盾する(entailment)。
+    second = replace(good, answers=(AnswerElement(option("q01", "B"), CONTRADICTING),))
+    sequences = {"q01": (first, second, good)}
+    contradicted = frozenset({CONTRADICTING})
+
+    llm = StubLlm(GOOD, contradicted=contradicted, sequences=sequences)
+    generate(llm, deck, clusters, Writer(tmp_path / "once.tsv"))
+    retries = [retry for qid, retry in llm.retries if qid == "q01"]
+    assert retries[0] is None
+    assert all(retry is None for qid, retry in llm.retries if qid != "q01")
+    after_first, after_second = retries[1], retries[2]
+    assert after_first is not None and after_second is not None
+    assert (after_first.previous, after_second.previous) == (first, second)
+
+    def shown(retry: Retry[RecallDraft]) -> list[tuple[object, ...]]:
+        return [(p.check, p.terms, p.options, p.elements, p.statements) for p in retry.problems]
+
+    by_first = [
+        ("ungrounded_key", ("Lambda",), (), (), ()),
+        ("answer_mismatch", (), (option("q01", "A"), option("q01", "B")), (), ()),
+        ("missing_options", (), (option("q01", "B"),), (), ()),
+    ]
+    assert shown(after_first) == by_first
+    # 3回目は1回目の分も累積して受け取る。
+    by_second = [("entailment", (), (), (), ((CONTRADICTING, Entailment.CONTRADICTED),))]
+    assert shown(after_second) == by_first + by_second
+
+    # アダプタへは選択肢を不透明キー(o1…)で渡し、元のラベルを渡さない(D-206)。
+    _, keyed = llm_prompts.recall_payload(question(deck, "q01"))
+    keys = {option_id: key for key, option_id in keyed.items()}
+    rendered = [llm_prompts.problem_json(p, keys) for p in after_second.problems]
+    assert rendered[1] == {"check": "answer_mismatch", "options": ["o1", "o2"]}
+    assert llm_prompts.recall_draft_json(after_first.previous, keys)["answers"] == [{"option": "o1", "text": "S3 標準"}]
+
+    # 2回目の判定で落ちた後に止まり、--resume すると、3回目は止まらなかった場合と同じ理由を受け取る。
+    progress = Progress(tmp_path / "recall.progress")
+    stopping = StubLlm(GOOD, contradicted=contradicted, sequences=sequences)
+    with pytest.raises(RecallCallsFailed):
+        generate(stopping, deck, clusters, Writer(tmp_path / "a.tsv"), lambda: len(stopping.recalled) >= 2, progress)
+    assert stopping.recalled == ["q01", "q01"]
+    resumed = StubLlm(GOOD)
+    generate(resumed, deck, clusters, Writer(tmp_path / "b.tsv"), progress=progress)
+    (_, retry), *_ = resumed.retries
+    assert retry is not None and retry.previous == second
+    assert shown(retry) == by_first + by_second
+
+    # ログは検査の名前と回数だけで、語句・主張・選択肢の本文は出ない。理由は repr にも出ない。
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("q01 を作り直す(ungrounded_key,answer_mismatch,missing_options; 1 回目)" in m for m in messages)
+    assert any("q01 を作り直す(entailment; 2 回目)" in m for m in messages)
+    for text in ("Lambda", CONTRADICTING, "S3 標準", good.discrimination.text):
+        assert not any(text in m for m in messages), text
+        assert text not in repr(retry) and text not in repr(retry.problems)

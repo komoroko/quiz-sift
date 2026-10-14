@@ -15,7 +15,7 @@ from quiz_sift.cluster.metrics import measure
 from quiz_sift.cluster.run import Clustering, cluster_deck
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, QuestionId
-from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, Retry
 
 type Groups = dict[str, tuple[QuestionId, ...]]
 DECK = DeckId("aws-saa")
@@ -48,7 +48,7 @@ class StubLlm:
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
         return ClassificationResult(assignments=self.proposals, failures=())
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         # 構成員の問題文の先頭の語句をそのまま使う(実在性を満たす)。
         return members.questions[0].stem.split(" ")[0]
 

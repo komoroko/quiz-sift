@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Protocol
 
 from quiz_sift.domain.deck import Deck
-from quiz_sift.domain.ids import QuestionId
+from quiz_sift.domain.ids import OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
@@ -120,6 +120,38 @@ class EntailmentStatement:
     distractors: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class Problem:
+    """作り直しの前の出力が落ちた検査1件と、その対象(D-245)。教材本文を含むので `repr` に出さない(NFR-3)。
+
+    `check` は検査の名前。対象は検査ごとに使う欄が違う: 語句は `terms`、選択肢は `options`、空だった要素は
+    `elements`(`terms[0]`・`answers[1]`・`discrimination` の形)、含意判定は `statements`(主張の本文と判定値)。
+    """
+
+    check: str
+    terms: tuple[str, ...] = ()
+    options: tuple[OptionId, ...] = ()
+    elements: tuple[str, ...] = ()
+    statements: tuple[tuple[str, Entailment], ...] = ()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class Retry[T]:
+    """作り直しの呼び出しに渡す、前回の出力と、それまでの全回の落ちた検査(D-245)。
+
+    累積するのは、後の回で前の回と同じ問題に戻らないようにするため。教材本文を含むので `repr` に出さない。
+    """
+
+    previous: T
+    problems: tuple[Problem, ...]
+
+
+def with_problems[T](retry: "Retry[T] | None", previous: T, problems: Sequence[Problem]) -> "Retry[T]":
+    """`retry` までの検査に `problems` を足し、`previous` を前回の出力にした次の `Retry`。同じ検査と対象は重ねない。"""
+    earlier = () if retry is None else retry.problems
+    return Retry(previous, tuple(dict.fromkeys((*earlier, *problems))))
+
+
 class Llm(Protocol):
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
         """デッキの問題を論点ごとのグループに分ける(R-3)。
@@ -132,16 +164,21 @@ class Llm(Protocol):
         """
         ...
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         """クラスタの要約をデッキの言語で書く(R-3)。語句の実在性は `grounding/` が判定する。
 
         `members` はそのクラスタの問題だけを持つ `Deck`。`Cluster` は要約を持って初めて
-        構築できるので、要約の入力にはならない。
+        構築できるので、要約の入力にはならない。`retry` は作り直しのときの前回の要約と落ちた検査(D-245)。
         """
         ...
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
-        """1問分の想起キー・答え・識別ポイントを `language` で作る(R-4)。"""
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
+        """1問分の想起キー・答え・識別ポイントを `language` で作る(R-4)。
+
+        `retry` は作り直しのときの前回の素材と落ちた検査(D-245)。
+        """
         ...
 
     def describe_term(self, term: str, language: Language) -> str:
