@@ -10,12 +10,15 @@ import pytest
 
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
+from quiz_sift.domain.ids import ClusterId, OptionId, QuestionId
+from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.pipeline.stage import Progress
 from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError
 from quiz_sift.safety.entailment import EntailmentRejected, reference_for
-from quiz_sift.script.generate import generate_scripts
+from quiz_sift.script.generate import _asks, generate_scripts
+from quiz_sift.script.segments import QuestionScript, Track
 
-from .conftest import GOOD, StubChecker, Writer, recall_set
+from .conftest import DECK, GOOD, StubChecker, Writer, recall_set
 
 # トラックは c001(q01, q02)と c002(q03)の2本。主張は各問の答えと識別ポイントで、トラック順に並ぶ。
 CLAIMS = [
@@ -177,3 +180,21 @@ def test_rejected_track_stops_the_stage_across_resumes(
     assert exc.value.verdict is Entailment.UNCERTAIN
     assert second.checked == []
     assert not out.exists()
+
+
+def test_asks_refuse_a_distractor_that_is_not_a_wrong_option(deck: Deck) -> None:
+    """識別ポイントの distractors は同じ問題の誤答の選択肢に限る(正解や別の問題の選択肢は通さない)。"""
+    questions = {q.question_id: q for q in deck.questions}
+    q01 = QuestionId(DECK, "q01")  # 正解は B
+
+    def track(*distractors: OptionId) -> Track:
+        script = QuestionScript(
+            q01, Prompt("問い"), Pause(3.3), Answer(("S3 標準-IA",)), Discrimination("識別", distractors)
+        )
+        return Track(ClusterId(DECK, "c001"), 0, (script,))
+
+    [asked] = _asks(track(OptionId(q01, "C")), questions)
+    assert [s.distractors for s in asked.statements] == [(), ("S3 Glacier Deep Archive",)]
+    for bad in ((OptionId(q01, "B"),), (OptionId(QuestionId(DECK, "q02"), "B"),)):
+        with pytest.raises(ValueError, match="^distractors はこの問題の誤答の選択肢でなければならない$"):
+            _asks(track(*bad), questions)

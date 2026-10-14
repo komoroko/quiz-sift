@@ -16,9 +16,16 @@ from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKe
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.stage import Progress
 from quiz_sift.ports.llm import EntailmentStatement, LlmCallError, RecallDraft
-from quiz_sift.recall.generate import ENTAILMENT, MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
+from quiz_sift.recall.generate import (
+    ENTAILMENT,
+    MAX_REGENERATIONS,
+    RecallCallsFailed,
+    RegenerationExhausted,
+    _statements,
+)
+from quiz_sift.recall.verify import RecallMaterial
 
-from .conftest import DECK, GOOD, ROWS, StubLlm, Writer, generate
+from .conftest import DECK, GOOD, ROWS, StubLlm, Writer, generate, option
 
 # 語句も参照もすべて実在するが、正解・解説(標準-IA はミリ秒単位で取り出せる)と矛盾する答え。
 CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
@@ -456,3 +463,25 @@ def test_resumed_pass_cannot_share_a_key_with_a_question_filled_in_before_it(
         generate(StubLlm(drafts), deck, clusters, Writer(out), progress=progress)
     assert [(e.question_id.local_id, e.failures) for e in exc.value.exhausted] == [("q01", ("generic",))]
     assert not out.exists()
+
+
+def test_statements_refuse_a_misplaced_focus_or_distractor(deck: Deck) -> None:
+    """focus は正解の選択肢、distractors は同じ問題の誤答の選択肢に限る(取り違えは通さない)。"""
+    q01 = next(q for q in deck.questions if q.question_id.local_id == "q01")  # 正解は B
+
+    def material(recall: RecallDraft) -> RecallMaterial:
+        return RecallMaterial(ClusterId(DECK, "c001"), q01.question_id, recall)
+
+    good = GOOD["q01"]
+    statements = _statements(material(good), q01)
+    assert [s.focus for s in statements] == ["S3 標準-IA", None]
+    assert statements[-1].distractors == ("S3 Glacier Deep Archive",)
+
+    wrong_focus = replace(good, answers=(AnswerElement(option("q01", "A"), "S3 標準"),))
+    with pytest.raises(ValueError, match="^答えの要素の focus はこの問題の正解の選択肢でなければならない$"):
+        _statements(material(wrong_focus), q01)
+    text = good.discrimination.text
+    for distractors in ((option("q01", "B"),), (option("q02", "B"),), (option("q01", "C"), option("q01", "B"))):
+        bad = replace(good, discrimination=DiscriminationPoint(text, distractors))
+        with pytest.raises(ValueError, match="^distractors はこの問題の誤答の選択肢でなければならない$"):
+            _statements(material(bad), q01)
