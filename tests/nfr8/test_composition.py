@@ -26,7 +26,7 @@ FORBIDDEN = (
 """関数の本体に現れてはならない節(要件の列挙に、`from` 形の import と `except*` を足したもの)。"""
 
 LLM_METHODS = frozenset(
-    {"classify_clusters", "summarize_cluster", "generate_recall", "describe_term", "check_entailment"}
+    {"classify_clusters", "summarize_cluster", "generate_recall", "describe_term", "check_entailments"}
 )
 """`ports.llm.Llm` のメソッド。これをすべて定義するクラスを `Llm` の実装と見なす。"""
 

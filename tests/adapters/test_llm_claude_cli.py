@@ -41,10 +41,10 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.meter import PRICES, Meter
 from quiz_sift.pipeline.overhead import skills_digest
-from quiz_sift.ports.llm import Entailment, LlmCallError, TokenUsage
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, Llm, LlmCallError, TokenUsage
 from quiz_sift.ports.metering import FailureKind, InvocationScope, RateLimitInfo
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.safety.entailment import Claim, judge
+from quiz_sift.safety.entailment import judge
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "claude_cli"
 MODULE = Path(llm_claude_cli.__file__)
@@ -188,7 +188,7 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
     llm.generate_recall(q, Language.JA)  # haiku
     llm.summarize_cluster(members)  # opus
     llm.classify_clusters(members)  # opus
-    llm.check_entailment(material(q)[-1], q.stem)  # opus
+    llm.check_entailments(material(q)[-1], [EntailmentStatement("0", q.stem)])  # sonnet
     llm.describe_term("合成用語 固有句", Language.JA)  # haiku
     haiku, opus = runner.specs[0].argv, runner.specs[1].argv
 
@@ -229,7 +229,7 @@ def test_only_generate_recall_disables_thinking(tmp_path: Path) -> None:
     llm.summarize_cluster(members)
     llm.generate_recall(q, Language.JA)
     llm.describe_term("合成用語 固有句", Language.JA)
-    llm.check_entailment(material(q)[-1], q.stem)
+    llm.check_entailments(material(q)[-1], [EntailmentStatement("0", q.stem)])
     base = llm.workspace.child_env()
     assert set(base) == ALLOWED_ENV
     envs = [dict(spec.env) for spec in runner.specs]
@@ -608,30 +608,93 @@ def test_every_nfr7_value_reaches_the_meter(tmp_path: Path) -> None:
     assert argv_digest(other_flag) != argv_digest(summarize_argv)
 
 
+ONE = (EntailmentStatement("0", "合成主張"),)
+
+
+def verdicts(*pairs: tuple[object, object]) -> CommandResult:
+    return exited(fake_stdout(structured_output={"verdicts": [{"id": i, "verdict": v} for i, v in pairs]}))
+
+
+def test_check_entailments_maps_verdicts_by_id(tmp_path: Path) -> None:
+    """T-084 A-1: reference を1回・主張の列を1回の子プロセスで渡し、判定値を主張の ID で対応づける。"""
+    statements = [
+        EntailmentStatement("answer-0", "合成主張 一", focus="合成正解 一"),
+        EntailmentStatement("answer-1", "合成主張 二", focus="合成正解 二"),
+        EntailmentStatement("discrimination", "合成識別", distractors=("合成誤答 一", "合成誤答 二")),
+    ]
+    # 応答は主張と違う順で返る。ID で対応づけるので、渡した主張の順に並べ直される。
+    runner = FakeRunner(
+        returning(verdicts(("discrimination", "uncertain"), ("answer-0", "consistent"), ("answer-1", "contradicted")))
+    )
+    llm = build(RecordingMeter(), tmp_path, runner)
+    assert llm.check_entailments("合成参照", statements) == (
+        Entailment.CONSISTENT,
+        Entailment.CONTRADICTED,
+        Entailment.UNCERTAIN,
+    )
+    assert len(runner.specs) == 1
+    assert json.loads(runner.specs[0].stdin) == {
+        "reference": "合成参照",
+        "statements": [
+            {"id": "answer-0", "statement": "合成主張 一", "focus": "合成正解 一"},
+            {"id": "answer-1", "statement": "合成主張 二", "focus": "合成正解 二"},
+            {"id": "discrimination", "statement": "合成識別", "distractors": ["合成誤答 一", "合成誤答 二"]},
+        ],
+    }
+    assert flag(runner.specs[0].argv, "--model") == "claude-sonnet-5-5"
+    schema = json.loads(flag(runner.specs[0].argv, "--json-schema"))
+    assert schema["properties"]["verdicts"]["items"]["required"] == ["id", "verdict"]
+    assert "focus" in llm_prompts.ENTAILMENT_SYSTEM and "distractors" in llm_prompts.ENTAILMENT_SYSTEM
+
+    # ID の欠け・余り(未知・重複)は INCOMPLETE_IDS。
+    incomplete = {
+        "欠け": verdicts(("answer-0", "consistent"), ("answer-1", "consistent")),
+        "未知": verdicts(("answer-0", "consistent"), ("answer-1", "consistent"), ("other", "consistent")),
+        "重複": verdicts(
+            ("answer-0", "consistent"),
+            ("answer-1", "consistent"),
+            ("discrimination", "consistent"),
+            ("answer-0", "consistent"),
+        ),
+    }
+    for name, result in incomplete.items():
+        meter = RecordingMeter()
+        llm = build(meter, tmp_path, FakeRunner(returning(result)))
+        with pytest.raises(LlmCallError, match="^incomplete_ids"):
+            llm.check_entailments("合成参照", statements)
+        assert meter.of("record_failure") == [(FailureKind.INCOMPLETE_IDS,)], name
+
+    # 1件版の判定は、ポートにも実装にも無い。
+    assert not hasattr(ClaudeCliLlm, "check_entailment")
+    assert not hasattr(Llm, "check_entailment")
+
+
 def test_entailment_uses_the_shared_parser(tmp_path: Path) -> None:
     assert vars(llm_claude_cli)["parse_entailment"] is llm_contract.parse_entailment
 
-    def verdict(value: object) -> CommandResult:
-        return exited(fake_stdout(structured_output={"verdict": value}))
-
-    llm = build(RecordingMeter(), tmp_path, FakeRunner(lambda spec: verdict("consistent")))
-    assert llm.check_entailment("合成参照", "合成主張") is Entailment.CONSISTENT
-    llm = build(RecordingMeter(), tmp_path, FakeRunner(lambda spec: verdict("contradicted")))
-    assert llm.check_entailment("合成参照", "合成主張") is Entailment.CONTRADICTED
+    llm = build(RecordingMeter(), tmp_path, FakeRunner(returning(verdicts(("0", "consistent")))))
+    assert llm.check_entailments("合成参照", ONE) == (Entailment.CONSISTENT,)
+    llm = build(RecordingMeter(), tmp_path, FakeRunner(returning(verdicts(("0", "contradicted")))))
+    assert llm.check_entailments("合成参照", ONE) == (Entailment.CONTRADICTED,)
 
     keys = ["0"]
     failing = {
-        "未知の判定語": verdict("probably_consistent"),
+        "未知の判定語": verdicts(("0", "probably_consistent")),
         "PARSE": failure_shape(FailureKind.PARSE, keys),
-        "SCHEMA": exited(fake_stdout(structured_output={"verdict": 1})),
-        "TIMEOUT": timed_out(fake_stdout(structured_output={"verdict": "consistent"})),
+        "SCHEMA": verdicts(("0", 1)),
+        "SCHEMA の id": verdicts((0, "consistent")),
+        "SCHEMA の配列": exited(fake_stdout(structured_output={"verdicts": "consistent"})),
+        "TIMEOUT": timed_out(fake_stdout(structured_output={"verdicts": [{"id": "0", "verdict": "consistent"}]})),
         "PROVIDER_ERROR": failure_shape(FailureKind.PROVIDER_ERROR, keys),
         "TRUNCATED": failure_shape(FailureKind.TRUNCATED, keys),
     }
-    for result in failing.values():
+    for name, result in failing.items():
         llm = build(RecordingMeter(), tmp_path, FakeRunner(returning(result)))
         with pytest.raises(LlmCallError):
-            judge(llm, [Claim("合成参照", "合成主張")])
+            judge(llm, "合成参照", ONE)
+        if name.startswith(("未知", "SCHEMA")):
+            with pytest.raises(LlmCallError, match="^schema"):
+                llm.check_entailments("合成参照", ONE)
 
 
 def test_overage_check_passes_on_the_real_fixture_and_fails_on_overage(tmp_path: Path) -> None:
@@ -639,7 +702,7 @@ def test_overage_check_passes_on_the_real_fixture_and_fails_on_overage(tmp_path:
         meter = make_meter(tmp_path / respond.__name__)
         llm = build(meter, tmp_path, FakeRunner(respond))
         try:
-            llm.check_entailment("合成参照", "合成主張")
+            llm.check_entailments("合成参照", ONE)
         except LlmCallError:
             pass
         return meter.finish(exit_code=0, exit_reason=None)
@@ -648,10 +711,16 @@ def test_overage_check_passes_on_the_real_fixture_and_fails_on_overage(tmp_path:
         return real_fixture("success")(spec)
 
     def overage(spec: CommandSpec) -> CommandResult:
-        return exited(fake_stdout(structured_output={"verdict": "consistent"}, is_using_overage=True))
+        return exited(
+            fake_stdout(structured_output={"verdicts": [{"id": "0", "verdict": "consistent"}]}, is_using_overage=True)
+        )
 
     def no_event(spec: CommandSpec) -> CommandResult:
-        return exited(fake_stdout(structured_output={"verdict": "consistent"}, drop_rate_limit_event=True))
+        return exited(
+            fake_stdout(
+                structured_output={"verdicts": [{"id": "0", "verdict": "consistent"}]}, drop_rate_limit_event=True
+            )
+        )
 
     assert run(real)["overage_check"] == "passed"
 
@@ -660,7 +729,7 @@ def test_overage_check_passes_on_the_real_fixture_and_fails_on_overage(tmp_path:
     assert end["failures_by_kind"] == {**{k.value: 0 for k in FailureKind}, "provider_error": 1}
     llm = build(RecordingMeter(), tmp_path, FakeRunner(overage))
     with pytest.raises(LlmCallError, match="^provider_error"):
-        llm.check_entailment("合成参照", "合成主張")
+        llm.check_entailments("合成参照", ONE)
 
     # negative control: rate_limit_event が届かなければ unknown(passed に潰さない)。
     end = run(no_event)
@@ -768,7 +837,7 @@ def test_system_exit_passes_through_uncounted(tmp_path: Path) -> None:
     with pytest.raises(Alarm):
         llm.classify_clusters(deck(60))
     with pytest.raises(Alarm):
-        llm.check_entailment("合成参照", "合成主張")
+        llm.check_entailments("合成参照", ONE)
     end = meter.finish(exit_code=1, exit_reason="Alarm")
     assert end["failures_by_kind"] == {k.value: 0 for k in FailureKind}
     assert end["failed_invocations"] == 0

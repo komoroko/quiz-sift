@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +30,7 @@ from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.ingest.reader import IngestFormatError
 from quiz_sift.pipeline.stage import Stage, inputs_digest
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, Llm, RecallDraft
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, Llm, RecallDraft
 from quiz_sift.ports.metering import FailureKind, RunMeter
 from quiz_sift.ports.process import CommandResult, CommandSpec
 from quiz_sift.ports.tts import PcmAudio, Tts
@@ -65,9 +65,9 @@ class StubLlm:
         self.calls.append("describe")
         return f"{term}の説明"
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
         self.calls.append("entailment")
-        return Entailment.CONSISTENT
+        return tuple(Entailment.CONSISTENT for _ in statements)
 
 
 @pytest.fixture
@@ -504,10 +504,10 @@ def test_stage_digest_carries_the_models_it_uses(root: Path, capsys: pytest.Capt
     """各段の digest に、段が使うメソッドのモデル(ADR-027)が入る。1段のモデルだけを変えるとその段だけ作り直す。"""
     opus, sonnet, haiku = "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"
     expected = (
-        (cli.CLUSTER, {"classify_clusters": opus, "summarize_cluster": opus, "check_entailment": sonnet}),
-        (cli.RECALL, {"generate_recall": haiku, "check_entailment": sonnet}),
-        (cli.GLOSSARY, {"describe_term": opus, "check_entailment": sonnet}),
-        (cli.SCRIPT, {"check_entailment": sonnet}),
+        (cli.CLUSTER, {"classify_clusters": opus, "summarize_cluster": opus, "check_entailments": sonnet}),
+        (cli.RECALL, {"generate_recall": haiku, "check_entailments": sonnet}),
+        (cli.GLOSSARY, {"describe_term": opus, "check_entailments": sonnet}),
+        (cli.SCRIPT, {"check_entailments": sonnet}),
     )
     for stage, models in expected:
         assert dict(pair.split("=") for pair in stage.model.split(",")) == models, stage.name
@@ -574,7 +574,7 @@ def test_resume_makes_no_llm_calls_or_invocations_upstream(
     methods, spawned = len(llms.methods), len(llms.runner.specs)
     run("script", DECK)
     # 台本の段は自分の含意判定だけを呼ぶ(呼んでいること自体が、この実行で数えられていることの control)。
-    assert set(llms.methods[methods:]) == {"check_entailment"}
+    assert set(llms.methods[methods:]) == {"check_entailments"}
     assert not upstream & set(llms.methods[methods:])
     assert not upstream_systems & set(llms.systems()[spawned:])
 

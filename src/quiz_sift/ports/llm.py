@@ -8,6 +8,7 @@
 下流が計測を渡し忘れる経路を作らないため — 計測は実装の構築時に1回だけ結線する。
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
@@ -105,6 +106,20 @@ class Entailment(Enum):
     UNCERTAIN = "uncertain"
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class EntailmentStatement:
+    """含意判定にかける主張1件(ADR-029)。教材本文を含むので `repr` に出さない(NFR-3)。
+
+    `id` は1回の呼び出しの中で一意で、応答の判定値はこの ID で主張に対応づける。`focus` はその主張が説明する
+    正解の本文、`distractors` は識別ポイントが参照する誤答(この問題では正しくない記述)の本文。
+    """
+
+    id: str
+    statement: str
+    focus: str | None = None
+    distractors: tuple[str, ...] = ()
+
+
 class Llm(Protocol):
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
         """デッキの問題を論点ごとのグループに分ける(R-3)。
@@ -133,6 +148,9 @@ class Llm(Protocol):
         """専門用語の説明を `language` で書く(R-5)。"""
         ...
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        """`statement` が `reference`(正解・公式解説)と矛盾しないかを判定する(NFR-1)。"""
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        """各主張が `reference`(正解・公式解説)と矛盾しないかを1回で判定し、主張の順の判定値を返す(NFR-1)。
+
+        判定値は主張の ID で対応づけ、ID の欠けや余りは呼び出しの失敗にする(ADR-029)。
+        """
         ...

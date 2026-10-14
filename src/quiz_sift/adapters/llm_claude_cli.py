@@ -17,6 +17,7 @@
 import functools
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +41,7 @@ from quiz_sift.ports.llm import (
     CallFailure,
     ClassificationResult,
     Entailment,
+    EntailmentStatement,
     GroupProposal,
     RecallDraft,
     TokenUsage,
@@ -381,8 +383,37 @@ class ClaudeCliLlm:
             functools.partial(parse_string, key="description"),
         )
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        payload = {"reference": reference, "statement": statement}
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        """reference を1回、主張の列を1回の子プロセスで渡し、判定値を主張の ID で対応づける(ADR-029)。"""
+        payload = {"reference": reference, "statements": [_statement_json(s) for s in statements]}
         return self._call(
-            "check_entailment", prompts.ENTAILMENT_SYSTEM, payload, prompts.ENTAILMENT_SCHEMA, parse_entailment
+            "check_entailments",
+            prompts.ENTAILMENT_SYSTEM,
+            payload,
+            prompts.ENTAILMENT_SCHEMA,
+            functools.partial(_parse_verdicts, ids=tuple(s.id for s in statements)),
         )
+
+
+def _statement_json(statement: EntailmentStatement) -> dict[str, object]:
+    """主張1件の stdin の形。`focus` と `distractors` は持つときだけ載せる。"""
+    data: dict[str, object] = {"id": statement.id, "statement": statement.statement}
+    if statement.focus is not None:
+        data["focus"] = statement.focus
+    if statement.distractors:
+        data["distractors"] = list(statement.distractors)
+    return data
+
+
+def _parse_verdicts(data: Mapping[str, object], ids: tuple[str, ...]) -> tuple[Entailment, ...]:
+    """判定値を主張の ID で対応づけ、渡した順に並べる。ID の欠けか余り(重複・未知)は `INCOMPLETE_IDS`。"""
+    items = data.get("verdicts")
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise ContractError(FailureKind.SCHEMA, "verdicts がオブジェクトの配列でない")
+    returned = [parse_string(item, "id") for item in items]
+    if Counter(returned) != Counter(ids):
+        missing = (Counter(ids) - Counter(returned)).total()
+        extra = (Counter(returned) - Counter(ids)).total()
+        raise ContractError(FailureKind.INCOMPLETE_IDS, f"欠落 {missing} 件 重複または未知 {extra} 件")
+    by_id = {key: parse_entailment(item) for key, item in zip(returned, items, strict=True)}
+    return tuple(by_id[key] for key in ids)

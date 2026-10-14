@@ -21,7 +21,7 @@ MODELS: Final = {
     "summarize_cluster": _OPUS,
     "generate_recall": _HAIKU,
     "describe_term": _OPUS,
-    "check_entailment": _SONNET,
+    "check_entailments": _SONNET,
 }
 """`ports.llm.Llm` のメソッドごとのモデル ID(ADR-027)。"""
 
@@ -30,7 +30,7 @@ CHILD_ENV: Final[dict[str, dict[str, str]]] = {
     "summarize_cluster": {},
     "generate_recall": {"MAX_THINKING_TOKENS": "0"},
     "describe_term": {},
-    "check_entailment": {},
+    "check_entailments": {},
 }
 """メソッドごとに子プロセスの環境へ足す変数(D-243、ADR-029)。思考は argv でなく環境で止め、argv のダイジェストを
 動かさない。"""
@@ -92,10 +92,10 @@ RECALL_SYSTEM: Final = render_recall_system(RECALL_KEY_FIELDS)
 DESCRIBE_SYSTEM: Final = "あなたは資格試験に出る専門用語を、耳で聞いて分かる短い説明にする。"
 ENTAILMENT_SYSTEM: Final = (
     "あなたは reference を正しい情報として、statement がそれと矛盾するかを判定する。"
-    "reference に「誤答選択肢(この問題では正しくない記述)」の節があれば、"
-    "それはこの問題の答えとして正しくない記述の一覧である。"
-    "statement が誤答選択肢を正しくないと述べることは矛盾ではない。"
-    "reference に「この文が説明する正解」の節があれば、statement はその正解を説明している。"
+    "statements の各要素の statement を1つずつ判定し、その要素の id で判定を返す。"
+    "要素に focus があれば、その statement は focus の正解を説明している。"
+    "要素に distractors があれば、それはこの問題の答えとして正しくない記述(誤答選択肢)の一覧である。"
+    "statement が distractors を正しくないと述べることは矛盾ではない。"
     "矛盾しなければ consistent、矛盾すれば contradicted、reference から判断できなければ uncertain。"
     "statement は reference の複数の問題をまとめた要約でありうる。"
     "reference の一部を省略していること、一般化していること、"
@@ -120,7 +120,16 @@ RECALL_SCHEMA: Final = object_schema(
     }
 )
 DESCRIBE_SCHEMA: Final = object_schema({"description": _STRING})
-ENTAILMENT_SCHEMA: Final = object_schema({"verdict": {"type": "string", "enum": [e.value for e in Entailment]}})
+ENTAILMENT_SCHEMA: Final = object_schema(
+    {
+        "verdicts": {
+            "type": "array",
+            "items": object_schema(
+                {"id": _STRING, "verdict": {"type": "string", "enum": [e.value for e in Entailment]}}
+            ),
+        }
+    }
+)
 
 
 def classify_question(question: Question) -> dict[str, object]:

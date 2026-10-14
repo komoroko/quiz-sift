@@ -3,24 +3,24 @@
 1. **1問ずつ生成 → 検査 → 含意判定**(クラスタ順): `verify.check_question` か含意判定に落ちた問題だけを、
    上限 `MAX_REGENERATIONS` 回まで作り直す。重複キーはクラスタ順で前の問題と比べるので、後の問題が作り直される。
    他クラスタ出現率は合否に関わらずログに記録し、成果物にも載せる。
-2. **含意判定**(NFR-1 / D-042 / D-232): 機械検査をすべて通った素材だけを判定する。答えの各要素は対象の正解を
-   明示した reference と、識別ポイントは参照先の誤答の本文を加えた reference と照合する(D-192、D-210)。
+2. **含意判定**(NFR-1 / D-042 / D-232): 機械検査をすべて通った素材だけを判定する。1回の生成につき1回、
+   reference(問題の正解 N 件と解説)と、答えの各要素・識別ポイントの主張をまとめて聞く(ADR-029)。答えの要素には
+   その要素が説明する正解を `focus` に、識別ポイントには参照先の誤答の本文を `distractors` に付ける(D-192、D-210)。
    `consistent` でなければ検査名 `entailment` の不合格として、同じ上限の中でその問題を作り直す。
 3. **呼び出しの失敗は作り直さない**(D-101): 含意判定の呼び出しの失敗もその問題の失敗に数える。失敗しても
    残りの問題を回し、段を終えてから `RecallCallsFailed`。overage か枠切れを見たら残りを発行しない(D-144)。
 4. **上限超過**: 全問を回し切ってから、上限を超えた問題をすべて列挙して `RegenerationExhausted`(D-217)。
    上限超過の問題が無いとき、成果物に書かれるのはすべて含意判定を通った素材だけになる。
 5. **途中結果からの再開**(ADR-028): 実行の列では、問題ごとに「通過」「失格」「途中」を途中結果に書く。
-   出力のあった生成1回ごとと、判定値が返った主張ごとに書き、出力の無い生成は回数に数えない。再開では、
+   出力のあった生成1回ごとと、判定値が返った呼び出しごとに書き、出力の無い生成は回数に数えない。再開では、
    通過・失格の問題を呼び出さずに戻し(重複の検査でも前の問題として数える)、途中の問題は使った回数の続きから
-   数え、判定値のある主張を判定し直さない。失格の問題は作り直さないので、1回で走った場合と同じく止まる。
+   数え、判定値のある生成物を判定し直さない。失格の問題は作り直さないので、1回で走った場合と同じく止まる。
 """
 
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import partial
 from typing import Any, Protocol
 
 from quiz_sift.domain.cluster import Cluster
@@ -29,7 +29,7 @@ from quiz_sift.domain.ids import ClusterId, DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
-from quiz_sift.ports.llm import Entailment, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft
 from quiz_sift.recall.verify import (
     QuestionCheck,
     RecallMaterial,
@@ -39,7 +39,7 @@ from quiz_sift.recall.verify import (
     cluster_texts,
     report,
 )
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, judge, reference_for
+from quiz_sift.safety.entailment import EntailmentChecker, aggregate, ask, reference_for
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +108,14 @@ class _Generated:
 @dataclass(frozen=True, slots=True)
 class _Pending:
     """途中の問題1件。`attempts` は出力のあった生成の回数、`material` は判定中の生成物(無ければ次を生成する)、
-    `verdicts` はその生成物の主張の判定値を返った順に並べたもの。"""
+    `verdicts` はその生成物の主張の判定値を主張の順に並べたもの(まだ判定していなければ `None`)。"""
 
     attempts: int
     material: RecallMaterial | None
-    verdicts: tuple[Entailment, ...]
+    verdicts: tuple[Entailment, ...] | None
 
 
-_START = _Pending(0, None, ())
+_START = _Pending(0, None, None)
 
 
 def material_json(material: RecallMaterial) -> dict[str, Any]:
@@ -158,7 +158,7 @@ def _state_json(question_id: QuestionId, state: _Generated | _Pending) -> bytes:
         case _Pending(material=material, verdicts=verdicts):
             data["state"] = "pending"
             data["material"] = None if material is None else material_json(material)
-            data["verdicts"] = [v.value for v in verdicts]
+            data["verdicts"] = None if verdicts is None else [v.value for v in verdicts]
     return json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
@@ -174,37 +174,10 @@ def _state_from(raw: bytes, question_id: QuestionId) -> _Generated | _Pending:
             return _Generated(material_from(data["material"], deck_id), check, data["attempts"])
         case "pending":
             material = None if data["material"] is None else material_from(data["material"], deck_id)
-            return _Pending(data["attempts"], material, tuple(Entailment(v) for v in data["verdicts"]))
+            verdicts = None if data["verdicts"] is None else tuple(Entailment(v) for v in data["verdicts"])
+            return _Pending(data["attempts"], material, verdicts)
         case other:
             raise ValueError(f"途中結果の状態が不明: {other}")
-
-
-@dataclass
-class _RecordedChecker:
-    """記録済みの判定値を主張の順に返し、尽きたら判定器に聞いて、返った判定値を `record` に渡す。
-
-    `judge` は主張を先頭から順に聞くので、前の実行で返った判定値はそのまま同じ主張に当たる(AR-25)。
-    """
-
-    llm: EntailmentChecker
-    verdicts: list[Entailment]
-    record: Callable[[tuple[Entailment, ...]], None]
-    asked: int = 0
-
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        index, self.asked = self.asked, self.asked + 1
-        if index < len(self.verdicts):
-            return self.verdicts[index]
-        verdict = self.llm.check_entailment(reference, statement)
-        self.verdicts.append(verdict)
-        self.record(tuple(self.verdicts))
-        return verdict
-
-
-def _record_verdicts(
-    save: Callable[[_Pending], None], attempts: int, material: RecallMaterial, verdicts: tuple[Entailment, ...]
-) -> None:
-    save(_Pending(attempts, material, verdicts))
 
 
 def _generate_one(
@@ -220,21 +193,26 @@ def _generate_one(
 ) -> _Generated | None:
     """1問を検査と含意判定に通るか上限まで作る。生成の前に `stop_seen` が真なら `None`。
 
-    `pending` の回数の続きから数え、判定中の生成物があればその残りの主張から判定する。出力のあった生成と
+    `pending` の回数の続きから数え、判定中の生成物があればその判定値を使う(無ければ判定する)。出力のあった生成と
     返った判定値ごとに `save` を呼ぶ。`LlmCallError`(生成と含意判定のどちらの呼び出しでも)はそのまま上がる。
     """
-    attempts, material, verdicts = pending.attempts, pending.material, list(pending.verdicts)
+    attempts, material, verdicts = pending.attempts, pending.material, pending.verdicts
     while True:
         if material is None:
             if stop_seen():
                 return None
             material = RecallMaterial(cluster_id, question.question_id, llm.generate_recall(question, language))
-            attempts, verdicts = attempts + 1, []
-            save(_Pending(attempts, material, ()))
+            attempts, verdicts = attempts + 1, None
+            save(_Pending(attempts, material, None))
         check = check_question(material, question, texts, earlier)
         if not check.failures:
-            checker = _RecordedChecker(llm, verdicts, partial(_record_verdicts, save, attempts, material))
-            if judge(checker, _claims(material, question)) is not Entailment.CONSISTENT:
+            statements = _statements(material, question)
+            if verdicts is None:
+                verdicts = ask(llm, reference_for(question), statements)
+                save(_Pending(attempts, material, verdicts))
+            elif len(verdicts) != len(statements):
+                raise ValueError(f"途中結果の判定値 {len(verdicts)} 件が主張 {len(statements)} 件と合わない")
+            if aggregate(verdicts) is not Entailment.CONSISTENT:
                 check = replace(check, failures=(ENTAILMENT,))
         if not check.failures or attempts > MAX_REGENERATIONS:
             return _Generated(material, check, attempts)
@@ -244,16 +222,32 @@ def _generate_one(
             ",".join(check.failures),
             attempts,
         )
-        material, verdicts = None, []
-        save(_Pending(attempts, None, ()))
+        material, verdicts = None, None
+        save(_Pending(attempts, None, None))
 
 
-def _claims(material: RecallMaterial, question: Question) -> list[Claim]:
+def _statements(material: RecallMaterial, question: Question) -> list[EntailmentStatement]:
+    """1回の生成の主張。答えの要素はその正解を `focus` に、識別ポイントは参照先の誤答の本文を `distractors` に持つ。
+
+    答えの要素には誤答の本文を付けない。誤答を正しい情報として渡すと、誤答を正しくないと述べる正しい識別ポイントが
+    矛盾と判定される(AR-D4)。
+    """
+    texts = {option.option_id: option.text for option in question.options}
     draft = material.draft
-    claims = [Claim(reference_for(question, focus=e.option_id), e.text) for e in draft.answers]
-    discrimination = draft.discrimination
-    claims.append(Claim(reference_for(question, distractors=discrimination.distractor_ids), discrimination.text))
-    return claims
+    if any(e.option_id not in question.correct_option_ids for e in draft.answers):
+        raise ValueError("答えの要素の focus はこの問題の正解の選択肢でなければならない")
+    distractor_ids = draft.discrimination.distractor_ids
+    if any(d not in texts or d in question.correct_option_ids for d in distractor_ids):
+        raise ValueError("distractors はこの問題の誤答の選択肢でなければならない")
+    statements = [
+        EntailmentStatement(f"answer-{i}", e.text, focus=texts[e.option_id]) for i, e in enumerate(draft.answers)
+    ]
+    statements.append(
+        EntailmentStatement(
+            "discrimination", draft.discrimination.text, distractors=tuple(texts[d] for d in distractor_ids)
+        )
+    )
+    return statements
 
 
 def _log_rates(result: RecallReport) -> None:

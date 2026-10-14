@@ -23,7 +23,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal, RecallDraft
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, RecallDraft
 from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import PcmAudio, Tts
 
@@ -85,9 +85,9 @@ class StubLlm:
         self.calls.append("describe")
         return f"{term}の説明"
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
         self.calls.append("entailment")
-        return Entailment.CONSISTENT
+        return tuple(Entailment.CONSISTENT for _ in statements)
 
 
 @dataclass

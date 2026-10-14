@@ -95,7 +95,7 @@ def test_model_per_method_follows_adr_027() -> None:
         "summarize_cluster": "claude-opus-5-5",
         "generate_recall": "claude-haiku-4-5",
         "describe_term": "claude-opus-5-5",
-        "check_entailment": "claude-sonnet-5-5",
+        "check_entailments": "claude-sonnet-5-5",
     }
 
 

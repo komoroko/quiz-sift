@@ -37,10 +37,18 @@ from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.terms import extract_terms
-from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, GroupProposal, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import (
+    CallFailure,
+    ClassificationResult,
+    Entailment,
+    EntailmentStatement,
+    GroupProposal,
+    LlmCallError,
+    RecallDraft,
+)
 from quiz_sift.ports.process import CommandResult, CommandSpec
 from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
-from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION, EntailmentRejected
+from quiz_sift.safety.entailment import EntailmentRejected
 from quiz_sift.script.generate import LabelEnumerationFound, MissingAnswerElement, ScriptTooLong
 
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
@@ -207,8 +215,8 @@ class AnalysisLlm(StubLlm):
 
     `failing` のグループは分割呼び出しの失敗として返す。含意判定は `contradicted` / `uncertain` に
     入っている主張にだけその判定を返し、ほかは `consistent`。`contradicts` を渡すと、それが真を返す
-    (reference, statement) にも `contradicted` を返す。判定にかけた主張は `checked`、reference と組で
-    `judged` に残る。
+    (reference, 主張) にも `contradicted` を返す。判定にかけた主張の本文は `checked`、reference と主張
+    (focus・distractors を含む)の組で `judged` に残る。
 
     想起素材は、`sequences` にある問題なら呼ばれるたびにその列を順に返し(尽きたら最後を返し続ける)、
     無ければ `drafts` を返す。どちらも呼ばれた問題のデッキへ選択肢 ID を写し替える。`call_failures` の
@@ -221,8 +229,8 @@ class AnalysisLlm(StubLlm):
     contradicted: frozenset[str] = frozenset()
     uncertain: frozenset[str] = frozenset()
     checked: list[str] = field(default_factory=list)
-    contradicts: Callable[[str, str], bool] = lambda reference, statement: False
-    judged: list[tuple[str, str]] = field(default_factory=list)
+    contradicts: Callable[[str, EntailmentStatement], bool] = lambda reference, statement: False
+    judged: list[tuple[str, EntailmentStatement]] = field(default_factory=list)
     sequences: Mapping[str, Sequence[RecallDraft]] = field(default_factory=dict)
     call_failures: frozenset[str] = frozenset()
     recalled: list[str] = field(default_factory=list)
@@ -260,13 +268,16 @@ class AnalysisLlm(StubLlm):
         self.calls.append("summarize")
         return self.summaries[label]
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        super().check_entailment(reference, statement)
-        self.checked.append(statement)
-        self.judged.append((reference, statement))
-        if statement in self.contradicted or self.contradicts(reference, statement):
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        super().check_entailments(reference, statements)
+        return tuple(self._verdict(reference, item) for item in statements)
+
+    def _verdict(self, reference: str, item: EntailmentStatement) -> Entailment:
+        self.checked.append(item.statement)
+        self.judged.append((reference, item))
+        if item.statement in self.contradicted or self.contradicts(reference, item):
             return Entailment.CONTRADICTED
-        if statement in self.uncertain:
+        if item.statement in self.uncertain:
             return Entailment.UNCERTAIN
         return Entailment.CONSISTENT
 
@@ -639,8 +650,8 @@ def test_c004_failed_questions_are_regenerated_up_to_twice(
         deck_id = _deck(workspace, f"regenerate-entailment-{rejections}")
         llm = _subset_llm()
 
-        def rejects_first(_: str, statement: str, n: int = rejections, llm: AnalysisLlm = llm) -> bool:
-            return statement == answer and llm.checked.count(answer) <= n
+        def rejects_first(_: str, item: EntailmentStatement, n: int = rejections, llm: AnalysisLlm = llm) -> bool:
+            return item.statement == answer and llm.checked.count(answer) <= n
 
         llm.contradicts = rejects_first
         run = CliRunner(workspace, capsys, llm, StubTts())
@@ -760,24 +771,24 @@ def test_script_resume_logs_counts_only(
     llms = CliLlms(counting, FakeRunner(count))
     assert cli.main(["--root", str(counting), "recall", DECK], llm_factory=llms, preflight=no_preflight) == 0
 
-    # script 段の3回目の判定(2本目のトラックの最初の主張)を枠切れにする。
+    # script 段の2回目の判定(2本目のトラックの問。1問ぶんを1回で聞く)を枠切れにする。
     root = tmp_path / "root"
     root.mkdir()
     write_root(root)
     entailments: list[CommandSpec] = []
 
-    def stop_at_the_third_script_check(spec: CommandSpec) -> CommandResult:
+    def stop_at_the_second_script_check(spec: CommandSpec) -> CommandResult:
         if not is_entailment(spec):
             return respond(spec)
         entailments.append(spec)
-        if len(entailments) == len(before_script) + 3:
+        if len(entailments) == len(before_script) + 2:
             stdout = fake_stdout(
                 subtype="error_during_execution", is_error=True, structured_output=None, rate_limit_status="rejected"
             )
             return exited(stdout, 1)
         return respond(spec)
 
-    llms = CliLlms(root, FakeRunner(stop_at_the_third_script_check))
+    llms = CliLlms(root, FakeRunner(stop_at_the_second_script_check))
 
     def main(*argv: str) -> int:
         return cli.main(["--root", str(root), "script", DECK, *argv], llm_factory=llms, preflight=no_preflight)
@@ -1111,20 +1122,20 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
         assert _artifacts(workspace, deck_id, directory) != []
     assert {paraphrased_summary, "マルチ AZ で待機系を持つ", "明示的な拒否が勝つ"} <= set(llm.checked)
 
-    # 想起素材の reference: 答えの要素は対象の正解を明示し、識別ポイントは参照先の誤答だけを誤答の節に置く。
-    # 同じ主張は後の台本の段でも判定されるので、先に判定された想起素材の段の reference を見る。
-    references: dict[str, str] = {}
-    for reference, statement in llm.judged:
-        references.setdefault(statement, reference)
-    q11 = {row["id"]: row for row in SUBSET_ROWS}["q11"]
-    assert f"{FOCUS_SECTION}: マルチ AZ 配置" in references["マルチ AZ で待機系を持つ"]
-    discrimination = references[DRAFTS["q11"].discrimination.text]
-    assert f"{DISTRACTOR_SECTION}: リードレプリカ" in discrimination
-    assert not any(text in discrimination for text in _distractors(q11) if text != "リードレプリカ")
-    # グロッサリの reference は公式解説のままで、正解・誤答の節を持たない。
-    glossary = [reference for reference, statement in llm.judged if statement.endswith("の説明")]
+    # 想起素材の主張: 答えの要素は対象の正解を focus に持ち、識別ポイントは参照先の誤答だけを distractors に持つ。
+    # 同じ主張は後の台本の段でも判定されるので、先に判定された想起素材の段の主張を見る。
+    items: dict[str, EntailmentStatement] = {}
+    for _, item in llm.judged:
+        items.setdefault(item.statement, item)
+    assert (items["マルチ AZ で待機系を持つ"].focus, items["マルチ AZ で待機系を持つ"].distractors) == (
+        "マルチ AZ 配置",
+        (),
+    )
+    assert items[DRAFTS["q11"].discrimination.text].distractors == ("リードレプリカ",)
+    # グロッサリの reference は公式解説のままで、正解を持たず、主張も focus・distractors を持たない。
+    glossary = [(reference, item) for reference, item in llm.judged if item.statement.endswith("の説明")]
     assert glossary
-    assert not any(section in r for r in glossary for section in ("正解:", FOCUS_SECTION, DISTRACTOR_SECTION))
+    assert not any("正解:" in reference or item.focus or item.distractors for reference, item in glossary)
 
 
 def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1132,23 +1143,24 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
     drafts = {**DRAFTS, "q10": MULTI_DRAFT}
     texts = dict(zip("ABCD", MULTI_ROW["options"], strict=True))
 
-    # 矛盾しない実行: 各要素の reference は正解 N 件すべてと、その要素の正解を明示した節を持つ。
+    # 矛盾しない実行: 各要素の reference は正解 N 件すべてを持ち、主張はその要素の正解を focus に持つ。
     llm = _subset_llm(drafts=drafts)
     CliRunner(workspace, capsys, llm, StubTts())("recall", _deck(workspace, "c013-multi", MULTI_ROWS))
-    references = {statement: reference for reference, statement in llm.judged}
+    judged = {item.statement: (reference, item) for reference, item in llm.judged}
     for element, label in zip(MULTI_DRAFT.answers, "AC", strict=True):
-        reference = references[element.text]
+        reference, item = judged[element.text]
         assert f"正解: {texts['A']}、{texts['C']}" in reference
-        assert f"{FOCUS_SECTION}: {texts[label]}" in reference
-    assert f"{DISTRACTOR_SECTION}: {texts['B']}" in references[MULTI_DRAFT.discrimination.text]
+        assert (item.focus, item.distractors) == (texts[label], ())
+    assert judged[MULTI_DRAFT.discrimination.text][1].distractors == (texts["B"],)
 
     second = MULTI_DRAFT.answers[1].text
-    for name, contradicts in {
+    contradictions: dict[str, Callable[[str, EntailmentStatement], bool]] = {
         # 2つ目の要素(職務分掌)だけを矛盾と返す。台本は N 要素を連結した答えを判定するので、含むかで見る。
-        "element": lambda reference, statement: second in statement,
-        # 参照先の誤答の節を持つ reference とだけ矛盾と返す。
-        "distractor": lambda reference, statement: f"{DISTRACTOR_SECTION}: {texts['B']}" in reference,
-    }.items():
+        "element": lambda reference, item: second in item.statement,
+        # 参照先の誤答を distractors に持つ主張とだけ矛盾と返す。
+        "distractor": lambda reference, item: texts["B"] in item.distractors,
+    }
+    for name, contradicts in contradictions.items():
         deck_id = _deck(workspace, f"c013-multi-{name}", MULTI_ROWS)
         llm = _subset_llm(drafts=drafts, contradicts=contradicts)
         error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", deck_id)
@@ -1172,7 +1184,7 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
 def test_c013_script_discrimination_is_judged_against_its_distractors(
     workspace: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A-3: 台本の識別ポイントは distractor_ids を引き継ぎ、台本段の reference に参照先の誤答の本文が入る。"""
+    """A-3: 台本の識別ポイントは distractor_ids を引き継ぎ、台本段の主張の distractors に参照先の誤答の本文が入る。"""
     q11 = {row["id"]: row for row in SUBSET_ROWS}["q11"]
     statement = DRAFTS["q11"].discrimination.text
     deck_id = _deck(workspace, "c013-script-distractors")
@@ -1185,24 +1197,24 @@ def test_c013_script_discrimination_is_judged_against_its_distractors(
     # 成果物の識別ポイントは、想起素材の参照先(q11 は A = リードレプリカ)を引き継ぐ。
     (question,) = [q for track in script["tracks"] for q in track["questions"] if q["id"] == "q11"]
     assert question["discrimination"] == {"text": statement, "distractors": ["A"]}
-    # 台本段の reference は、参照先の誤答の本文だけを「正しくない記述」の節に置く。
-    (reference,) = [r for r, s in llm.judged if s == statement]
-    assert f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
-    assert not any(text in reference for text in _distractors(q11) if text != "リードレプリカ")
-    # 答えの reference には誤答の節が無い。
-    (answer_reference,) = [r for r, s in llm.judged if s == DRAFTS["q11"].answers[0].text]
-    assert DISTRACTOR_SECTION not in answer_reference
+    # 台本段の識別ポイントの主張は、参照先の誤答の本文だけを distractors に持つ。
+    (item,) = [i for _, i in llm.judged if i.statement == statement]
+    assert item.distractors == ("リードレプリカ",)
+    assert not any(text in item.distractors for text in _distractors(q11) if text != "リードレプリカ")
+    # 答えの主張は誤答の本文を持たない。
+    (answer,) = [i for _, i in llm.judged if i.statement == DRAFTS["q11"].answers[0].text]
+    assert answer.distractors == ()
 
-    # 参照先の誤答の節を持つ reference とだけ矛盾と返す判定器では、台本の段で止まって台本は書かれない。
+    # 参照先の誤答を distractors に持つ主張とだけ矛盾と返す判定器では、台本の段で止まって台本は書かれない。
     deck_id = _deck(workspace, "c013-script-distractors-contradicted")
     llm = _subset_llm()
     run = CliRunner(workspace, capsys, llm, StubTts())
     run("recall", deck_id)
-    llm.contradicts = lambda reference, _: f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
+    llm.contradicts = lambda reference, item: "リードレプリカ" in item.distractors
     llm.judged.clear()
     error = _fails(run, "script", deck_id)
     assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED
-    assert any(s == statement for _, s in llm.judged)
+    assert any(i.statement == statement for _, i in llm.judged)
     assert _artifacts(workspace, deck_id, "script") == []
 
 
@@ -1234,9 +1246,9 @@ def test_regeneration_logs_name_ids_and_counts_only(
     description = "IAM: IAMの説明"
     llm = _UngroundedOnce(drafts=DRAFTS, groups=GROUPS, summaries=SUMMARIES, label="ec2", ungrounded=ungrounded)
 
-    def first_rejected(_: str, statement: str) -> bool:
+    def first_rejected(_: str, item: EntailmentStatement) -> bool:
         # iam の要約と IAM の説明を、それぞれ最初の1回だけ矛盾と返す。
-        return statement in (summary, description) and llm.checked.count(statement) == 1
+        return item.statement in (summary, description) and llm.checked.count(item.statement) == 1
 
     llm.contradicts = first_rejected
     run = CliRunner(workspace, capsys, llm, StubTts())

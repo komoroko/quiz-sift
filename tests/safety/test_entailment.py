@@ -8,6 +8,7 @@ LLM の応答は**手書きフィクスチャ**で固定する(D-043)。fake の
 import logging
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,12 +19,12 @@ from quiz_sift.adapters.llm_prompts import ENTAILMENT_SYSTEM
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, LlmCallError
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError
 from quiz_sift.safety.entailment import (
-    DISTRACTOR_SECTION,
-    FOCUS_SECTION,
     Claim,
     EntailmentRejected,
+    aggregate,
+    ask,
     judge,
     measure_mutations,
     reference_for,
@@ -69,17 +70,26 @@ class FixtureChecker:
     def __init__(self, verdicts: dict[str, str | Exception]) -> None:
         self.verdicts = verdicts
         self.asked: list[str] = []
+        self.calls = 0
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        self.asked.append(statement)
-        verdict = self.verdicts[statement]
-        if isinstance(verdict, Exception):
-            raise verdict
-        return parse_entailment({"verdict": verdict})
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        self.calls += 1
+        self.asked.extend(s.statement for s in statements)
+        out = []
+        for s in statements:
+            verdict = self.verdicts[s.statement]
+            if isinstance(verdict, Exception):
+                raise verdict
+            out.append(parse_entailment({"verdict": verdict}))
+        return tuple(out)
 
 
-def claims(*statements: str) -> list[Claim]:
-    return [Claim(reference=REFERENCE, statement=s) for s in statements]
+def statements(*texts: str) -> list[EntailmentStatement]:
+    return [EntailmentStatement(f"s{i}", text) for i, text in enumerate(texts)]
+
+
+def claims(*texts: str) -> list[Claim]:
+    return [Claim(reference=REFERENCE, statement=s) for s in texts]
 
 
 def test_no_stage_independent_emit_path() -> None:
@@ -94,35 +104,35 @@ def test_three_verdicts_and_fail_closed(tmp_path: Path) -> None:
     llm = FixtureChecker({"良": "consistent", "悪": "contradicted", "謎": "uncertain", "壊": LlmCallError("refusal")})
 
     # 3値がそのまま区別されて返る。uncertain は consistent に倒れない。
-    assert judge(llm, claims("良", "良")) is Entailment.CONSISTENT
-    assert judge(llm, claims("良", "謎")) is Entailment.UNCERTAIN
-    assert judge(llm, claims("謎", "悪", "良")) is Entailment.CONTRADICTED
+    assert judge(llm, REFERENCE, statements("良", "良")) is Entailment.CONSISTENT
+    assert judge(llm, REFERENCE, statements("良", "謎")) is Entailment.UNCERTAIN
+    assert judge(llm, REFERENCE, statements("謎", "悪", "良")) is Entailment.CONTRADICTED
     # 照合が1件も無いものは確かめていないので consistent にしない。
-    assert judge(llm, []) is Entailment.UNCERTAIN
+    assert judge(llm, REFERENCE, []) is Entailment.UNCERTAIN
 
     # contradicted・uncertain・判定不能の停止は判定値だけを持ち、本文を終了メッセージに載せない(NFR-3)。
-    for name, statements in (("contradicted", ("良", "悪")), ("uncertain", ("謎",)), ("empty", ())):
-        rejected = EntailmentRejected(judge(llm, claims(*statements)))
+    for name, texts in (("contradicted", ("良", "悪")), ("uncertain", ("謎",)), ("empty", ())):
+        rejected = EntailmentRejected(judge(llm, REFERENCE, statements(*texts)))
         assert rejected.verdict is (Entailment.CONTRADICTED if name == "contradicted" else Entailment.UNCERTAIN)
-        assert all(s not in str(rejected.code) for s in statements)
+        assert all(s not in str(rejected.code) for s in texts)
 
     # 判定の呼び出しが失敗したら、判定値を返さずにそのまま上がる(consistent に倒れない)。
     with pytest.raises(LlmCallError):
-        judge(llm, claims("良", "壊"))
+        judge(llm, REFERENCE, statements("良", "壊"))
 
     # 捕まえずに上がれば、プロセスは非0で終了し成果物は無い。
     for verdict in ("contradicted", "uncertain"):
         artifact = tmp_path / f"proc-{verdict}.txt"
         script = f"""
 from pathlib import Path
-from quiz_sift.ports.llm import Entailment
-from quiz_sift.safety.entailment import Claim, EntailmentRejected, judge
+from quiz_sift.ports.llm import Entailment, EntailmentStatement
+from quiz_sift.safety.entailment import EntailmentRejected, judge
 
 class Checker:
-    def check_entailment(self, reference, statement):
-        return Entailment({verdict!r})
+    def check_entailments(self, reference, statements):
+        return tuple(Entailment({verdict!r}) for _ in statements)
 
-verdict = judge(Checker(), [Claim("r", "s")])
+verdict = judge(Checker(), "r", [EntailmentStatement("0", "s")])
 if verdict is not Entailment.CONSISTENT:
     raise EntailmentRejected(verdict)
 Path({str(artifact)!r}).write_text("x")
@@ -140,12 +150,15 @@ def test_no_false_positive_on_paraphrase() -> None:
     llm = FixtureChecker(dict(FIXTURE_VERDICTS))
 
     # 言い換えは字面が正解とほとんど重ならないが、1件も矛盾扱いにならない。
-    false_positives = [p for p in PARAPHRASES if judge(llm, claims(p)) is not Entailment.CONSISTENT]
+    false_positives = [p for p in PARAPHRASES if judge(llm, REFERENCE, statements(p)) is not Entailment.CONSISTENT]
     assert false_positives == []
-    assert judge(llm, claims(*PARAPHRASES)) is Entailment.CONSISTENT
+    assert judge(llm, REFERENCE, statements(*PARAPHRASES)) is Entailment.CONSISTENT
 
     # 言い換えに混ぜて仕込んだ矛盾は検出される。
-    assert judge(llm, claims(*PARAPHRASES[:2], PLANTED_CONTRADICTION, PARAPHRASES[2])) is Entailment.CONTRADICTED
+    assert (
+        judge(llm, REFERENCE, statements(*PARAPHRASES[:2], PLANTED_CONTRADICTION, PARAPHRASES[2]))
+        is Entailment.CONTRADICTED
+    )
     # 判定は全件 LLM に問い合わせている(字面で先に弾いていない)。
     assert PLANTED_CONTRADICTION in llm.asked
 
@@ -184,42 +197,52 @@ def _multi_question(explanation: str | None = "どちらも推奨される原則
 
 
 def test_reference_text_holds_the_right_sections() -> None:
-    """A-8: 判定器に渡る reference の本文そのものに、要るものが入り、要らないものが入らない。"""
+    """A-8・ADR-029: reference は正解 N 件すべてと解説だけを持ち、焦点と誤答は主張の側に置く。"""
     question = _multi_question()
-    a, b, c, d = (option.option_id for option in question.options)
 
-    # 既定(クラスタ要約・台本)は、正解 N 件すべてと解説。誤答の本文と、焦点・誤答の節は入らない。
+    # どの主張にも同じ reference: 正解 N 件すべてと解説。誤答の本文は入らない。
     plain = reference_for(question)
     assert plain == (
         "問題: 推奨される原則を2つ選べ。 正解: 最小権限の原則、職務分掌 解説: どちらも推奨される原則である。"
     )
-
-    # 答えの要素: 対象の正解の本文を明示し、正解 N 件の本文も併記する(D-210)。
-    focused = reference_for(question, focus=c)
-    assert "正解: 最小権限の原則、職務分掌" in focused
-    assert f"{FOCUS_SECTION}: 職務分掌" in focused
-    assert DISTRACTOR_SECTION not in focused
-    assert not any(text in focused for text in ("ルートユーザーの常用", "アクセスキーの共有"))
-
-    # 識別ポイント: 誤答の節に、参照先の誤答の本文だけが入る。参照していない誤答の本文は入らない。
-    distracted = reference_for(question, distractors=(b,))
-    assert "正解: 最小権限の原則、職務分掌" in distracted
-    assert f"{DISTRACTOR_SECTION}: ルートユーザーの常用" in distracted
-    assert "アクセスキーの共有" not in distracted
-    assert FOCUS_SECTION not in distracted
-    assert f"{DISTRACTOR_SECTION}: ルートユーザーの常用、アクセスキーの共有" in reference_for(
-        question, distractors=(b, d)
-    )
+    assert not any(text in plain for text in ("ルートユーザーの常用", "アクセスキーの共有"))
     # 解説の無い問題では解説の節を作らない。
     assert "解説" not in reference_for(_multi_question(None))
+    # 焦点・誤答の節を reference に作る経路は無い。
+    with pytest.raises(TypeError):
+        reference_for(question, focus=question.correct_option_ids[0])  # type: ignore[call-arg]
 
-    # 判定器への指示は、誤答の節を「正しくない記述の一覧」として読ませる(AR-D4)。
-    assert DISTRACTOR_SECTION in ENTAILMENT_SYSTEM and FOCUS_SECTION in ENTAILMENT_SYSTEM
-    assert "誤答選択肢を正しくないと述べることは矛盾ではない" in ENTAILMENT_SYSTEM
+    # 判定器への指示は、主張の focus をその主張が説明する正解として、distractors を「正しくない記述の一覧」として
+    # 読ませる(D-210、AR-D4)。
+    assert "focus の正解を説明している" in ENTAILMENT_SYSTEM
+    assert "distractors があれば、それはこの問題の答えとして正しくない記述" in ENTAILMENT_SYSTEM
+    assert "distractors を正しくないと述べることは矛盾ではない" in ENTAILMENT_SYSTEM
 
-    # 焦点は正解、誤答の参照は誤答でなければならない。取り違えは黙って通さない。
-    with pytest.raises(ValueError):
-        reference_for(question, focus=b)
-    for distractors in ((a,), (OptionId(QuestionId(DeckId("deck"), "q2"), "B"),)):
-        with pytest.raises(ValueError):
-            reference_for(question, distractors=distractors)
+
+def test_one_call_per_reference_and_order_is_kept() -> None:
+    """ADR-029: 1つの reference の主張は1回で聞き、判定値は主張の順に集約する。数の合わない応答は通さない。"""
+    llm = FixtureChecker({"良": "consistent", "悪": "contradicted", "謎": "uncertain"})
+    assert ask(llm, REFERENCE, statements("謎", "良", "悪")) == (
+        Entailment.UNCERTAIN,
+        Entailment.CONSISTENT,
+        Entailment.CONTRADICTED,
+    )
+    assert llm.calls == 1
+    # 集約の規則は 1件ずつ聞いたときと同じ。
+    assert aggregate([]) is Entailment.UNCERTAIN
+    assert aggregate([Entailment.CONSISTENT, Entailment.UNCERTAIN]) is Entailment.UNCERTAIN
+    assert aggregate([Entailment.UNCERTAIN, Entailment.CONTRADICTED]) is Entailment.CONTRADICTED
+    # 主張が0件なら呼ばない。
+    judge(llm, REFERENCE, [])
+    assert llm.calls == 1
+
+    # 主張の ID の重複と、判定値の数の食い違いは落とす。
+    with pytest.raises(ValueError, match="重複"):
+        ask(llm, REFERENCE, [EntailmentStatement("x", "良"), EntailmentStatement("x", "良")])
+
+    class Short:
+        def check_entailments(self, reference: str, items: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+            return (Entailment.CONSISTENT,)
+
+    with pytest.raises(ValueError, match="合わない"):
+        ask(Short(), REFERENCE, statements("良", "良"))
