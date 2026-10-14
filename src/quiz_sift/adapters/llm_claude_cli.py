@@ -236,18 +236,17 @@ class ClaudeCliLlm:
         `provider_invocations` に入り、`llm_calls`(`begin_call`)には入らない。返すのは最後の子の判定。
         stdin に載せる問題は、呼び出し側が先に `_material` へ登録しておく(記録の argv と init.tools で伏せる)。
         """
-        model = prompts.MODELS[method]
-        argv = build_argv(model, system, schema)
+        argv = build_argv(prompts.MODELS[method], system, schema)
         stdin = json.dumps(payload, ensure_ascii=False)
         for reissue in range(MAX_REISSUES):
-            judgement, is_error = self._spawn(model, argv, stdin, parse, reissue=reissue > 0)
+            judgement, is_error = self._spawn(method, argv, stdin, parse, reissue=reissue > 0)
             if judgement.failure is not FailureKind.TRUNCATED:
                 return judgement, is_error
-        return self._spawn(model, argv, stdin, parse, reissue=True)
+        return self._spawn(method, argv, stdin, parse, reissue=True)
 
     def _spawn[T](
         self,
-        model: str,
+        method: str,
         argv: tuple[str, ...],
         stdin: str,
         parse: Callable[[Mapping[str, Any]], T],
@@ -256,11 +255,14 @@ class ClaudeCliLlm:
     ) -> tuple[Judgement[T], bool | None]:
         """子プロセス1本。usage と枠を判定より先に meter へ渡し、失敗を記録し、記録を1件ログへ出す。
 
-        `reissue` は直前の `TRUNCATED` の子の出し直しであることを meter へ知らせる(D-241)。
+        `reissue` は直前の `TRUNCATED` の子の出し直しであることを meter へ知らせる(D-241)。子の環境は
+        `workspace.child_env()` にメソッドの追加の環境(`llm_prompts.CHILD_ENV`)を重ねたもの(D-243)。
         """
+        model = prompts.MODELS[method]
+        env = {**self.workspace.child_env(), **prompts.CHILD_ENV[method]}
         self._meter.begin_invocation(argv_digest(argv), reissue=reissue)
         with self.workspace.new_cwd() as cwd:
-            spec = CommandSpec(argv=argv, env=self.workspace.child_env(), cwd=cwd, stdin=stdin)
+            spec = CommandSpec(argv=argv, env=env, cwd=cwd, stdin=stdin)
             started = self.clock.monotonic()
             result = self.runner.run(spec)
             duration = self.clock.monotonic() - started

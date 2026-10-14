@@ -161,6 +161,52 @@ def test_runner_refuses_an_env_that_is_not_the_allowlist(tmp_path: Path) -> None
             runner.run(CommandSpec(("true",), bad, tmp_path, ""))
 
 
+def test_runner_allows_thinking_env_only_for_generate_recall(tmp_path: Path) -> None:
+    """T-083 A-1: MAX_THINKING_TOKENS=0 は generate_recall のモデル(Haiku 4.5)の子にだけ許す(NFR-8 (b2)、ADR-029)。
+
+    runner はメソッドを知らないので、argv の `--model` から許す追加の環境を決める。
+    """
+    # 品質ゲートの /tmp は noexec なので、子は実行可能なマウント上の Python にし、受け取った環境を JSON で出させる。
+    # 後ろの `--model` は Python の sys.argv に入るだけで、runner はそこからモデルを読む。
+    dump_env = (sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))")
+    marker = tmp_path / "spawned"
+    touch = (sys.executable, "-c", f"open({str(marker)!r}, 'w').close()")
+    env = {"HOME": str(tmp_path), "PATH": os.defpath, "LANG": "C.UTF-8", "TZ": "UTC"}
+    thinking = {**env, "MAX_THINKING_TOKENS": "0"}
+    runner = SubprocessRunner()
+
+    def model(name: str) -> tuple[str, ...]:
+        return ("--model", name)
+
+    result = runner.run(CommandSpec((*dump_env, *model("claude-haiku-4-5")), thinking, tmp_path, ""))
+    assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == thinking
+
+    refused = [
+        # 他のメソッド(Opus 5.5・Sonnet 5.5)の子に思考を止める鍵が来た。
+        (model("claude-opus-5-5"), thinking),
+        (model("claude-sonnet-5-5"), thinking),
+        ((), thinking),
+        # generate_recall の子でも、値が違うか鍵が欠けていれば表と一致しない。
+        (model("claude-haiku-4-5"), {**env, "MAX_THINKING_TOKENS": "1024"}),
+        (model("claude-haiku-4-5"), env),
+    ]
+    for args, bad in refused:
+        # 起動されれば marker を作る argv。検査が起動の前に落とすので作られない。
+        with pytest.raises(ValueError, match="^子プロセスの環境は"):
+            runner.run(CommandSpec((*touch, *args), bad, tmp_path, ""))
+    assert not marker.exists(), "起動の前に落ちていない"
+    # 対照: 同じ argv でも許される環境なら起動して marker を作る(検査が空振りしていない)。
+    result = runner.run(CommandSpec((*touch, *model("claude-haiku-4-5")), thinking, tmp_path, ""))
+    assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
+    assert marker.exists()
+    # 対照: Opus と Sonnet の子は基本の4つだけで起動する。
+    for name in ("claude-opus-5-5", "claude-sonnet-5-5"):
+        result = runner.run(CommandSpec((*dump_env, *model(name)), env, tmp_path, ""))
+        assert result.outcome is Outcome.EXITED and result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == env
+
+
 def test_workspace_makes_an_empty_cwd_outside_the_repo_and_cleans_it(tmp_path: Path) -> None:
     home = make_measured_home(tmp_path / "home")
     cwd_root = tmp_path / "cwd-root"
