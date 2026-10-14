@@ -321,7 +321,7 @@ class ClaudeCliLlm:
             keyed = {str(i): q for i, q in enumerate(batch)}
             payload = {
                 "existing_labels": sorted({g.label for g in groups}),
-                "questions": [{"key": k, **prompts.render_question(q)} for k, q in keyed.items()],
+                "questions": [{"key": k, **prompts.classify_question(q)} for k, q in keyed.items()],
             }
             judgement, is_error = self._invoke(
                 "classify_clusters",

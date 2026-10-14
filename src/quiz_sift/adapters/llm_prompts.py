@@ -35,6 +35,7 @@ CLASSIFY_SYSTEM: Final = (
     "各問題はちょうど1つのグループに入れる。どこにも当てはまらない問題は unassigned に入れる。"
     "groups[].question_ids と unassigned を合わせて、すべての問題キーがちょうど1回現れること。"
     "label は論点を短く言い表す。既存のラベルが与えられた場合、同じ論点にはそのラベルを再利用する。"
+    "各問題は問題文(stem)・選択肢(options)・正解(correct)で与えられる。"
 )
 SUMMARIZE_SYSTEM: Final = (
     "あなたは同じ論点に属する多肢選択問題群を読み、その論点を要約する。問題文に無い語句を持ち込まない。"
@@ -99,14 +100,15 @@ DESCRIBE_SCHEMA: Final = object_schema({"description": _STRING})
 ENTAILMENT_SCHEMA: Final = object_schema({"verdict": {"type": "string", "enum": [e.value for e in Entailment]}})
 
 
-def render_question(question: Question) -> dict[str, object]:
+def classify_question(question: Question) -> dict[str, object]:
+    """分類に渡す問題。論点は問題文・選択肢・正解で決まるので、解説は渡さない(ADR-029)。"""
     correct = "、".join(o.text for o in question.options if o.option_id in question.correct_option_ids)
-    return {
-        "stem": question.stem,
-        "options": [o.text for o in question.options],
-        "correct": correct,
-        "explanation": question.explanation,
-    }
+    return {"stem": question.stem, "options": [o.text for o in question.options], "correct": correct}
+
+
+def render_question(question: Question) -> dict[str, object]:
+    """要約に渡す問題。分類の形に解説を足す。"""
+    return {**classify_question(question), "explanation": question.explanation}
 
 
 def recall_payload(question: Question) -> tuple[dict[str, object], dict[str, OptionId]]:
