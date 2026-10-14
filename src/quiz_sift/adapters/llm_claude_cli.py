@@ -44,6 +44,7 @@ from quiz_sift.ports.llm import (
     EntailmentStatement,
     GroupProposal,
     RecallDraft,
+    Retry,
     TokenUsage,
 )
 from quiz_sift.ports.metering import FailureKind, RateLimitInfo, RunMeter, rate_limit_stop
@@ -346,13 +347,17 @@ class ClaudeCliLlm:
                 break
         return ClassificationResult(assignments=tuple(groups), failures=tuple(failures))
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         for question in members.questions:
             self._material.register_question(question)
-        payload = {
+        payload: dict[str, object] = {
             "language": prompts.LANGUAGE_NAMES[members.language],
             "questions": [prompts.render_question(q) for q in members.questions],
         }
+        if retry is not None:
+            # 要約の検査の対象に選択肢は無い。
+            problems = [prompts.problem_json(p, {}) for p in retry.problems]
+            payload["retry"] = {"previous": retry.previous, "problems": problems}
         return self._call(
             "summarize_cluster",
             prompts.SUMMARIZE_SYSTEM,
@@ -361,10 +366,18 @@ class ClaudeCliLlm:
             functools.partial(parse_string, key="summary"),
         )
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
         self._material.register_question(question)
         question_payload, keyed = prompts.recall_payload(question)
-        payload = {"language": prompts.LANGUAGE_NAMES[language], "question": question_payload}
+        payload: dict[str, object] = {"language": prompts.LANGUAGE_NAMES[language], "question": question_payload}
+        if retry is not None:
+            keys = {option_id: key for key, option_id in keyed.items()}
+            payload["retry"] = {
+                "previous": prompts.recall_draft_json(retry.previous, keys),
+                "problems": [prompts.problem_json(p, keys) for p in retry.problems],
+            }
         return self._call(
             "generate_recall",
             prompts.RECALL_SYSTEM,

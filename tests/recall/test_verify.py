@@ -7,9 +7,11 @@ import pytest
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import ClusterId, QuestionId
-from quiz_sift.domain.recall import DiscriminationPoint, RecallKey
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
+from quiz_sift.ports.llm import Problem
 from quiz_sift.recall.verify import (
     MIN_ORIGINAL_RATIO,
+    QuestionCheck,
     RecallMaterial,
     check_question,
     cluster_texts,
@@ -97,3 +99,50 @@ def test_two_distractors_stitched_together_goes_red(deck: Deck, clusters: tuple[
     point = DiscriminationPoint(stitched, GOOD["q01"].discrimination.distractor_ids)
     material = RecallMaterial(ClusterId(DECK, "c001"), q01.question_id, replace(GOOD["q01"], discrimination=point))
     assert check_question(material, q01, _texts(deck, clusters), []).failures == ("verbatim",)
+
+
+def _problem(check: QuestionCheck, name: str) -> Problem:
+    """落ちた検査 `name` の対象。落ちた検査と対象は同じ順に1件ずつ並ぶ。"""
+    assert [p.check for p in check.problems] == list(check.failures)
+    [problem] = [p for p in check.problems if p.check == name]
+    return problem
+
+
+def test_failed_checks_carry_their_targets(deck: Deck, clusters: tuple[Cluster, ...]) -> None:
+    """T-086 A-2: 作り直しに渡す対象は検査ごとに決まる(empty は要素の位置、generic・duplicate_key はキーの語句、
+    verbatim は名前だけ)。"""
+    texts = _texts(deck, clusters)
+    q01 = question(deck, "q01")
+    good = GOOD["q01"]
+
+    # empty: 空白だけの term と答えの要素の位置。空でない要素は入らない。
+    blank = replace(
+        good,
+        key=RecallKey(("アクセス頻度", " ", "即座")),
+        answers=(AnswerElement(good.answers[0].option_id, "  "),),
+    )
+    empty = _problem(
+        check_question(RecallMaterial(ClusterId(DECK, "c001"), q01.question_id, blank), q01, texts, []), "empty"
+    )
+    assert (empty.elements, empty.terms, empty.options, empty.statements) == (("terms[1]", "answers[0]"), (), (), ())
+
+    # generic: すべての term が他の論点にも現れるキーの語句。
+    key = RecallKey(("S3", "データ"))
+    generic = _problem(check_question(_material("c001", "q01", key), q01, texts, []), "generic")
+    assert (generic.terms, generic.options, generic.elements) == (key.terms, (), ())
+
+    # duplicate_key: 別の論点の前の問題と同じ組になったキーの語句。
+    first = _material("c001", "q01", RecallKey(("S3", "アクセス頻度")))
+    later = RecallKey(("アクセス頻度", "S3"))
+    duplicate = _problem(
+        check_question(_material("c002", "q04", later), question(deck, "q04"), texts, [first]), "duplicate_key"
+    )
+    assert (duplicate.terms, duplicate.options, duplicate.elements) == (later.terms, (), ())
+
+    # verbatim: 対象を持たず名前だけ。
+    stitched = DiscriminationPoint(
+        "「S3 Glacier Deep Archive」のに対し「S3 One Zone-IA」", good.discrimination.distractor_ids
+    )
+    material = RecallMaterial(ClusterId(DECK, "c001"), q01.question_id, replace(good, discrimination=stitched))
+    verbatim = _problem(check_question(material, q01, texts, []), "verbatim")
+    assert (verbatim.terms, verbatim.options, verbatim.elements, verbatim.statements) == ((), (), (), ())

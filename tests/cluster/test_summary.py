@@ -1,5 +1,6 @@
 """クラスタ要約の語句実在性と含意判定(C-003 / C-013 / R-3 / NFR-1 / A-5 / A-6 / D-161)。"""
 
+import logging
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -13,7 +14,7 @@ from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, Retry
 from quiz_sift.safety.entailment import EntailmentRejected
 
 type Groups = dict[str, tuple[QuestionId, ...]]
@@ -48,13 +49,15 @@ class StubLlm:
         self.sequences = sequences or {}
         self.checked: list[tuple[str, str]] = []
         self.summarized: list[str] = []
+        self.retries: list[tuple[str, Retry[str] | None]] = []
 
     def classify_clusters(self, deck: Deck) -> ClassificationResult:
         return ClassificationResult(tuple(GroupProposal(k, v) for k, v in self.groups.items()), ())
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         (label,) = {k for k, ids in self.groups.items() if members.questions[0].question_id in ids}
         self.summarized.append(label)
+        self.retries.append((label, retry))
         if label in self.sequences:
             sequence = self.sequences[label]
             return sequence[min(self.summarized.count(label), len(sequence)) - 1]
@@ -305,3 +308,54 @@ def test_summary_regeneration_exhausted_still_stops(
         assert exc.value.verdict is Entailment.CONTRADICTED
     assert llm.summarized.count("s3") == 3
     assert not out.exists()
+
+
+def test_regeneration_receives_the_previous_summary_and_why_it_failed(
+    known5: tuple[Deck, Groups], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """T-086 A-1: 作り直しは前回の要約と、それまでの全回の落ちた検査を受け取る。最初の呼び出しは受け取らない(D-245)。"""
+    deck, groups = known5
+    caplog.set_level(logging.INFO)
+    # Lambda も EventBridge も s3 クラスタの問題には無い。3回目は語句が実在するが矛盾する。
+    second = "S3 のストレージクラスは EventBridge で選ぶ"
+    llm = StubLlm(
+        groups,
+        GROUNDED,
+        contradicted=frozenset({CONTRADICTING_S3}),
+        sequences={"s3": (UNGROUNDED_S3, second, CONTRADICTING_S3)},
+    )
+    with pytest.raises(EntailmentRejected):
+        cluster_deck(llm, deck, Writer(tmp_path / "out.txt"))
+    retries = [retry for label, retry in llm.retries if label == "s3"]
+    assert retries[0] is None
+    assert [r.previous for r in retries[1:] if r is not None] == [UNGROUNDED_S3, second]
+    seen = [[(p.check, p.terms, p.statements) for p in r.problems] for r in retries[1:] if r is not None]
+    # 2回目は1回目の語句を、3回目は1回目と2回目の語句を受け取る(累積)。
+    assert seen == [
+        [("ungrounded_terms", ("Lambda",), ())],
+        [("ungrounded_terms", ("Lambda",), ()), ("ungrounded_terms", ("EventBridge",), ())],
+    ]
+    # 他のクラスタは最初の1回だけで通り、理由を受け取らない。
+    assert all(retry is None for label, retry in llm.retries if label != "s3")
+
+    # 含意判定に落ちたら、前回の要約と判定値を受け取る。
+    llm = StubLlm(
+        groups,
+        GROUNDED,
+        contradicted=frozenset({CONTRADICTING_S3}),
+        sequences={"s3": (CONTRADICTING_S3, GROUNDED["s3"])},
+    )
+    cluster_deck(llm, deck, Writer(tmp_path / "ok.txt"))
+    first, retry = [retry for label, retry in llm.retries if label == "s3"]
+    assert first is None and retry is not None
+    assert retry.previous == CONTRADICTING_S3
+    assert [(p.check, p.terms, p.statements) for p in retry.problems] == [
+        ("entailment", (), ((CONTRADICTING_S3, Entailment.CONTRADICTED),))
+    ]
+    # ログには検査の名前と回数だけで、語句と要約の本文は出ない。理由は repr にも出ない。
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("作り直す(ungrounded_terms; 1 回目)" in m for m in messages)
+    assert any("作り直す(entailment; 1 回目)" in m for m in messages)
+    for text in ("Lambda", "EventBridge", UNGROUNDED_S3, second, CONTRADICTING_S3):
+        assert not any(text in m for m in messages), text
+        assert text not in repr(retry) and text not in repr(retry.problems)

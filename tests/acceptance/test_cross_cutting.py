@@ -25,7 +25,7 @@ import yaml
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
-from quiz_sift.ports.llm import ClassificationResult, RecallDraft
+from quiz_sift.ports.llm import ClassificationResult, RecallDraft, Retry
 from quiz_sift.safety.gitignore_guard import IgnoreRule, is_ignored, parse_gitignore
 from quiz_sift.safety.secret_mask import SECRET_MASK
 
@@ -104,7 +104,7 @@ class MaterialLoggingLlm(StubLlm):
             self.logged.append(question.stem)
         return super().classify_clusters(deck)
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         question = members.questions[0]
         logger.info(f"要約の入力: {question.stem} 解説={question.explanation!r}")
         self.logged.append(question.stem)

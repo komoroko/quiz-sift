@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import os
+import traceback
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,10 +39,20 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.meter import PRICES, Meter
 from quiz_sift.pipeline.overhead import skills_digest
-from quiz_sift.ports.llm import Entailment, EntailmentStatement, Llm, LlmCallError, TokenUsage
+from quiz_sift.ports.llm import (
+    Entailment,
+    EntailmentStatement,
+    Llm,
+    LlmCallError,
+    Problem,
+    RecallDraft,
+    Retry,
+    TokenUsage,
+)
 from quiz_sift.ports.metering import FailureKind, InvocationScope, RateLimitInfo
 from quiz_sift.ports.process import CommandResult, CommandSpec
 from quiz_sift.safety.entailment import judge
@@ -858,3 +869,77 @@ def test_real_executable_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.Mon
         q.question_id for q in deck(30).questions
     ]
     assert len(meter.of("end_invocation")) == 2
+
+
+def test_retry_goes_to_stdin_and_not_to_logs(tmp_path: Path, captured: list[logging.LogRecord]) -> None:
+    """T-086 A-3: 作り直しの理由は stdin の retry に載り、argv は変わらず、理由の本文はログと例外文に出ない(D-245)。"""
+    members = deck(2)
+    q = members.questions[0]
+    a, b = (o.option_id for o in q.options[:2])  # a が正解
+    summary_retry = Retry("合成の前回要約 理由本文S", (Problem("ungrounded_terms", ("合成の幻語 理由本文T",)),))
+    previous = RecallDraft(
+        RecallKey(("合成の前回キー 理由本文K",)),
+        (AnswerElement(b, "合成の前回答え 理由本文A"),),
+        DiscriminationPoint("合成の前回識別 理由本文D", (b,)),
+    )
+    recall_retry = Retry(
+        previous,
+        (
+            Problem("answer_mismatch", options=(b, a)),
+            Problem("empty", elements=("terms[0]",)),
+            Problem("entailment", statements=(("合成の主張 理由本文E", Entailment.CONTRADICTED),)),
+            Problem("verbatim"),
+        ),
+    )
+    reasons = ["理由本文S", "理由本文T", "理由本文K", "理由本文A", "理由本文D", "理由本文E"]
+
+    runner = FakeRunner()
+    llm = build(RecordingMeter(), tmp_path, runner)
+    llm.summarize_cluster(members)
+    llm.summarize_cluster(members, retry=summary_retry)
+    llm.generate_recall(q, Language.JA)
+    llm.generate_recall(q, Language.JA, retry=recall_retry)
+    plain_summary, retried_summary, plain_recall, retried_recall = runner.specs
+
+    # argv は理由の有無で変わらない。理由は stdin の retry にだけある。
+    assert retried_summary.argv == plain_summary.argv and retried_recall.argv == plain_recall.argv
+    assert "retry" not in json.loads(plain_summary.stdin) and "retry" not in json.loads(plain_recall.stdin)
+    assert json.loads(retried_summary.stdin)["retry"] == {
+        "previous": "合成の前回要約 理由本文S",
+        "problems": [{"check": "ungrounded_terms", "terms": ["合成の幻語 理由本文T"]}],
+    }
+    payload = json.loads(retried_recall.stdin)
+    keys = {option["text"]: option["key"] for option in payload["question"]["options"]}
+    key_a, key_b = keys[q.options[0].text], keys[q.options[1].text]
+    assert payload["retry"] == {
+        "previous": {
+            "terms": ["合成の前回キー 理由本文K"],
+            "answers": [{"option": key_b, "text": "合成の前回答え 理由本文A"}],
+            "discrimination": {"text": "合成の前回識別 理由本文D", "distractors": [key_b]},
+        },
+        "problems": [
+            {"check": "answer_mismatch", "options": [key_b, key_a]},
+            {"check": "empty", "elements": ["terms[0]"]},
+            {"check": "entailment", "statements": [{"statement": "合成の主張 理由本文E", "verdict": "contradicted"}]},
+            {"check": "verbatim"},
+        ],
+    }
+    # 選択肢は不透明キーで渡り、元のラベルは渡らない(D-206)。
+    assert {key_a, key_b} <= {f"o{i}" for i in range(1, 5)}
+
+    # 応答が契約に合わず失敗しても、例外文に理由の本文は出ない。
+    failing = FakeRunner(returning(exited(fake_stdout(structured_output={"unexpected": 1}))))
+    llm = build(RecordingMeter(), tmp_path, failing)
+    errors = []
+    for call in (
+        lambda: llm.summarize_cluster(members, retry=summary_retry),
+        lambda: llm.generate_recall(q, Language.JA, retry=recall_retry),
+    ):
+        with pytest.raises(LlmCallError) as raised:
+            call()
+        errors.append("".join(traceback.format_exception(raised.value)))
+    logs = "\n".join(r.getMessage() for r in captured)
+    assert any(r.name == "quiz_sift.safety.invocation_log" for r in captured)
+    for reason in reasons:
+        assert reason not in logs, reason
+        assert all(reason not in error for error in errors), reason

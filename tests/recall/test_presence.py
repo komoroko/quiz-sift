@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
-from quiz_sift.recall.verify import answer_mismatch, missing_key_terms, missing_options
+from quiz_sift.recall.verify import mismatched_answers, missing_key_terms, missing_options
 
 from .conftest import GOOD, option, question
 
@@ -27,12 +27,12 @@ def test_recall_key_terms_exist_in_the_stem(deck: Deck) -> None:
 def test_answers_must_match_the_correct_set_by_id(deck: Deck) -> None:
     q01 = question(deck, "q01")
     good = GOOD["q01"]
-    assert not answer_mismatch(good, q01)
+    assert mismatched_answers(good, q01) == ()
     (correct,) = good.answers
     wrong = AnswerElement(option("q01", "C"), "S3 Glacier Deep Archive")
     other_question = AnswerElement(option("q02", "B"), "S3 標準-IA")
     for answers in ((), (correct, correct), (correct, wrong), (wrong,), (other_question,)):
-        assert answer_mismatch(replace(good, answers=answers), q01)
+        assert mismatched_answers(replace(good, answers=answers), q01)
 
 
 def test_discrimination_references_distractors_by_id(deck: Deck) -> None:

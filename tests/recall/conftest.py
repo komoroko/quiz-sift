@@ -16,7 +16,7 @@ from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft, Retry
 from quiz_sift.recall.generate import ItemProgress, RecallSet, generate_recall_set
 
 DECK = DeckId("aws-saa")
@@ -161,10 +161,14 @@ class StubLlm:
     checked: list[tuple[str, str]] = field(default_factory=list)
     calls: list[tuple[str, tuple[EntailmentStatement, ...]]] = field(default_factory=list)
     recalled: list[str] = field(default_factory=list)
+    retries: list[tuple[str, Retry[RecallDraft] | None]] = field(default_factory=list)
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
         qid = question.question_id.local_id
         self.recalled.append(qid)
+        self.retries.append((qid, retry))
         if qid in self.failing:
             raise LlmCallError("合成の呼び出しの失敗")
         sequence = self.sequences.get(qid, (self.drafts[qid],))
