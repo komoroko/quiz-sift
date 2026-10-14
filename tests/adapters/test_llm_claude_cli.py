@@ -30,7 +30,7 @@ from support.claude_fake import (
     timed_out,
 )
 
-from quiz_sift.adapters import llm_claude_cli, llm_contract
+from quiz_sift.adapters import llm_claude_cli, llm_contract, llm_prompts
 from quiz_sift.adapters.claude_failure import scan_rate_limits
 from quiz_sift.adapters.claude_process import Workspace
 from quiz_sift.adapters.llm_claude_cli import ClaudeCliLlm, argv_digest
@@ -499,6 +499,32 @@ def test_classify_batches_reissue_truncated_invocations(tmp_path: Path) -> None:
     assert end["llm_calls"] == 1
     assert end["provider_invocations"] == 6
     assert end["failures_by_kind"] == {**{k.value: 0 for k in FailureKind}, "truncated": 4}
+
+
+def test_classify_payload_has_no_explanation(tmp_path: Path) -> None:
+    """T-082 A-1: 分類の stdin の各問題は問題文・選択肢・正解だけで、解説は要約と想起素材の生成にだけ渡る(ADR-029)。"""
+    members = deck(3)
+    runner = FakeRunner()
+    llm = build(RecordingMeter(), tmp_path, runner)
+    llm.classify_clusters(members)
+    llm.summarize_cluster(members)
+    llm.generate_recall(members.questions[0], Language.JA)
+    classify, summarize, recall = (json.loads(spec.stdin) for spec in runner.specs)
+
+    for q, item in zip(members.questions, classify["questions"], strict=True):
+        assert item == {
+            "key": item["key"],
+            "stem": q.stem,
+            "options": [o.text for o in q.options],
+            "correct": q.options[0].text,
+        }
+    explanations = [q.explanation for q in members.questions]
+    assert all(e is not None and e not in runner.specs[0].stdin for e in explanations)
+    assert [item["explanation"] for item in summarize["questions"]] == explanations
+    assert recall["question"]["explanation"] == explanations[0]
+    # 分類の入力の形はプロンプトが名指しするので、形を変えればプロンプトのダイジェスト(cluster 段のキャッシュ鍵)が動く。
+    assert all(key in llm_prompts.CLASSIFY_SYSTEM for key in ("stem", "options", "correct"))
+    assert "explanation" not in llm_prompts.CLASSIFY_SYSTEM
 
 
 def test_every_nfr7_value_reaches_the_meter(tmp_path: Path) -> None:
