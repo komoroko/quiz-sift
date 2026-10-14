@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-15T03:46:17+09:00'
+updated_at: '2026-10-15T04:50:17+09:00'
 gates:
   mandate:
     status: approved
@@ -780,83 +780,83 @@ tasks:
       tree: sha256:2c91706b8eaa8063842eb2258c5f7276fc837876584fdf6071142c5896553015
       updated_at: '2026-10-07T15:37:39+09:00'
   T-068:
-    status: todo
-    attempts: 17
+    status: done
+    attempts: 18
+    completed_commit: 199701a6bda90c68c9f66ac610f271a7650b98ff
     handoff:
-      report:
-        outcome: blocked
-        summary: 'ホストの実測で cluster 段が exit 1 になった。合成デッキ synthetic-nofm を cluster --fresh-run(run_id ab32b40eee414203b3fa1ebf7e7f73ca、作業ルート
-          ~/t068-rehearsal-20261014b)で走らせたところ、クラスタ c003 の要約が実在性検査に落ち続けた(grounding で作り直し 2 回、3 回とも『問題文に実在しない語句が
-          1 件』)。meter の stop は exit_reason=UngroundedSummary、列は not_completable なので recall・script には進めず、記録
-          docs/test/measurements/recall-rehearsal.md は取り直せていない(旧記録のまま。新しい判定に対しては赤)。2026-10-12 の記録では cluster
-          は通っている。ADR-029 で分類の入力から解説を外したことでクラスタの切り方が変わった可能性があるが、要約の本文は製品がログに出さないので、どの語句かは確かめていない。原因は製品側(cluster/summary.py
-          の要約プロンプトと grounding/ の実在性検査)で、このタスクの scope 外。同じ止まり方は T-071 のフル処理でも起きうる。必要な判断: 要約・実在性検査を直すタスクを
-          /revise で立てるか、もう一度走らせるか(再実行は対処ではなく、確率的に通るのを待つだけ)。テストコードは実装済みでコミット済み(8680664): STAGES を cluster
-          → recall → script に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録、分類・判定のプロンプトとスキーマのダイジェストと generate_recall
-          の子の環境の鍵を記録して今のコードと突き合わせる判定(A-2)、誤答を正解と述べるミューテーションを 1 問 1 回で ClaudeCliLlm.check_entailments に聞いて件数・contradicted・uncertain
-          を記録する判定(A-4)と、それぞれ赤になることのテストを足した。lint・format・types は緑。'
-        at: '2026-10-14T22:49:51+09:00'
-        touched:
-        - tests/measurements/test_recall_rehearsal_logs.py
-      updated_at: '2026-10-14T22:50:05+09:00'
-      escalation:
-        kind: agent_blocked
-        message: 'T-068: the implementer reported blocked — ホストの実測で cluster 段が exit 1 になった。合成デッキ synthetic-nofm
-          を cluster --fresh-run(run_id ab32b40eee414203b3fa1ebf7e7f73ca、作業ルート ~/t068-rehearsal-20261014b)で走らせたところ、クラスタ
-          c003 の要約が実在性検査に落ち続けた(grounding で作り直し 2 回、3 回とも『問題文に実在しない語句が 1 件』)。meter の stop は exit_reason=UngroundedSummary、列は
-          not_completable なので recall・script には進めず、記録 docs/test/measurements/recall-rehearsal.md は取り直せていない(旧記録のまま。新しい判定に対しては赤)。2026-10-12
-          の記録では cluster は通っている。ADR-029 で分類の入力から解説を外したことでクラスタの切り方が変わった可能性があるが、要約の本文は製品がログに出さないので、どの語句かは確かめていない。原因は製品側(cluster/summary.py
-          の要約プロンプトと grounding/ の実在性検査)で、このタスクの scope 外。同じ止まり方は T-071 のフル処理でも起きうる。必要な判断: 要約・実在性検査を直すタスクを
-          /revise で立てるか、もう一度走らせるか(再実行は対処ではなく、確率的に通るのを待つだけ)。テストコードは実装済みでコミット済み(8680664): STAGES を cluster
-          → recall → script に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録、分類・判定のプロンプトとスキーマのダイジェストと generate_recall
-          の子の環境の鍵を記録して今のコードと突き合わせる判定(A-2)、誤答を正解と述べるミューテーションを 1 問 1 回で ClaudeCliLlm.check_entailments に聞いて件数・contradicted・uncertain
-          を記録する判定(A-4)と、それぞれ赤になることのテストを足した。lint・format・types は緑。'
-        tree: sha256:0fa4c3df14de0c3c9708fe2d7ce09af4449452549d8ae2513c750d6064493a78
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 23da7db6-1a21-4182-9b6b-9463388341a6
-        output_tail: 'T-068 は blocked で止めました。実 CLI のリハーサルが最初の cluster 段で落ちたためです。recall・script・ミューテーション判定はどれも走っていません。報告は
-          `rein report` で監査チェーンに記録済みです(コマンドの終了コードは 2 でした)。
-
-
-          **何が起きたか**
-
-          - 合成デッキで cluster を新しい列(run_id `ab32b40eee414203b3fa1ebf7e7f73ca`)として走らせました。クラスタ c003 の要約が、作り直しを
-          2 回しても 3 回とも「問題文に無い語句が 1 件」で実在性検査に落ちました。
-
-          - 実行は `UngroundedSummary` で exit 1 になり、列は再開できない状態(`not_completable`)です。
-
-          - 2026-10-12 の記録では cluster は通っていました。ADR-029 で分類の入力から解説を外したため、クラスタの切り方が変わったのかもしれません。ただし要約の本文はログに出ないので、どの語句かは確かめていません。
-
-          - 原因は製品側(`cluster/summary.py` と `grounding/`)にあり、このタスクの scope 外です。同じ止まり方は T-071 のフル処理でも起きえます。
-
-
-          **できていること**(コミット 8680664、`tests/measurements/test_recall_rehearsal_logs.py`)
-
-          - 実行を cluster → recall → script の順に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録に書くようにしました。
-
-          - 分類・判定のプロンプトとスキーマのダイジェスト、generate_recall の子の環境の鍵を記録し、今のコードの値と突き合わせる判定を足しました(A-2)。
-
-          - ミューテーションの判定(A-4)と、それぞれの判定が赤になることを確かめるテストも足しました。ミューテーションは、誤答を正解と述べる主張を 1 問 1 回まとめて実 CLI に聞き、件数・contradicted・uncertain
-          を記録する形です。
-
-          - lint・format・types は緑です。
-
-          - test は赤です。`docs/test/measurements/recall-rehearsal.md` が古い記録のままで、新しい判定に通らないためです。docs と smoke
-          はまだ走らせていません。
-
-
-          **決めてほしいこと**
-
-          - `/revise` で、要約か実在性検査を直すタスクを立てるか。
-
-          - それとも同じリハーサルをもう一度走らせるか。再実行は原因を直すものではなく、たまたま通るのを待つだけです。
-
-
-          作業ルートは `~/t068-rehearsal-20261014b` に残してあります。'
-        at: '2026-10-14T22:50:02+09:00'
+      review:
+        findings:
+        - severity: must_fix
+          statement: A-2 は「分類のプロンプトとスキーマのダイジェストが今のコードと一致する(古いコードで取った記録は赤)」を求めるが、分類のダイジェストを壊して赤になることを確かめるテストが無い。要約・想起素材・判定にはそれぞれ
+            test_record_taken_with_another_*_prompt_is_red があるのに、ADR-029 で実際に変わった分類だけが抜けている。check_recall_passed
+            の照合の組から ('分類のプロンプトとスキーマのダイジェスト', 'classify_digest') を消す変異を入れても、どのテストも赤にならない。code_conditions()['classify_digest']
+            を別の値に差し替えた記録で、'分類のプロンプトとスキーマのダイジェスト が今のコードの値と違う' が出ることを確かめるテストを足す。
+          anchor: tests/measurements/test_recall_rehearsal_logs.py:828
+        - severity: must_fix
+          statement: test_record_with_a_failed_recall_is_red は名前も docstring も recall の失敗を言うが、壊しているのは _sections(text,
+            '実行 ')[-1]、つまり STAGES を広げた今は script の実行(実行 3)である。recall 段の exit 0 を確かめるテストは無い。check_recall_passed
+            の exit 0 のループを executions[-1:] に絞る変異を入れても、recall が exit 1 の記録は緑のまま通る。A-2 は recall 段と script
+            段の両方の exit 0 を求めているので、recall の節(stage が recall の節)を壊すテストと script の節を壊すテストを分け、名前を中身に合わせる。
+          anchor: tests/measurements/test_recall_rehearsal_logs.py:818
+        - severity: must_fix
+          statement: A-3 の「段ごとの呼び出し数・トークン数」と「utilization の生の値も併記する(D-218)」には、赤になることを確かめるテストが無い。壊すテストは、合計のトークン数の外挿(test_record_with_a_wrong_extrapolation_is_red)、推定使用率(test_record_with_a_wrong_estimate_is_red)、再生成の欠け(test_record_missing_a_regeneration_is_red)の3本だけである。check_usage_recorded
+            から段ごとの比較のループ(711-718行)か utilization の生の値の assert(731行)を消す変異を入れても、どのテストも赤にならない。段の行の呼び出し数を変えた記録と、レート枠の表の開始時の
+            utilization を変えた記録のそれぞれで、狙った判定が赤になることを確かめるテストを足す。
+          anchor: tests/measurements/test_recall_rehearsal_logs.py:731
+        - severity: must_fix
+          statement: _rehearse の docstring が「cluster を新しい列で、続けて recall を同じ列で走らせる」のまま残っている。実装は STAGES[1:]
+            で recall と script を走らせ、その後 _mutate も呼ぶので、記述が実装と食い違っている。モジュールの docstring(8-15行)に合わせて書き直す。
+          anchor: tests/measurements/test_recall_rehearsal_logs.py:240
+      updated_at: '2026-10-15T04:50:17+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      negative_control:
+        result: undetermined
+        detail: every path in this change is a test path, so base plus the test half is the head tree
+          — there is no contrast to measure
+      tree: sha256:d8b564a74ff08688eec5d57552858bae8c4da204d0cab184202b18a16ee77abe
+      updated_at: '2026-10-15T04:50:17+09:00'
   T-069:
     status: done
     attempts: 15
@@ -1702,83 +1702,53 @@ tasks:
       tree: sha256:60c76cb7f8b786c1d8822956be2e557f415f88ebe594674c56815cddb68a544a
       updated_at: '2026-10-14T22:39:15+09:00'
   T-086:
-    status: todo
-    attempts: 2
+    status: done
+    attempts: 3
+    completed_commit: eca095140cb16b4549d6d4c7733bff05addb5704
     handoff:
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: f46eee15-30bf-4d72-af4e-109dd03f5db7
-        output_tail: 'レビューの指摘どおり、検査ごとの作り直しの対象を値で確かめるテストが無かったので、`tests/recall/test_verify.py` に足しました。`239a9fc`
-          でコミットし、`rein report --outcome implemented` で報告しました。変えたのはテストだけで、6つの gate はすべて緑です。
-
-
-          足した `test_failed_checks_carry_their_targets` は、検査関数(`check_question`)が返す対象を、指摘のあった4つの検査について値で確かめます。
-
-
-          | 検査 | 落ちる素材 | 確かめる対象 |
-
-          |---|---|---|
-
-          | empty | 空白だけの term と答えの要素を持つ | 要素の位置が `(''terms[1]'', ''answers[0]'')` で、空でない要素は入らない |
-
-          | generic | すべての語句が他の論点にも現れるキー | そのキーの語句 |
-
-          | duplicate_key | 別の論点の前の問題と同じ組のキー | そのキーの語句 |
-
-          | verbatim | 識別ポイントが誤答の丸写し | 対象を何も持たない(名前だけ) |
-
-
-          あわせて、落ちた検査の名前の列と対象の列が、同じ順に1件ずつ並ぶことも確かめます。
-
-
-          指摘にあった壊れ方を、1つずつ `verify.py` に入れてテストを走らせました。
-
-
-          - 空の要素ではなく空でない要素を返す
-
-          - generic と duplicate_key の対象に、キーの語句ではなく問題文に無かった語句を入れる
-
-          - verbatim に語句を載せる
-
-
-          4通りとも新しいテストが赤になりました。確かめた後、`verify.py` は元に戻してあります。'
-        at: '2026-10-15T03:38:02+09:00'
-      last_fault:
-        kind: ENV_TRANSIENT
-        where: 'T-086: implementer'
-        rc: 1
-        output_tail: You've hit your session limit · resets 3:10am (Asia/Tokyo)
-        at: '2026-10-14T23:51:27+09:00'
-      updated_at: '2026-10-15T03:43:39+09:00'
-      salvage_branch: build/quiz-sift-T-086-salvage-20261014-181131
-      salvage_state: restored
-      report:
-        outcome: implemented
-        summary: 'レビュー指摘を修正(テストのみ、製品コードの変更なし)。tests/recall/test_verify.py に test_failed_checks_carry_their_targets
-          を足し、check_question の problems を値で確かめる: 空白の term と答えの要素を持つ下書きで empty の elements == (''terms[1]'',
-          ''answers[0]'')、全 term が他の論点に現れるキーで generic の terms == key.terms、別の論点の前の問題と同じ組のキーで duplicate_key
-          の terms == そのキーの terms、識別ポイントの丸写しで verbatim の terms・options・elements・statements がすべて空。あわせて failures
-          と problems の check が同じ順に1件ずつ並ぶことも見る。レビューが挙げた書き換え(empty_elements が空でない要素を返す、GENERIC と DUPLICATE_KEY
-          に ungrounded を入れる、VERBATIM に terms を載せる)をそれぞれ verify.py に入れると、このテストが赤になることを確かめた(確認後に元へ戻した)。6つの
-          gate は緑。'
-        at: '2026-10-15T03:37:55+09:00'
-        touched:
-        - tests/recall/test_verify.py
       review:
-        findings:
-        - severity: must_fix
-          statement: 'A-2 は検査ごとの対象を名指ししている(ungrounded_key・generic・duplicate_key はキーの語句、empty は要素、verbatim
-            は名前だけ)。しかし check_question が empty・generic・duplicate_key・verbatim について作る Problem の中身を確かめるテストが、この変更には1つも無い。test_generate.py
-            の A-2 テストが通るのは ungrounded_key・answer_mismatch・missing_options・entailment の経路だけである。test_llm_claude_cli.py
-            の A-3 テストは Problem(''empty'', elements=(''terms[0]'',)) と Problem(''verbatim'') を手で組んで渡しているので、verify.py
-            の算出を通らない。壊れる入力: empty_elements が位置ではなく空でない要素を返す、GENERIC や DUPLICATE_KEY の Problem に terms
-            ではなく ungrounded(空)を入れる、VERBATIM に terms を載せる、のいずれかに書き換えても全テストが緑のままになる。また、チケットが試験ファイルに挙げている
-            tests/recall/test_verify.py は変更されていない。check_question の結果の problems を、上の4検査それぞれについて値で確かめるテストを足すこと(例:
-            空白の term と空白の answer を持つ下書きで elements == (''terms[0]'', ''answers[0]'')、generic と duplicate_key
-            が落ちる下書きで terms == draft.key.terms、verbatim で terms・options・elements がすべて空)。'
-          anchor: src/quiz_sift/recall/verify.py:184
+        findings: []
+      updated_at: '2026-10-15T03:58:52+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: true
+      - id: A-2
+        kind: command
+        reused: true
+      - id: A-3
+        kind: command
+        reused: true
+      - id: A-4
+        kind: command
+        reused: true
+      negative_control:
+        result: discriminating
+        base: 7042d72ebdb54383ec2560953f2d9476c7ef5931
+        step: test
+      tree: sha256:a96d83bd5bc6b78da44a2be0370e0cb49973f70cb906361b26d7beafe185077e
+      updated_at: '2026-10-15T03:58:52+09:00'
 dependency_audit:
   ran_at: '2026-10-14T14:25:02+00:00'
   commit: af4a0bdb1bdacb65cba2d12c0f98eb9d518d72e9
