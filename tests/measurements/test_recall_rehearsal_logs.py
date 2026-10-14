@@ -1,14 +1,18 @@
-"""合成デッキを実 CLI で recall 段まで通したリハーサルの記録の検査(T-068 / C-026、NFR-7 合成リハーサル)。
+"""合成デッキを実 CLI で script 段まで通したリハーサルの記録の検査(T-068 / C-026、NFR-7 合成リハーサル)。
 
 実 CLI はサンドボックスに無い(ADR-013)ので、証拠は**ホストで取った実測**で、このテストは記録した md の中身を
 機械判定する。記録もこのファイルから作る:
 
 - `python tests/measurements/test_recall_rehearsal_logs.py rehearse --out-root <作業ルート>` は、空の作業ルートに
   `.gitignore` と合成デッキ(`tests/fixtures/decks/synthetic-nofm/`)を写し、製品の CLI(`python -m quiz_sift.cli`)
-  で `cluster --fresh-run` を走らせ、exit 0 なら同じ列に `recall --resume <run_id>` を足す。各実行の argv・実行時刻・
-  コミット ID・終了コード・run_id・標準出力(成果物のパス)を `<作業ルート>/out/synthetic-nofm/t068/journal.jsonl`
-  へ追記する。標準エラーは同じディレクトリのファイルに置き、render は読まない。
-- `... render --out-root <作業ルート>` は journal・`meter.jsonl`・recall の成果物の `report` から
+  で `cluster --fresh-run` を走らせ、exit 0 なら同じ列に `recall --resume <run_id>`、続けて `script --resume <run_id>`
+  を足す。各実行の argv・実行時刻・コミット ID・終了コード・run_id・標準出力(成果物のパス)を
+  `<作業ルート>/out/synthetic-nofm/t068/journal.jsonl` へ追記する。標準エラーは同じディレクトリのファイルに置き、
+  render は読まない。実行条件(`conditions.json`)には、そのときのコードの分類・判定のプロンプトとスキーマの
+  ダイジェストと、generate_recall の子の環境の鍵を書く。script まで exit 0 なら、合成デッキの各問題の誤答を正解と
+  述べるミューテーションを、1問1回のまとめた判定で実 CLI(`ClaudeCliLlm.check_entailments`)に聞き、判定値の件数を
+  `mutations.json` に、その呼び出しの計測を `mutation-meter.jsonl` に書く。
+- `... render --out-root <作業ルート>` は journal・`meter.jsonl`・recall と script の成果物・`mutations.json` から
   `docs/test/measurements/recall-rehearsal.md` を書く。LLM は呼ばない。開始行と終了行は加工せずに写す。
   レート枠の推定に使う前サイクルの列は、書庫の原本 `docs/archive/2026-10-06-fisrt/test/measurements/full-run.md` の
   終了行から読む(書庫は読むだけ)。
@@ -19,12 +23,16 @@
 
 判定(各受入基準に1本):
 
-- A-2: 記録のデッキのダイジェストがフィクスチャと一致し、cluster と recall の実行が同じ列で、recall の実行が
-  exit 0 で終わり、想起素材の検査の件数 `CHECKS` がすべて 0 で、素材が全問ぶんある。含意判定の結果は製品が
-  ログに出さないので記録に無い。成果物は判定が `consistent` のときだけ書かれるので、exit 0 の recall が全問の
-  素材を書いたことから通過を推論する。
-- A-3: 全問の再生成回数(0〜`MAX_REGENERATIONS`)と、呼び出し数・トークン数・190 問への外挿・前サイクルの
-  列の比から推定した枠の使用率・utilization の生の値があり、どれも記録した終了行から計算し直した値と一致する。
+- A-2: 記録のデッキのダイジェストがフィクスチャと一致し、記録のプロンプトとスキーマのダイジェストと子の環境の鍵が
+  今のコードの値と一致し(古いコードで取った記録は赤)、cluster → recall → script が同じ列で exit 0 で終わり、
+  想起素材の検査の件数 `CHECKS` がすべて 0 で、素材が全問ぶんある。含意判定の結果は製品がログに出さないので記録に
+  無い。成果物は判定が `consistent` のときだけ書かれるので、exit 0 の recall が全問の素材を書いたことから通過を
+  推論する。
+- A-3: 全問の再生成回数(0〜`MAX_REGENERATIONS`)と、段ごとと合計の呼び出し数・トークン数・190 問への外挿・
+  前サイクルの列の比から推定した枠の使用率・utilization の生の値があり、どれも記録した終了行から計算し直した値と
+  一致する。
+- A-4: ミューテーションの件数がフィクスチャの誤答の数と一致し、判定の呼び出しが問題数と同じ(1問1回)で、
+  contradicted・uncertain・consistent の和が件数と一致する。合格ラインは置かない(D-044)。
 """
 
 import argparse
@@ -52,7 +60,10 @@ DECK = "synthetic-nofm"
 METER_LOG = "meter.jsonl"
 JOURNAL_DIR = "t068"
 JOURNAL = "journal.jsonl"
-STAGES = ("cluster", "recall")
+STAGES = ("cluster", "recall", "script")
+CONDITIONS = "conditions.json"
+MUTATIONS = "mutations.json"
+MUTATION_METER = "mutation-meter.jsonl"
 
 CHECKS = (
     "ungrounded_keys",
@@ -71,6 +82,7 @@ TARGET_QUESTIONS = 190
 PREVIOUS_RUN = "591e7bb9ae6145d284a0ec993371c59c"
 """前サイクルでクラスタ段を完走し recall 段まで進んだ列(full-run.md、D-164)。"""
 WINDOWS = ("five_hour", "seven_day")
+MUTATION_COLUMNS = ("statements", "contradicted", "uncertain", "consistent")
 TOKEN_BUCKETS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 
 _RUN_ID_LINE = re.compile(r"^run_id: ([0-9a-f]+)$", re.MULTILINE)
@@ -95,6 +107,34 @@ def fixture_questions(directory: Path = FIXTURE) -> list[dict[str, Any]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def prompt_digest(system: str, schema: Mapping[str, object]) -> str:
+    """システムプロンプトと JSON Schema のダイジェスト。記録がどのコードで取られたかを示す。"""
+    payload = json.dumps([system, schema], ensure_ascii=False, sort_keys=True).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def code_conditions() -> dict[str, Any]:
+    """今のコードの、分類・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵。
+
+    子の環境は `ClaudeCliLlm._spawn` が `workspace.child_env()` に `CHILD_ENV` を重ねたもので、`SubprocessRunner` は
+    鍵が `CHILD_ENV_KEYS` と `model_env` の和に一致しなければ起動しない。exit 0 の recall はこの鍵で走っている。
+    """
+    from quiz_sift.adapters import llm_prompts
+    from quiz_sift.adapters.claude_process import CHILD_ENV_KEYS
+
+    model = llm_prompts.MODELS["generate_recall"]
+    return {
+        "classify_digest": prompt_digest(llm_prompts.CLASSIFY_SYSTEM, llm_prompts.CLASSIFY_SCHEMA),
+        "entailment_digest": prompt_digest(llm_prompts.ENTAILMENT_SYSTEM, llm_prompts.ENTAILMENT_SCHEMA),
+        "recall_env_keys": sorted(CHILD_ENV_KEYS | llm_prompts.model_env(model).keys()),
+    }
+
+
+def mutation_count(questions: Sequence[Mapping[str, Any]]) -> int:
+    """ミューテーションの件数。各問題の誤答1件につき1件。"""
+    return sum(len(q["options"]) - len(q["answers"]) for q in questions)
 
 
 def total_tokens(tokens: Mapping[str, int]) -> int:
@@ -203,15 +243,77 @@ def _rehearse(args: argparse.Namespace) -> int:
     shutil.copytree(FIXTURE, out_root / "data" / DECK)
     directory = _journal_dir(out_root)
     directory.mkdir(parents=True)
-    (directory / "conditions.json").write_text(
-        json.dumps({"cli_version": _cli_version(), "deck_digest": fixture_digest(out_root / "data" / DECK)}),
+    (directory / CONDITIONS).write_text(
+        json.dumps(
+            {
+                "cli_version": _cli_version(),
+                "deck_digest": fixture_digest(out_root / "data" / DECK),
+                **code_conditions(),
+            }
+        ),
         encoding="utf-8",
     )
     cluster = _exec(out_root, 1, ["cluster", "--fresh-run"])
     if cluster["exit_code"] != 0 or cluster["run_id"] is None:
         return int(cluster["exit_code"]) or 1
-    recall = _exec(out_root, 2, ["recall", "--resume", cluster["run_id"]])
-    return int(recall["exit_code"])
+    for number, stage in enumerate(STAGES[1:], start=2):
+        entry = _exec(out_root, number, [stage, "--resume", cluster["run_id"]])
+        if entry["exit_code"] != 0:
+            return int(entry["exit_code"])
+    _mutate(out_root)
+    return 0
+
+
+def _mutate(out_root: Path) -> None:
+    """各問題の誤答を正解と述べる主張を、1問1回のまとめた判定で実 CLI に聞き、判定値の件数を書く(D-044)。
+
+    主張の本文と判定の応答は書かず、件数だけを残す。呼び出しは別の meter のログに数える(列の meter.jsonl とは
+    混ぜない)。
+    """
+    import uuid
+
+    from quiz_sift.adapters.claude_process import default_preflight
+    from quiz_sift.composition import build_default_llm
+    from quiz_sift.domain.ids import DeckId
+    from quiz_sift.ingest.deck import ingest_deck
+    from quiz_sift.pipeline.meter import Meter
+    from quiz_sift.ports.clock import SystemClock
+    from quiz_sift.ports.llm import Entailment, EntailmentStatement
+    from quiz_sift.safety.entailment import ask, reference_for
+
+    directory = _journal_dir(out_root)
+    deck = ingest_deck(out_root / "data", DeckId(DECK)).deck
+    default_preflight()
+    meter = Meter(
+        SystemClock(),
+        log_path=directory / MUTATION_METER,
+        run_id=uuid.uuid4().hex,
+        execution_id=uuid.uuid4().hex,
+        stage="mutations",
+        cache_mode="fresh",
+        env_names=os.environ.keys(),
+    )
+    llm = build_default_llm(meter)
+    by_question: dict[str, dict[str, int]] = {}
+    try:
+        for question in deck.questions:
+            wrong = [o.text for o in question.options if o.option_id not in question.correct_option_ids]
+            statements = [
+                EntailmentStatement(f"m{i}", f"この問題の正解は「{text}」である。") for i, text in enumerate(wrong, 1)
+            ]
+            verdicts = ask(llm, reference_for(question), statements)
+            by_question[question.question_id.local_id] = {
+                "statements": len(statements),
+                **{e.value: verdicts.count(e) for e in Entailment},
+            }
+    except BaseException as error:
+        meter.finish(exit_code=1, exit_reason=type(error).__name__)
+        raise
+    meter.finish(exit_code=0, exit_reason=None)
+    (directory / MUTATIONS).write_text(json.dumps({"by_question": by_question}, ensure_ascii=False), encoding="utf-8")
+    print(
+        f"mutations: {sum(c['statements'] for c in by_question.values())} 件を {len(by_question)} 回で判定", flush=True
+    )
 
 
 # ---- 記録の書き出し(`render`) ----
@@ -281,10 +383,13 @@ def _fmt(value: float) -> str:
 
 
 def render_log(
-    conditions: Mapping[str, str],
+    conditions: Mapping[str, Any],
     questions: Sequence[Mapping[str, Any]],
     executions: Sequence[tuple[Mapping[str, Any], str, str]],
     recall: Mapping[str, Any],
+    script: Mapping[str, Any],
+    mutations: Mapping[str, Any],
+    mutation_end: str,
     full_log: str,
 ) -> str:
     report = recall["report"]
@@ -292,10 +397,16 @@ def render_log(
     prior = previous_ends(full_log)
     ratios = usage_per_token(prior)
     usage = usage_estimate(ends, len(questions), ratios)
+    scale = TARGET_QUESTIONS / len(questions)
     claims = sum(len(m["answers"]) + 1 for m in recall["materials"])
     multi = sum(len(q["answers"]) > 1 for q in questions)
     check_rows = "\n".join(f"| `{name}` | {report[name]} |" for name in CHECKS)
     regen_rows = "\n".join(f"| `{q}` | {n} |" for q, n in report["regenerations"].items())
+    stage_rows = "\n".join(
+        f"| {end['stage']} | {end['llm_calls']} | {end['provider_invocations']} | {total_tokens(end['tokens'])} "
+        f"| {end['llm_calls'] * scale:.2f} | {total_tokens(end['tokens']) * scale:.2f} |"
+        for end in (json.loads(start) | json.loads(e) for _, start, e in executions)
+    )
     raw_rows = "\n".join(
         f"| {i} | `{end['execution_id']}` | {window} | {end['quota_at_start'][window]['utilization']} "
         f"| {end['quota_at_end'][window]['utilization']} | {end['quota_at_end'][window]['resetsAt']} |"
@@ -304,17 +415,27 @@ def render_log(
     )
     prior_tokens = sum(total_tokens(end["tokens"]) for end in prior)
     ratio_rows = "\n".join(f"| {window} | {_fmt(ratios[window])} |" for window in WINDOWS)
+    by_question = mutations["by_question"]
+    mutation_rows = "\n".join(
+        f"| `{qid}` | {c['statements']} | {c['contradicted']} | {c['uncertain']} | {c['consistent']} |"
+        for qid, c in by_question.items()
+    )
+    totals = {key: sum(c[key] for c in by_question.values()) for key in MUTATION_COLUMNS}
+    tracks = script["tracks"]
     blocks = "\n".join(_execution_block(i, e, s, end) for i, (e, s, end) in enumerate(executions, start=1))
-    return f"""# 実測ログ: 合成デッキの recall 段までのリハーサル
+    return f"""# 実測ログ: 合成デッキの script 段までのリハーサル
 
 NFR-7 の合成リハーサル(C-026)。合成デッキ `tests/fixtures/decks/synthetic-nofm/` を使い捨ての作業ルートに写し、
-ホストの実 CLI で `cluster --fresh-run` を走らせ、同じ列に `recall --resume` を足した記録である。
+ホストの実 CLI で `cluster --fresh-run` を走らせ、同じ列に `recall --resume` と `script --resume` を足した記録である。
+続けて、合成デッキから作ったミューテーションを、1問1回のまとめた判定で実 CLI に聞いた。
 
-この md は `tests/measurements/test_recall_rehearsal_logs.py render` が journal・`meter.jsonl`・recall の成果物の
-`report` から作った。LLM は呼んでいない。開始行と終了行は meter.jsonl の行を加工せずに写している。合成デッキの
-文は教材ではないが、想起素材の本文は写さず、件数と ID だけを書く。
+この md は `tests/measurements/test_recall_rehearsal_logs.py render` が journal・`meter.jsonl`・recall と script の
+成果物・`mutations.json` から作った。LLM は呼んでいない。開始行と終了行は meter.jsonl の行を加工せずに写している。
+合成デッキの文は教材ではないが、想起素材・台本・主張の本文は写さず、件数と ID だけを書く。
 
 ## 実行条件
+
+ダイジェストと環境の鍵は、rehearse のときのコードから取った値である(`code_conditions`)。
 
 | 項目 | 値 |
 |---|---|
@@ -324,6 +445,9 @@ NFR-7 の合成リハーサル(C-026)。合成デッキ `tests/fixtures/decks/sy
 | 複数正解の問題数 | {multi} |
 | CLI | `{conditions["cli_version"]}` |
 | 実行数 | {len(executions)} |
+| 分類のプロンプトとスキーマのダイジェスト | `{conditions["classify_digest"]}` |
+| 判定のプロンプトとスキーマのダイジェスト | `{conditions["entailment_digest"]}` |
+| generate_recall の子の環境の鍵 | `{",".join(conditions["recall_env_keys"])}` |
 
 ## 想起素材の検査
 
@@ -340,11 +464,13 @@ recall の成果物の `report` の件数。成果物は、検査と含意判定
 |---|---|
 | 素材の件数 | {len(recall["materials"])} |
 | 判定に渡る主張の件数(素材から数えた値) | {claims} |
+| 台本のトラック数 | {len(tracks)} |
+| 台本の問題数 | {sum(len(t["questions"]) for t in tracks)} |
 
-判定の結果は製品がログに出さないので、ここには実測した値が無い。recall の成果物は、含意判定が `consistent`
-のときだけ書かれる(`safety.entailment.emit_if_consistent`。それ以外は `EntailmentRejected` で止まる)。上の
-素材は exit 0 の recall が書いた成果物から数えたもので、判定の通過はそこから推論している。主張の件数も判定器に
-渡った件数の実測ではなく、素材ごとの答えの要素と識別ポイント1件を数えた値である。
+判定の結果は製品がログに出さないので、ここには実測した値が無い。recall と script の成果物は、含意判定が
+`consistent` のときだけ書かれる(それ以外は `EntailmentRejected` か `RegenerationExhausted` で止まる)。上の
+素材と台本は exit 0 の recall と script が書いた成果物から数えたもので、判定の通過はそこから推論している。主張の
+件数も判定器に渡った件数の実測ではなく、素材ごとの答えの要素と識別ポイント1件を数えた値である。
 
 ## 問題ごとの再生成回数
 
@@ -355,8 +481,16 @@ recall の成果物の `report` の件数。成果物は、検査と含意判定
 ## 呼び出し数とトークン数
 
 トークン数は終了行の `tokens` の4区分(input・cache_creation_input・cache_read_input・output)の和。190 問への
-外挿は、cluster と recall の2実行の和を問題数の比 {TARGET_QUESTIONS}/{len(questions)} で伸ばした値である。
-cluster 段の分類は全問を1度に見るので問題数に比例しないが、ここでは比例として扱う。
+外挿は、問題数の比 {TARGET_QUESTIONS}/{len(questions)} で伸ばした値である。cluster 段の分類は全問を1度に見るので
+問題数に比例しないが、ここでは比例として扱う。
+
+段ごと:
+
+| 段 | 呼び出し数 | プロバイダ呼び出し数 | トークン数 | 呼び出し数(外挿) | トークン数(外挿) |
+|---|---|---|---|---|---|
+{stage_rows}
+
+cluster から script までの合計:
 
 | 項目 | リハーサル | {TARGET_QUESTIONS} 問への外挿 |
 |---|---|---|
@@ -380,12 +514,35 @@ utilization の生の値(終了行の `quota_at_start`・`quota_at_end`)。小�
 |---|---|
 {ratio_rows}
 
-{TARGET_QUESTIONS} 問へ外挿したトークン数にこの比を掛けた、cluster から recall までの枠の使用率の推定:
+{TARGET_QUESTIONS} 問へ外挿したトークン数にこの比を掛けた、cluster から script までの枠の使用率の推定:
 
 | 枠 | 推定使用率 |
 |---|---|
 | five_hour | {_fmt(usage["estimated_five_hour"])} |
 | seven_day | {_fmt(usage["estimated_seven_day"])} |
+
+## ミューテーション
+
+各問題の誤答1件につき「この問題の正解は「誤答の本文」である。」という主張を作り、1問の主張をまとめて1回の
+判定(`ClaudeCliLlm.check_entailments`、reference は `reference_for`)で実 CLI に聞いた件数。合格ラインは置かない
+(D-044)。
+
+| 項目 | 値 |
+|---|---|
+| ミューテーションの件数 | {totals["statements"]} |
+| contradicted | {totals["contradicted"]} |
+| uncertain | {totals["uncertain"]} |
+| consistent | {totals["consistent"]} |
+
+| 問題 | 件数 | contradicted | uncertain | consistent |
+|---|---|---|---|---|
+{mutation_rows}
+
+判定の呼び出しの終了行(`mutation-meter.jsonl`):
+
+```json
+{mutation_end}
+```
 
 {blocks}"""
 
@@ -393,17 +550,29 @@ utilization の生の値(終了行の `quota_at_start`・`quota_at_end`)。小�
 def _render(args: argparse.Namespace) -> int:
     out_root: Path = args.out_root.resolve()
     directory = _journal_dir(out_root)
-    conditions = json.loads((directory / "conditions.json").read_text(encoding="utf-8"))
+    conditions = json.loads((directory / CONDITIONS).read_text(encoding="utf-8"))
     entries = [e for e in _read_journal(out_root) if e["run_id"] is not None]
     executions = _paired(entries, _meter_lines(out_root))
-    recall_entry = next(e for e in entries if _stage_of(e) == "recall" and e["exit_code"] == 0)
-    recall = json.loads(Path(recall_entry["stdout"]).read_bytes())
+
+    def artifact(stage: str) -> Any:
+        entry = next(e for e in entries if _stage_of(e) == stage and e["exit_code"] == 0)
+        return json.loads(Path(entry["stdout"]).read_bytes())
+
+    mutation_ends = [
+        raw
+        for raw in (directory / MUTATION_METER).read_text(encoding="utf-8").splitlines()
+        if json.loads(raw)["record"] == "end"
+    ]
+    assert len(mutation_ends) == 1, f"ミューテーションの終了行が {len(mutation_ends)} 行ある"
     REHEARSAL_LOG.write_text(
         render_log(
             conditions,
             fixture_questions(out_root / "data" / DECK),
             executions,
-            recall,
+            artifact("recall"),
+            artifact("script"),
+            json.loads((directory / MUTATIONS).read_text(encoding="utf-8")),
+            mutation_ends[0],
             FULL_LOG.read_text(encoding="utf-8"),
         ),
         encoding="utf-8",
@@ -443,6 +612,13 @@ def _rows(body: str) -> list[list[str]]:
     return rows[1:] if rows else rows
 
 
+def _table_with(body: str, header: str) -> str:
+    """`body` の中で、見出し行が `header` で始まる表だけを返す。"""
+    found = [t for t in body.split("\n\n") if t.startswith(header)]
+    assert len(found) == 1, f"見出し {header} の表がちょうど1つない"
+    return found[0]
+
+
 def _table(body: str) -> dict[str, list[str]]:
     return {row[0]: row[1:] for row in _rows(body)}
 
@@ -478,16 +654,25 @@ def executions_of(text: str) -> list[dict[str, Any]]:
 
 
 def check_recall_passed(text: str) -> None:
-    """A-2: 合成デッキの cluster → recall が同じ列で走り、recall が exit 0、検査がすべて 0、含意判定が通った。"""
+    """A-2: 今のコードで、cluster → recall → script が同じ列で exit 0、検査がすべて 0、含意判定が通った。"""
     conditions = _table(_section(text, "実行条件"))
     assert conditions["デッキのダイジェスト"][0] == fixture_digest(), "記録のデッキがフィクスチャと違う"
+    code = code_conditions()
+    for label, key in (
+        ("分類のプロンプトとスキーマのダイジェスト", "classify_digest"),
+        ("判定のプロンプトとスキーマのダイジェスト", "entailment_digest"),
+    ):
+        assert conditions[label][0] == code[key], f"{label} が今のコードの値と違う"
+    recorded_keys = conditions["generate_recall の子の環境の鍵"][0].split(",")
+    assert recorded_keys == code["recall_env_keys"], "generate_recall の子の環境の鍵が今のコードの値と違う"
     questions = fixture_questions()
     assert int(conditions["問題数"][0]) == len(questions), "問題数がフィクスチャと違う"
     executions = executions_of(text)
-    assert [e["start"]["stage"] for e in executions] == list(STAGES), "実行が cluster → recall の順でない"
+    assert [e["start"]["stage"] for e in executions] == list(STAGES), "実行が cluster → recall → script の順でない"
     assert executions[0]["start"]["cache_mode"] == "fresh", "cluster が新しい列で走っていない"
-    assert executions[1]["start"]["cache_mode"] == "resume", "recall が同じ列への追加になっていない"
-    assert len({e["start"]["run_id"] for e in executions}) == 1, "cluster と recall の列が違う"
+    for execution in executions[1:]:
+        assert execution["start"]["cache_mode"] == "resume", f"{execution['heading']} が同じ列への追加になっていない"
+    assert len({e["start"]["run_id"] for e in executions}) == 1, "段どうしの列が違う"
     for execution in executions:
         assert execution["exit_code"] == 0, f"{execution['heading']} が exit 0 で終わっていない"
         assert execution["end"]["stop"]["exit_reason"] is None, f"{execution['heading']} が例外で終わった"
@@ -510,10 +695,20 @@ def check_usage_recorded(text: str) -> None:
     assert set(regenerations) == {q["id"] for q in questions}, "再生成回数が全問ぶん無い"
     for qid, (count,) in regenerations.items():
         assert 0 <= int(count) <= MAX_REGENERATIONS, f"問題 {qid} の再生成回数が範囲外: {count}"
-    ends = [e["end"] for e in executions_of(text)]
+    executions = executions_of(text)
+    ends = [e["end"] for e in executions]
     ratios = usage_per_token(previous_ends(FULL_LOG.read_text(encoding="utf-8")))
     usage = usage_estimate(ends, len(questions), ratios)
+    scale = TARGET_QUESTIONS / len(questions)
     counts = _table(_section(text, "呼び出し数とトークン数"))
+    for execution in executions:
+        stage, end = execution["start"]["stage"], execution["end"]
+        calls, invocations, tokens, calls_190, tokens_190 = counts[stage]
+        assert int(calls) == end["llm_calls"], f"{stage} の呼び出し数が終了行と違う"
+        assert int(invocations) == end["provider_invocations"], f"{stage} のプロバイダ呼び出し数が終了行と違う"
+        assert int(tokens) == total_tokens(end["tokens"]), f"{stage} のトークン数が終了行と違う"
+        assert _close(calls_190, end["llm_calls"] * scale), f"{stage} の呼び出し数の外挿が違う"
+        assert _close(tokens_190, total_tokens(end["tokens"]) * scale), f"{stage} のトークン数の外挿が違う"
     for label, key in (("呼び出し数", "calls"), ("プロバイダ呼び出し数", "invocations"), ("トークン数", "tokens")):
         recorded, extrapolated = counts[label]
         assert int(recorded) == usage[key], f"{label} が終了行の和と違う"
@@ -532,6 +727,26 @@ def check_usage_recorded(text: str) -> None:
     for window in WINDOWS:
         assert _close(ratio_table[window][0], ratios[window]), f"{window} の比が前サイクルの列から計算した値と違う"
         assert _close(estimate_table[window][0], usage[f"estimated_{window}"]), f"{window} の推定が違う"
+
+
+def check_mutations_recorded(text: str) -> None:
+    """A-4: 誤答ごとのミューテーションを1問1回で判定した件数・contradicted・uncertain。合格ラインは無い(D-044)。"""
+    questions = fixture_questions()
+    body = _section(text, "ミューテーション")
+    summary = _table(_table_with(body, "| 項目 | 値 |"))
+    per_question = _table(_table_with(body, "| 問題 | 件数 |"))
+    total = int(summary["ミューテーションの件数"][0])
+    assert total == mutation_count(questions), "ミューテーションの件数がフィクスチャの誤答の数と違う"
+    verdicts = [int(summary[key][0]) for key in MUTATION_COLUMNS[1:]]
+    assert sum(verdicts) == total, "判定値の件数の和がミューテーションの件数と違う"
+    expected = {q["id"]: len(q["options"]) - len(q["answers"]) for q in questions}
+    assert {qid: int(row[0]) for qid, row in per_question.items()} == expected, "問題ごとの件数がフィクスチャと違う"
+    for column, key in enumerate(MUTATION_COLUMNS[1:], start=1):
+        assert sum(int(row[column]) for row in per_question.values()) == int(summary[key][0]), f"{key} の和が違う"
+    (end_line,) = _blocks(_section(text, "ミューテーション"), "json")
+    end = json.loads(end_line)
+    assert end["record"] == "end" and end["stop"]["exit_code"] == 0, "ミューテーションの判定が exit 0 で終わっていない"
+    assert end["llm_calls"] == len(questions), "判定の呼び出しが1問1回になっていない"
 
 
 # ---- フィクスチャの判定 ----
@@ -569,6 +784,11 @@ def test_c026_record_has_regenerations_and_extrapolated_usage() -> None:
     check_usage_recorded(_read())
 
 
+def test_c026_record_has_batched_mutation_counts() -> None:
+    """A-4"""
+    check_mutations_recorded(_read())
+
+
 # ---- 判定が赤になること ----
 
 
@@ -596,6 +816,47 @@ def test_record_with_a_failed_recall_is_red() -> None:
         '"stop": {"exit_code": 0,', '"stop": {"exit_code": 1,'
     )
     _broken(check_recall_passed, text.replace(body, failed, 1), f"{heading} が exit 0 で終わっていない")
+
+
+def test_record_taken_with_another_entailment_prompt_is_red() -> None:
+    """古いコード(判定のプロンプトかスキーマが今と違う)で取った記録。"""
+    current = code_conditions()["entailment_digest"]
+    _broken(
+        check_recall_passed,
+        _read().replace(current, "sha256:" + "1" * 64, 1),
+        "判定のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
+    )
+
+
+def test_record_taken_without_the_recall_env_is_red() -> None:
+    """generate_recall の思考を止める環境(ADR-029)の前に取った記録。"""
+    _broken(
+        check_recall_passed,
+        _read().replace(",MAX_THINKING_TOKENS,", ",", 1),
+        "generate_recall の子の環境の鍵が今のコードの値と違う",
+    )
+
+
+def test_record_without_the_script_stage_is_red() -> None:
+    text = _read()
+    heading, body = _sections(text, "実行 ")[-1]
+    _broken(check_recall_passed, text.replace(f"\n## {heading}\n{body}", "", 1), "cluster → recall → script の順でない")
+
+
+def test_record_with_mutations_judged_one_by_one_is_red() -> None:
+    """1件ずつ聞いた判定(呼び出し数がミューテーションの件数)は、まとめた判定の記録ではない。"""
+    text = _read()
+    calls = mutation_count(fixture_questions())
+    block = _blocks(_section(text, "ミューテーション"), "json")[0]
+    broken = re.sub(r'"llm_calls": \d+', f'"llm_calls": {calls}', block, count=1)
+    _broken(check_mutations_recorded, text.replace(block, broken, 1), "判定の呼び出しが1問1回になっていない")
+
+
+def test_record_with_a_wrong_mutation_total_is_red() -> None:
+    text = re.sub(
+        r"^\| ミューテーションの件数 \| \d+ \|$", "| ミューテーションの件数 | 1 |", _read(), count=1, flags=re.M
+    )
+    _broken(check_mutations_recorded, text, "ミューテーションの件数がフィクスチャの誤答の数と違う")
 
 
 def test_record_from_another_deck_is_red() -> None:
