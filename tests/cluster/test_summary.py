@@ -1,6 +1,7 @@
 """クラスタ要約の語句実在性と含意判定(C-003 / C-013 / R-3 / NFR-1 / A-5 / A-6 / D-161)。"""
 
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal
 from quiz_sift.safety.entailment import EntailmentRejected
 
 type Groups = dict[str, tuple[QuestionId, ...]]
@@ -59,7 +60,10 @@ class StubLlm:
             return sequence[min(self.summarized.count(label), len(sequence)) - 1]
         return self.summaries[label]
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        return tuple(self._verdict(reference, s.statement) for s in statements)
+
+    def _verdict(self, reference: str, statement: str) -> Entailment:
         self.checked.append((reference, statement))
         return Entailment.CONTRADICTED if statement in self.contradicted else Entailment.CONSISTENT
 

@@ -106,7 +106,7 @@ _ENTAILMENT = llm_prompts.ENTAILMENT_SYSTEM
 
 
 def _models(*methods: str) -> str:
-    return ",".join(f"{m}={llm_prompts.MODELS[m]}" for m in (*methods, "check_entailment"))
+    return ",".join(f"{m}={llm_prompts.MODELS[m]}" for m in (*methods, "check_entailments"))
 
 
 # ingest の digest は入力のバイト列だけで決まり、実装コードは入らない。成果物(deck JSON)の形を変えたら

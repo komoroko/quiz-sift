@@ -21,6 +21,7 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.meter import Meter
 from quiz_sift.ports.clock import SystemClock
+from quiz_sift.ports.llm import EntailmentStatement
 
 ROOT = Path(__file__).resolve().parents[2]
 FLAGS_RECORD = ROOT / "docs" / "test" / "measurements" / "claude-cli-flags.md"
@@ -67,7 +68,7 @@ def all_argvs(tmp_path: Path) -> list[tuple[str, ...]]:
     llm.summarize_cluster(members)
     llm.generate_recall(q, Language.JA)
     llm.describe_term("合成用語", Language.JA)
-    llm.check_entailment("合成参照", "合成主張")
+    llm.check_entailments("合成参照", [EntailmentStatement("0", "合成主張")])
     assert len(runner.specs) == 5
     return [spec.argv for spec in runner.specs]
 

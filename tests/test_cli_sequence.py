@@ -401,9 +401,9 @@ def test_regenerations_reach_llm_calls_and_provider_invocations(
     assert harness.main("recall", DECK) == 0
     recalls = len(ROWS) + 1
     assert harness.systems(before).count(llm_prompts.RECALL_SYSTEM) == recalls
-    # 想起素材の呼び出し(作り直しを含む)と、各問の答え1件・識別ポイント1件の含意判定。
+    # 想起素材の呼び出し(作り直しを含む)と、各問の答えと識別ポイントを1回で聞く含意判定(ADR-029)。
     end = harness.last_end()
-    assert end["llm_calls"] == end["provider_invocations"] == harness.spawned() - before == recalls + 2 * len(ROWS)
+    assert end["llm_calls"] == end["provider_invocations"] == harness.spawned() - before == recalls + len(ROWS)
 
 
 def sequence_ends(harness: Harness, run_id: str) -> list[dict[str, Any]]:

@@ -6,6 +6,7 @@ LLM の生の応答に、多重所属・分割呼び出しをまたいだ同一�
 """
 
 import logging
+from collections.abc import Sequence
 
 import pytest
 
@@ -14,7 +15,7 @@ from quiz_sift.cluster.metrics import measure
 from quiz_sift.cluster.run import Clustering, cluster_deck
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId, QuestionId
-from quiz_sift.ports.llm import ClassificationResult, Entailment, GroupProposal
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal
 
 type Groups = dict[str, tuple[QuestionId, ...]]
 DECK = DeckId("aws-saa")
@@ -51,7 +52,10 @@ class StubLlm:
         # 構成員の問題文の先頭の語句をそのまま使う(実在性を満たす)。
         return members.questions[0].stem.split(" ")[0]
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        return tuple(self._verdict(reference, s.statement) for s in statements)
+
+    def _verdict(self, reference: str, statement: str) -> Entailment:
         return Entailment.CONSISTENT
 
 

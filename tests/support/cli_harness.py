@@ -167,7 +167,7 @@ def respond(spec: CommandSpec, **stdout: Any) -> CommandResult:
     elif "description" in properties:
         output = {"description": f"{prompt['term']}の説明"}
     else:
-        output = {"verdict": Entailment.CONSISTENT.value}
+        output = {"verdicts": [{"id": s["id"], "verdict": Entailment.CONSISTENT.value} for s in prompt["statements"]]}
     return exited(fake_stdout(structured_output=output, **stdout))
 
 

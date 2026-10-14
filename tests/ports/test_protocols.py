@@ -44,7 +44,7 @@ def test_external_sdk_imports_live_only_in_adapters() -> None:
 
     # Llm / Tts / Clock が Protocol として定義されている。
     for port, methods in (
-        (Llm, {"classify_clusters", "summarize_cluster", "generate_recall", "describe_term", "check_entailment"}),
+        (Llm, {"classify_clusters", "summarize_cluster", "generate_recall", "describe_term", "check_entailments"}),
         (Tts, {"synthesize"}),
         (Clock, {"now", "monotonic"}),
     ):

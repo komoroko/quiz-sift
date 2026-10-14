@@ -1,6 +1,7 @@
 """用語説明と公式解説の照合(C-005 / C-013 / R-5 / NFR-1 / A-2 / A-3)。"""
 
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ from quiz_sift.glossary.verify import (
     verification_summary,
     verify,
 )
-from quiz_sift.ports.llm import Entailment
+from quiz_sift.ports.llm import Entailment, EntailmentStatement
 from quiz_sift.safety.entailment import EntailmentRejected
 
 # 公式解説(標準-IA はミリ秒単位で取り出せる)と矛盾する説明。語句は正しく、文字列の一致では見分けられない。
@@ -48,7 +49,10 @@ class StubLlm:
             return sequence[min(self.described.count(term), len(sequence)) - 1]
         return self.descriptions.get(term, f"{term} の説明")
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        return tuple(self._verdict(reference, s.statement) for s in statements)
+
+    def _verdict(self, reference: str, statement: str) -> Entailment:
         self.checked.append((reference, statement))
         for description, verdict in self.verdicts.items():
             if description in statement:

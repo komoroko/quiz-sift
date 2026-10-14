@@ -9,15 +9,16 @@ import pytest
 
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
+from quiz_sift.domain.ids import ClusterId, OptionId, QuestionId
 from quiz_sift.domain.language import Language
-from quiz_sift.domain.question import Question
+from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
+from quiz_sift.domain.studied import StudiedFlag
 from quiz_sift.pipeline.stage import Progress
-from quiz_sift.ports.llm import LlmCallError, RecallDraft
+from quiz_sift.ports.llm import EntailmentStatement, LlmCallError, RecallDraft
 from quiz_sift.recall.generate import ENTAILMENT, MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
-from quiz_sift.safety.entailment import DISTRACTOR_SECTION, FOCUS_SECTION
 
-from .conftest import GOOD, ROWS, StubLlm, Writer, generate
+from .conftest import DECK, GOOD, ROWS, StubLlm, Writer, generate
 
 # 語句も参照もすべて実在するが、正解・解説(標準-IA はミリ秒単位で取り出せる)と矛盾する答え。
 CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
@@ -223,18 +224,89 @@ def test_recall_references_hold_the_right_sections(deck: Deck, clusters: tuple[C
     llm = StubLlm(GOOD)
     generate(llm, deck, clusters, Writer(out))
     assert out.exists()
-    # 全素材の答えの要素と識別ポイントが1件ずつ判定されてから書き出される。
+    # 全素材の答えの要素と識別ポイントが判定されてから書き出される。
     expected = [s for d in GOOD.values() for s in (*(e.text for e in d.answers), d.discrimination.text)]
     assert sorted(statement for _, statement in llm.checked) == sorted(expected)
-    # 答えの要素は、その問題の正解・公式解説と、要素が説明する正解を照合先として判定されている。
-    reference = next(ref for ref, statement in llm.checked if statement == GOOD["q01"].answers[0].text)
+    reference, statements = next(call for call in llm.calls if call[1][0].statement == GOOD["q01"].answers[0].text)
+    # reference はその問題の正解・公式解説で、誤答の本文と他の問題は入らない。
     assert "正解: S3 標準-IA" in reference and "ミリ秒単位で取り出せる" in reference
-    assert f"{FOCUS_SECTION}: S3 標準-IA" in reference
-    assert "IAM" not in reference
-    # 識別ポイントの reference は参照先の誤答を誤答の節に置く(q05 は B = リードレプリカ)。
-    reference = next(ref for ref, statement in llm.checked if statement == GOOD["q05"].discrimination.text)
-    assert f"{DISTRACTOR_SECTION}: リードレプリカ" in reference
-    assert "スナップショット" not in reference
+    assert "S3 Glacier Deep Archive" not in reference and "IAM" not in reference
+    # 答えの要素は、その要素が説明する正解を focus に持ち、誤答の本文を持たない(D-210)。
+    answer, discrimination = statements
+    assert (answer.focus, answer.distractors) == ("S3 標準-IA", ())
+    # 識別ポイントは参照先の誤答の本文だけを distractors に持つ(D-192)。q01 は C = S3 Glacier Deep Archive。
+    assert (discrimination.focus, discrimination.distractors) == (None, ("S3 Glacier Deep Archive",))
+    _, (_, q05) = next(call for call in llm.calls if call[1][1].statement == GOOD["q05"].discrimination.text)
+    assert q05.distractors == ("リードレプリカ",)
+
+
+def _two_answer_deck() -> tuple[Deck, tuple[Cluster, ...]]:
+    """正解 2 件(A・C)、誤答 2 件(B・D)の問題 m01 だけのデッキ。"""
+    qid = QuestionId(DECK, "m01")
+    texts = {"A": "最小権限の原則", "B": "ルートユーザーの常用", "C": "職務分掌", "D": "アクセスキーの共有"}
+    options = tuple(Option(OptionId(qid, label), text) for label, text in texts.items())
+    question = Question(
+        qid,
+        "IAM の設計で推奨される原則を2つ選べ。",
+        options,
+        (options[0].option_id, options[2].option_id),
+        "最小権限の原則と職務分掌はどちらも推奨される。",
+        StudiedFlag.UNKNOWN,
+    )
+    deck = Deck(DECK, Language.JA, None, (question,))
+    return deck, (Cluster(ClusterId(DECK, "c001"), "c001", (qid,)),)
+
+
+def _two_answer_draft(second: str) -> RecallDraft:
+    qid = QuestionId(DECK, "m01")
+    return RecallDraft(
+        RecallKey(("IAM の設計", "推奨される原則")),
+        (AnswerElement(OptionId(qid, "A"), "必要な権限だけを与える"), AnswerElement(OptionId(qid, "C"), second)),
+        DiscriminationPoint("ルートユーザーは日常の作業に使わない", (OptionId(qid, "B"),)),
+    )
+
+
+def test_entailment_is_one_call_per_question(tmp_path: Path) -> None:
+    """T-084 A-2: 1回の生成につき判定を1回だけ呼ぶ。reference は正解 N 件と解説で、focus と誤答は主張の側。"""
+    deck, clusters = _two_answer_deck()
+    contradicting = "職務分掌は1人に全権限を集めることである"
+    good, bad = _two_answer_draft("権限を複数人に分ける"), _two_answer_draft(contradicting)
+
+    # 要素2だけが contradicted の1回目を作り直し、2回目で通る。生成1回につき判定は1回。
+    llm = StubLlm({"m01": good}, contradicted=frozenset({contradicting}), sequences={"m01": (bad, good)})
+    writer = Writer(tmp_path / "twice.tsv")
+    generate(llm, deck, clusters, writer)
+    assert llm.recalled == ["m01", "m01"]
+    assert len(llm.calls) == 2
+    assert writer.result is not None
+    assert {q.local_id: n for q, n in writer.result.report.regenerations} == {"m01": 1}
+    reference, statements = llm.calls[0]
+    assert reference == (
+        "問題: IAM の設計で推奨される原則を2つ選べ。 正解: 最小権限の原則、職務分掌 "
+        "解説: 最小権限の原則と職務分掌はどちらも推奨される。"
+    )
+    assert statements == (
+        EntailmentStatement("answer-0", "必要な権限だけを与える", focus="最小権限の原則"),
+        EntailmentStatement("answer-1", contradicting, focus="職務分掌"),
+        EntailmentStatement(
+            "discrimination", "ルートユーザーは日常の作業に使わない", distractors=("ルートユーザーの常用",)
+        ),
+    )
+    # 答えの要素の主張には誤答の本文が無い。
+    for answer in statements[:2]:
+        assert answer.distractors == ()
+        assert not any(text in answer.statement for text in ("ルートユーザーの常用", "アクセスキーの共有"))
+
+    # 要素2が毎回 contradicted なら、上限まで作り直して RegenerationExhausted で止まる。判定は生成ごとに1回。
+    llm = StubLlm({"m01": bad}, contradicted=frozenset({contradicting}))
+    out = tmp_path / "exhausted.tsv"
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(llm, deck, clusters, Writer(out))
+    assert [(e.question_id.local_id, e.failures, e.attempts) for e in exc.value.exhausted] == [
+        ("m01", (ENTAILMENT,), 1 + MAX_REGENERATIONS)
+    ]
+    assert len(llm.calls) == len(llm.recalled) == 1 + MAX_REGENERATIONS
+    assert not out.exists()
 
 
 def _progress(tmp_path: Path) -> Progress:
@@ -327,22 +399,31 @@ def test_regeneration_cap_holds_across_resumes(deck: Deck, clusters: tuple[Clust
     assert [(e.question_id.local_id, e.attempts) for e in exc.value.exhausted] == [("q01", 1 + MAX_REGENERATIONS)]
     assert not out.exists()
 
-    # (c) 判定の途中、uncertain の後で判定の呼び出しが枠切れで失敗して止まると、再開では判定値のある主張を
-    # 聞き直さず、その生成を不合格(entailment)として数えて作り直す。
+    # (c) 判定の呼び出しが枠切れで失敗して止まると、再開では同じ生成物を作り直さずに1回で判定し直す。
     progress, out = Progress(tmp_path / "c"), tmp_path / "c.tsv"
     answer = GOOD["q01"].answers[0].text
     discrimination = GOOD["q01"].discrimination.text
-    first = StubLlm(GOOD, uncertain=frozenset({answer}), failing_checks=frozenset({discrimination}))
+    first = StubLlm(GOOD, failing_checks=frozenset({discrimination}))
     with pytest.raises(RecallCallsFailed):
-        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.checked) >= 2, progress=progress)
-    assert first.recalled == ["q01"]
-    assert [s for _, s in first.checked] == [answer, discrimination]
+        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.calls) >= 1, progress=progress)
+    assert first.recalled == ["q01"] and len(first.calls) == 1
+    second = StubLlm(GOOD)
+    generate(second, deck, clusters, Writer(out), progress=progress)
+    assert "q01" not in second.recalled
+    assert [s.statement for s in second.calls[0][1]] == [answer, discrimination]
+
+    # (d) uncertain の判定値が返った後に止まると、再開ではその判定値を聞き直さず、2回目として作り直す。
+    progress, out = Progress(tmp_path / "d"), tmp_path / "d.tsv"
+    first = StubLlm(GOOD, uncertain=frozenset({answer}))
+    with pytest.raises(RecallCallsFailed):
+        generate(first, deck, clusters, Writer(out), stop_seen=lambda: len(first.calls) >= 1, progress=progress)
+    assert first.recalled == ["q01"] and len(first.calls) == 1
     second = StubLlm(GOOD)  # どの主張にも consistent を返す。
     writer = Writer(out)
     generate(second, deck, clusters, writer, progress=progress)
-    # 判定値の無かった主張だけを聞き、uncertain が残るので q01 を2回目として作り直す。
-    assert [s for _, s in second.checked][:3] == [discrimination, answer, discrimination]
     assert second.recalled.count("q01") == 1
+    assert [qid for qid, stem, *_ in ROWS if second.calls[0][0].startswith(f"問題: {stem}")] == ["q01"]
+    assert len([c for c in second.calls if c[1][0].statement == answer]) == 1
     assert writer.result is not None
     assert dict((q.local_id, n) for q, n in writer.result.report.regenerations)["q01"] == 1
 

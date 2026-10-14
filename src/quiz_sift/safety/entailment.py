@@ -8,6 +8,7 @@
   書いてから消す経路がそもそも無い。
 - ミューテーション検出率は数値として記録するが、合格ラインは置かない(D-044)。
 - 問題の正解・解説から reference を作るのは `reference_for` だけ(想起素材・台本・クラスタ要約が共有する)。
+- 判定は1つの reference に属する主張をまとめて1回で聞き、判定値を主張の ID で受ける(ADR-029)。
 """
 
 import logging
@@ -15,9 +16,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from quiz_sift.domain.ids import OptionId
 from quiz_sift.domain.question import Question
-from quiz_sift.ports.llm import Entailment
+from quiz_sift.ports.llm import Entailment, EntailmentStatement
 
 logger = logging.getLogger(__name__)
 
@@ -25,32 +25,19 @@ logger = logging.getLogger(__name__)
 class EntailmentChecker(Protocol):
     """`ports.llm.Llm` のうち含意判定だけを使う。`Llm` の実装はそのまま渡せる。"""
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment: ...
+    def check_entailments(
+        self, reference: str, statements: Sequence[EntailmentStatement]
+    ) -> tuple[Entailment, ...]: ...
 
 
-DISTRACTOR_SECTION = "誤答選択肢(この問題では正しくない記述)"
-"""識別ポイントの reference で、参照先の誤答の本文を置く節の名前。`ENTAILMENT_SYSTEM` がこの節の意味を説明する。"""
-FOCUS_SECTION = "この文が説明する正解"
-"""答えの要素の reference で、その要素が説明する正解を置く節の名前。"""
+def reference_for(question: Question) -> str:
+    """`question` の含意判定の reference。問題文・正解 N 件すべてと解説を含む(NFR-1)。
 
-
-def reference_for(question: Question, focus: OptionId | None = None, distractors: Sequence[OptionId] = ()) -> str:
-    """`question` の含意判定の reference。正解 N 件すべてと解説を含む(NFR-1)。
-
-    `focus` を渡すと、その正解を「この文が説明する正解」の節に明示する(D-210)。`distractors` を渡すと、
-    その誤答の本文を「誤答選択肢(この問題では正しくない記述)」の節に置く(D-192)。誤答を正しい情報として
-    渡すと、誤答を正しくないと述べる正しい識別ポイントが矛盾と判定される(AR-D4)。
+    その主張が説明する正解(D-210)と、識別ポイントが参照する誤答(D-192)は、reference ではなく主張の側の
+    `focus`・`distractors` に置く(ADR-029)。1問の主張をまとめて聞いても reference は1回で済む。
     """
     texts = {option.option_id: option.text for option in question.options}
-    if focus is not None and focus not in question.correct_option_ids:
-        raise ValueError("focus はこの問題の正解の選択肢でなければならない")
-    if any(d not in texts or d in question.correct_option_ids for d in distractors):
-        raise ValueError("distractors はこの問題の誤答の選択肢でなければならない")
     sections = [f"問題: {question.stem}", f"正解: {'、'.join(texts[o] for o in question.correct_option_ids)}"]
-    if focus is not None:
-        sections.append(f"{FOCUS_SECTION}: {texts[focus]}")
-    if distractors:
-        sections.append(f"{DISTRACTOR_SECTION}: {'、'.join(texts[d] for d in distractors)}")
     if question.explanation is not None:
         sections.append(f"解説: {question.explanation}")
     return " ".join(sections)
@@ -58,7 +45,7 @@ def reference_for(question: Question, focus: OptionId | None = None, distractors
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Claim:
-    """照合1件: `statement`(生成物の主張)が `reference`(正解・公式解説)と矛盾しないか。
+    """照合1件: `statement`(生成物の主張)が `reference`(正解・公式解説)と矛盾しないか。ミューテーションに使う。
 
     どちらも教材本文を含むので `repr` に出さない(NFR-3)。
     """
@@ -78,23 +65,38 @@ class EntailmentRejected(SystemExit):
         self.verdict = verdict
 
 
-def judge(checker: EntailmentChecker, claims: Sequence[Claim]) -> Entailment:
-    """全件を集約した判定を返す。
+def ask(
+    checker: EntailmentChecker, reference: str, statements: Sequence[EntailmentStatement]
+) -> tuple[Entailment, ...]:
+    """`statements` を1回の呼び出しで判定し、主張の順の判定値を返す。数が合わなければ落とす。"""
+    if len({s.id for s in statements}) != len(statements):
+        raise ValueError("主張の ID が重複している")
+    verdicts = checker.check_entailments(reference, statements)
+    if len(verdicts) != len(statements):
+        raise ValueError(f"判定値 {len(verdicts)} 件が主張 {len(statements)} 件と合わない")
+    return verdicts
+
+
+def aggregate(verdicts: Sequence[Entailment]) -> Entailment:
+    """判定値の列を集約する。
 
     `contradicted` が1件でもあればそれ、無ければ `uncertain` が1件でもあればそれ、どちらも無ければ
-    `consistent`。`contradicted` が出た時点で残りは問い合わせない。照合が0件なら確かめたものが
-    無いので `uncertain` とする。
+    `consistent`。判定値が0件なら確かめたものが無いので `uncertain` とする。
     """
-    if not claims:
+    if not verdicts:
         return Entailment.UNCERTAIN
-    result = Entailment.CONSISTENT
-    for claim in claims:
-        verdict = checker.check_entailment(claim.reference, claim.statement)
-        if verdict is Entailment.CONTRADICTED:
-            return verdict
-        if verdict is Entailment.UNCERTAIN:
-            result = verdict
-    return result
+    if Entailment.CONTRADICTED in verdicts:
+        return Entailment.CONTRADICTED
+    if Entailment.UNCERTAIN in verdicts:
+        return Entailment.UNCERTAIN
+    return Entailment.CONSISTENT
+
+
+def judge(checker: EntailmentChecker, reference: str, statements: Sequence[EntailmentStatement]) -> Entailment:
+    """1つの reference に対する主張を1回で判定し、`aggregate` で集約する。主張が0件なら呼ばずに `uncertain`。"""
+    if not statements:
+        return Entailment.UNCERTAIN
+    return aggregate(ask(checker, reference, statements))
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +117,7 @@ def measure_mutations(checker: EntailmentChecker, mutants: Sequence[Claim]) -> M
     """各ミューテーションを1件ずつ判定し、検出率をログに記録して返す。合格ラインは無い(D-044)。"""
     if not mutants:
         raise ValueError("ミューテーションが0件では検出率を定義できない")
-    verdicts = [checker.check_entailment(m.reference, m.statement) for m in mutants]
+    verdicts = [ask(checker, m.reference, [EntailmentStatement("0", m.statement)])[0] for m in mutants]
     report = MutationReport(
         total=len(verdicts),
         contradicted=verdicts.count(Entailment.CONTRADICTED),

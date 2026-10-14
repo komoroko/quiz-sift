@@ -6,13 +6,14 @@ M/N も成立するが、その実行は下流へ進まず非0で終了し、サ
 
 import logging
 import re
+from collections.abc import Sequence
 
 import pytest
 
 from quiz_sift.cluster.run import ClassificationFailed, Clustering, cluster_deck
 from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import QuestionId
-from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, GroupProposal
+from quiz_sift.ports.llm import CallFailure, ClassificationResult, Entailment, EntailmentStatement, GroupProposal
 
 type Groups = dict[str, tuple[QuestionId, ...]]
 
@@ -34,7 +35,10 @@ class PartiallyFailingLlm:
         self.summarized += 1
         return members.questions[0].stem.split(" ")[0]
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        return tuple(self._verdict(reference, s.statement) for s in statements)
+
+    def _verdict(self, reference: str, statement: str) -> Entailment:
         self.checked += 1
         return Entailment.CONSISTENT
 

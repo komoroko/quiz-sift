@@ -23,7 +23,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.glossary.describe import DescribeLlm, GlossaryEntry, describe_terms
 from quiz_sift.glossary.extract_terms import extract_terms
 from quiz_sift.grounding.presence import is_present
-from quiz_sift.ports.llm import Entailment
+from quiz_sift.ports.llm import Entailment, EntailmentStatement
 from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, judge
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def _judged(llm: GlossaryLlm, number: int, entry: GlossaryEntry, deck: Deck) -> 
             logger.info("glossary: 用語 #%d の説明を作り直す(entailment; %d 回目)", number, attempt - 1)
             entry = GlossaryEntry(entry.term, llm.describe_term(entry.term, deck.language))
             claim = Claim(reference=claim.reference, statement=f"{entry.term}: {entry.description}")
-        verdict = judge(llm, [claim])
+        verdict = judge(llm, claim.reference, [EntailmentStatement("term", claim.statement)])
         if verdict is Entailment.CONSISTENT:
             break
     return entry, verdict

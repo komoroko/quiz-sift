@@ -74,7 +74,15 @@ PATHS = {
         ("cluster",), "summary", lambda s: timed_out(fake_stdout(structured_output={"summary": SENTINEL}))
     ),
     "unknown_verdict": Route(
-        ("cluster",), "verdict", lambda s: exited(fake_stdout(structured_output={"verdict": SENTINEL}))
+        ("cluster",),
+        "verdicts",
+        lambda s: exited(
+            fake_stdout(
+                structured_output={
+                    "verdicts": [{"id": i["id"], "verdict": SENTINEL} for i in json.loads(s.stdin)["statements"]]
+                }
+            )
+        ),
     ),
     "unknown_key": Route(
         ("cluster",),

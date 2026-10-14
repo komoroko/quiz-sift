@@ -9,11 +9,12 @@
 2. **ラベル列挙判定**(`label_guard`): トラック単位で判定し、1本でも列挙があれば止める。M はトラック内の
    問題の選択肢数の最小値(D-211)。
 3. **含意判定**(NFR-1 / D-042): 各問の答えと識別ポイントが、その問題の正解・公式解説と矛盾しないこと。
-   識別ポイントの reference には、参照する誤答の本文を「正しくない記述」の節として入れる(D-192)。
-   集約は `safety.entailment.judge` と同じで、`contradicted` が出た時点で残りを問い合わせずに止め、
-   `uncertain` は残りを判定したうえで止める。`consistent` 以外で成果物は書かれない。
-4. **途中結果からの再開**(ADR-028): 実行の列では、判定値が返った主張ごとに、トラックの通し番号の途中結果へ
-   そのトラックの判定値を書く。再開では判定値のある主張を判定し直さず、残りの主張だけを判定する。
+   トラックの中の1問ぶん(答えと識別ポイント)を1回で聞く(ADR-029、D-244)。識別ポイントの主張には、参照する
+   誤答の本文を `distractors` として付ける(D-192)。集約は `safety.entailment.aggregate` と同じで、
+   `contradicted` が出た問の後は問い合わせずに止め、`uncertain` は残りを判定したうえで止める。
+   `consistent` 以外で成果物は書かれない。
+4. **途中結果からの再開**(ADR-028): 実行の列では、判定値が返った問ごとに、トラックの通し番号の途中結果へ
+   そのトラックの判定値を書く。再開では判定値のある問を判定し直さず、残りの問だけを判定する。
    `contradicted` か `uncertain` の判定値が戻れば、1回で走った場合と同じく止まる。
 
 安い検査から順に行い、LLM の含意判定は機械検査をすべて通った台本にだけかける。
@@ -30,10 +31,10 @@ from quiz_sift.domain.ids import ClusterId, QuestionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
-from quiz_sift.ports.llm import Entailment
+from quiz_sift.ports.llm import Entailment, EntailmentStatement
 from quiz_sift.recall.generate import ItemProgress, RecallSet
 from quiz_sift.recall.verify import RecallMaterial
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, reference_for
+from quiz_sift.safety.entailment import EntailmentChecker, EntailmentRejected, ask, reference_for
 from quiz_sift.script.label_guard import find_enumerations
 from quiz_sift.script.segments import QuestionScript, Track
 from quiz_sift.script.split import TRACK_LIMIT_SECONDS, plan_tracks
@@ -113,15 +114,29 @@ def question_script(material: RecallMaterial, question: Question, language: Lang
     )
 
 
-def _claims(track: Track, questions: Mapping[QuestionId, Question]) -> list[Claim]:
-    claims: list[Claim] = []
+@dataclass(frozen=True, slots=True, repr=False)
+class _Asked:
+    """1回の含意判定で聞く、1問ぶんの reference と主張。"""
+
+    reference: str
+    statements: tuple[EntailmentStatement, ...]
+
+
+def _asks(track: Track, questions: Mapping[QuestionId, Question]) -> list[_Asked]:
+    """トラックの各問の、答えと識別ポイントの主張。識別ポイントは参照する誤答の本文を `distractors` に持つ。"""
+    asks: list[_Asked] = []
     for q in track.questions:
         question = questions[q.question_id]
-        claims.append(Claim(reference=reference_for(question), statement=q.answer.text))
+        statements = [EntailmentStatement("answer", q.answer.text)]
         if q.discrimination is not None:
-            reference = reference_for(question, distractors=q.discrimination.distractor_ids)
-            claims.append(Claim(reference=reference, statement=q.discrimination.text))
-    return claims
+            texts = {option.option_id: option.text for option in question.options}
+            ids = q.discrimination.distractor_ids
+            if any(d not in texts or d in question.correct_option_ids for d in ids):
+                raise ValueError("distractors はこの問題の誤答の選択肢でなければならない")
+            distractors = tuple(texts[d] for d in ids)
+            statements.append(EntailmentStatement("discrimination", q.discrimination.text, distractors=distractors))
+        asks.append(_Asked(reference_for(question), tuple(statements)))
+    return asks
 
 
 def _option_count(track: Track, questions: Mapping[QuestionId, Question]) -> int:
@@ -139,7 +154,8 @@ def _restore(
 ) -> dict[int, list[Entailment]]:
     """途中結果を読み、トラックの通し番号ごとの判定値にする。件数だけをログに出す(NFR-2)。
 
-    `claims` はトラックごとの主張の数。全主張の判定値が揃ったトラックを「使った」と数える。
+    `claims` はトラックごとの主張の数。全主張の判定値が揃ったトラックを「使った」と数える。判定値は問の単位で
+    書くので、問の途中で切れた判定値の列は読まない。
     """
     if progress is None:
         return {}
@@ -164,26 +180,31 @@ def _judge_tracks(
     questions: Mapping[QuestionId, Question],
     progress: ItemProgress | None,
 ) -> Entailment:
-    """全トラックの主張を `safety.entailment.judge` と同じ規則で集約する。判定値はトラックごとに途中結果へ書く。"""
-    per_track = [_claims(track, questions) for track in tracks]
+    """全トラックの主張を `safety.entailment.aggregate` と同じ規則で集約する。1問ぶんを1回で聞き、判定値は
+    トラックごとに途中結果へ書く。"""
+    per_track = [_asks(track, questions) for track in tracks]
     if not any(per_track):
         return Entailment.UNCERTAIN
-    restored = _restore(progress, tracks, [len(claims) for claims in per_track])
+    counts = [sum(len(asked.statements) for asked in asks) for asks in per_track]
+    restored = _restore(progress, tracks, counts)
     result = Entailment.CONSISTENT
-    for index, (track, claims) in enumerate(zip(tracks, per_track, strict=True)):
+    for index, (track, asks) in enumerate(zip(tracks, per_track, strict=True)):
         verdicts = restored.get(index, [])
-        for position, claim in enumerate(claims):
+        boundaries = [sum(len(a.statements) for a in asks[:i]) for i in range(len(asks) + 1)]
+        if len(verdicts) not in boundaries:
+            raise ValueError(f"途中結果の判定値の数が問の境界と合わない: トラック {index}")
+        for position, asked in zip(boundaries, asks, strict=False):
             if position < len(verdicts):
-                verdict = verdicts[position]
+                answered = verdicts[position : position + len(asked.statements)]
             else:
-                verdict = checker.check_entailment(claim.reference, claim.statement)
-                verdicts.append(verdict)
+                answered = list(ask(checker, asked.reference, asked.statements))
+                verdicts.extend(answered)
                 if progress is not None:
                     progress.save(index, _verdicts_json(track, verdicts))
-            if verdict is Entailment.CONTRADICTED:
-                return verdict
-            if verdict is Entailment.UNCERTAIN:
-                result = verdict
+            if Entailment.CONTRADICTED in answered:
+                return Entailment.CONTRADICTED
+            if Entailment.UNCERTAIN in answered:
+                result = Entailment.UNCERTAIN
     return result
 
 

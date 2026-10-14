@@ -3,7 +3,7 @@
 「S3」と「データ」は s3 クラスタと iam クラスタ(q04)の両方に出現する。汎用語だけのキーを作るのに使う。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,7 +16,7 @@ from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, LlmCallError, RecallDraft
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, LlmCallError, RecallDraft
 from quiz_sift.recall.generate import ItemProgress, RecallSet, generate_recall_set
 
 DECK = DeckId("aws-saa")
@@ -144,7 +144,8 @@ class StubLlm:
     """`drafts` の想起素材を返し、`contradicted` / `uncertain` に含まれる主張にその判定を返す。
 
     `rejections` にある主張は、その回数だけ `contradicted` を返してから `consistent` を返す。`failing_checks` の
-    主張の判定は `LlmCallError` を上げる。判定にかけた主張は reference と組で `checked` に残る。
+    主張を含む判定の呼び出しは `LlmCallError` を上げる。判定にかけた主張は reference と組で `checked` に、
+    判定の呼び出しは reference と主張の列の組で `calls` に残る。
 
     `sequences` にある問題は、呼ばれるたびにその列を順に返す(尽きたら最後を返し続ける)。`failing` の問題は
     `LlmCallError` を上げる。呼ばれた問題は `recalled` に残る。
@@ -158,6 +159,7 @@ class StubLlm:
     rejections: dict[str, int] = field(default_factory=dict)
     failing_checks: frozenset[str] = frozenset()
     checked: list[tuple[str, str]] = field(default_factory=list)
+    calls: list[tuple[str, tuple[EntailmentStatement, ...]]] = field(default_factory=list)
     recalled: list[str] = field(default_factory=list)
 
     def generate_recall(self, question: Question, language: Language) -> RecallDraft:
@@ -168,10 +170,14 @@ class StubLlm:
         sequence = self.sequences.get(qid, (self.drafts[qid],))
         return sequence[min(self.recalled.count(qid), len(sequence)) - 1]
 
-    def check_entailment(self, reference: str, statement: str) -> Entailment:
-        self.checked.append((reference, statement))
-        if statement in self.failing_checks:
+    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
+        self.calls.append((reference, tuple(statements)))
+        if any(s.statement in self.failing_checks for s in statements):
             raise LlmCallError("合成の判定の失敗")
+        self.checked.extend((reference, s.statement) for s in statements)
+        return tuple(self._verdict(s.statement) for s in statements)
+
+    def _verdict(self, statement: str) -> Entailment:
         judged = sum(s == statement for _, s in self.checked)
         if statement in self.contradicted or judged <= self.rejections.get(statement, 0):
             return Entailment.CONTRADICTED

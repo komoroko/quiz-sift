@@ -29,8 +29,8 @@ from quiz_sift.domain.ids import ClusterId
 from quiz_sift.domain.language import Language
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.targets import SUMMARY_FIELDS, texts_for
-from quiz_sift.ports.llm import Entailment, GroupProposal
-from quiz_sift.safety.entailment import Claim, EntailmentChecker, EntailmentRejected, judge, reference_for
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, GroupProposal
+from quiz_sift.safety.entailment import EntailmentChecker, EntailmentRejected, judge, reference_for
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def _summarize(llm: SummaryLlm, cluster_id: ClusterId, members: Deck) -> str:
         if missing:
             failure = UngroundedSummary(cluster_id, len(missing))
             continue
-        verdict = judge(llm, [Claim(reference=_reference(members), statement=summary)])
+        verdict = judge(llm, _reference(members), [EntailmentStatement("summary", summary)])
         if verdict is Entailment.CONSISTENT:
             return summary
         failure = EntailmentRejected(verdict)
