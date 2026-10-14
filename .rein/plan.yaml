@@ -96,9 +96,9 @@ claims:
   - NFR-7
   - R-3
   - NFR-8
-  statement: R-2 で得た実デッキ(期待 190 問)で、人がホストで走らせた cluster から audio までの1列が completed になり、予算の外の再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で
+  statement: R-2 で得た実デッキ(期待 190 問)で、ホストで走らせた cluster から audio までの1列が completed になり、予算の外の再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で
     metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大
-    3 本)。
+    4 本)。
   risk: high
 - id: C-023
   requirement_ids:
@@ -1748,8 +1748,43 @@ tasks:
       - tests/acceptance/test_analysis.py::test_script_resume_logs_counts_only
       executor_profile: quality
   operator_surface: []
+- id: T-081
+  title: 出し直しで回復した切り詰めを、レート枠による停止の判定で失敗に数えない
+  kind: parallel
+  blocked_by: []
+  claim_ids:
+  - C-025
+  domains:
+  - measurement
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/pipeline/meter.py
+    - tests/pipeline/test_meter.py
+    - tests/measurements/test_full_run_logs.py
+  acceptance:
+  - id: A-1
+    statement: 1回の呼び出しで TRUNCATED の子が出し直し(D-231)で回復し、別の呼び出しが枠切れ(is_error 真、最後の rate_limit_event が rejected、overage 偽)で失敗して止まった実行の終了行で、ended_by_rate_limit.value
+      が真、stop.kind が rate_limit になり、その列が resumable になる。出し直しを使い切って TRUNCATED で終わった呼び出しがあれば偽のまま。failures_by_kind の truncated は回復した子も数える(D-241)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/pipeline/test_meter.py::test_recovered_truncation_does_not_hide_a_rate_limit_stop
+      executor_profile: quality
+  - id: A-2
+    statement: test_full_run_logs.py の試行の上限 MAX_ATTEMPTS が 4 で、--fresh-run の列が 5 本なら赤、4 本なら緑。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_attempts_count_fresh_runs_only
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
-  title: 【人・不可逆】実デッキでフル処理を完走させる(人がホストで exec と render)
+  title: 【不可逆】実デッキでフル処理を完走させる(人の指示でエージェントがホストで exec と render)
   kind: integration
   produced_by: person
   blocked_by:
@@ -1767,6 +1802,7 @@ tasks:
   - T-076
   - T-078
   - T-080
+  - T-081
   claim_ids:
   - C-025
   - C-007
@@ -1780,7 +1816,7 @@ tasks:
     - docs/test/measurements/audio-silence.md
   acceptance:
   - id: A-1
-    statement: 人がホストで test_full_run_logs.py exec を走らせ(週次枠で止まれば同じ列を --resume)、render で作った docs/test/measurements/full-run.md・reproducibility.md・audio-silence.md
+    statement: 人の指示を受けた対話セッションのエージェントがホストで test_full_run_logs.py exec を走らせ(枠で止まれば resetsAt の後に同じ列を --resume)、render で作った docs/test/measurements/full-run.md・reproducibility.md・audio-silence.md
       をコミットしている。
     evidence:
       kind: artifact
@@ -1800,7 +1836,7 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_c007_every_cluster_has_inner_silence
       executor_profile: quality
   - id: A-3
-    statement: 使った --fresh-run の本列は 3 本以内である。
+    statement: 使った --fresh-run の本列は 4 本以内である。
     evidence:
       kind: command
       command:
@@ -1821,7 +1857,7 @@ tasks:
     - T-069
     says: 合成デッキで recall 段まで(実 CLI)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
-    max: 3
+    max: 4
     cost: 1本あたり子プロセス 1,200〜1,600・5時間枠 2〜3 個・週次枠の約 30%・枠待ちを含め壁時計 10〜20 時間(推定)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
@@ -2540,6 +2576,16 @@ decisions:
   requirement_ids:
   - NFR-7
   - NFR-1
+- id: D-241
+  subject: 試行3が meter の判定で not_completable になった後の扱い(D-128 と D-231 の組み合わせ)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: レート枠による停止の判定(D-128)で数える失敗は、呼び出しごとの最後の子の失敗とし、出し直し(D-231)で回復した TRUNCATED の子は数えない(T-081)。T-071 の試行の上限を 4 にする。exec と render は、人の指示を受けた対話セッションのエージェントがホストで走らせ、枠切れなら resetsAt の後に同じ行を再実行し、枠切れ以外で止まれば止めて人に報告する。
+  rationale: 試行3の列 876150982ad54c5395c299ac94fde264 の recall(014.stderr、execution ff8e8ef2)は5時間枠切れで止まったが、同じ実行で出し直しにより回復した TRUNCATED の子が3本あり、meter は失敗した子のすべてが枠切れではないとして ended_by_rate_limit を偽、列を not_completable にした(2026-10-14)。D-231 は出し直しを llm_calls に数えないと決めており、回復した子は失敗した呼び出しではない。記録済みの終了行は書き換えないので試行3は救わず、上限を1つ足す(人の判断)。人が枠の戻りを待って行を打つ手間が試行の壁時計を延ばしているので、実行をエージェントに移す(人の判断)。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
 
 lenses:
 - id: L-REQ-AMBIGUITY

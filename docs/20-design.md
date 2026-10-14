@@ -156,7 +156,7 @@
 ### NFR-7 → design
 - **固定オーバーヘッド**: NFR-8 のフラグの実測と argv の変更の後、ホストで `tests/measurements/measure_overhead.py`(k = 1, 2, 3)を走らせ、`pipeline/overhead.OVERHEAD` の定数を差し替える。記録に argv を残す。合成プロンプトだけなので可逆。
 - **合成リハーサル**: 合成デッキ(日英・複数正解を含む 10〜20 問)を `tests/fixtures/decks/` に置き、使い捨ての作業ルートに写して実 CLI で recall 段まで通す。exit 0、全検査の件数 0、含意判定の通過、再生成回数を `docs/test/measurements/recall-rehearsal.md` に記録する。レート枠は、utilization の差分が小数2桁に量子化されるので外挿に使わず、呼び出し数とトークン数を 190 問に外挿し、前サイクルの列の utilization とトークン数の比から使用率を推定する(D-218)。utilization の生の値も併記する。可逆。
-- **フル処理**: 人がホストで `test_full_run_logs.py exec` を走らせ、枠で止まれば `--resume`(D-190)。記録の整形(`render`)も人が同じ作業ルートに対して走らせ、件数だけの記録を渡す。ループは `out/` を読まず、記録の判定だけを行う(D-220)。受入基準は元の T-047 の A-1〜A-6 に戻し、定数は新しい列の値にする。再現性の2列は `reproducibility.md`。
+- **フル処理**: 人の指示を受けた対話セッションのエージェントがホストで `test_full_run_logs.py exec` をバックグラウンドで走らせ、枠で止まれば `resetsAt` の後に同じ行を `--resume`(D-190、D-241)。記録の整形(`render`)も同じエージェントが同じ作業ルートに対して走らせ、件数だけの記録を渡す。ループは `out/` を読まず、記録の判定だけを行う(D-220)。受入基準は元の T-047 の A-1〜A-6 に戻し、定数は新しい列の値にする。再現性の2列は `reproducibility.md`。
 - **途中結果の保持**(D-235、ADR-028): `StageCache` に、段のキャッシュ鍵ごとの途中結果の場所 `out/<deck>/<stage>/<inputs_digest>.progress/` を足す。項目1件を1ファイルにし、ファイル名は項目の通し番号にする(本文を名前に使わない)。一時パスから `os.replace` で確定し、段の成果物を確定したら場所ごと消す。
   - recall: 問題ごとに、出力のあった生成の回数と状態(「通過」「失格」「途中」)を残す。途中は、使った回数と、判定中の生成物と、判定が済んだ主張の判定値。再開時は、通過した問題を呼び出さずに使い、クラスタをまたぐ重複の検査では前の問題として数える。途中の問題は、残っている主張だけを判定し、回数の続きから数える。失格が1件でもあれば、その問題を作り直さずに `RegenerationExhausted` で止める(1回で走った場合と同じ)。
   - script: トラックごとに、判定が済んだ主張の判定値を返った順に残す。再開時は判定値のある主張を判定し直さない。集約の結果は1回で走った場合と同じ(AR-25)。
@@ -171,7 +171,7 @@
 - **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 3(1回 = `--fresh-run` の列1本)。較正とリハーサルは可逆。
 
 ### NFR-8 → design
-- **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。
+- **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。`RunMeter._ended_by_rate_limit` は、子を `begin_call` ごとにまとめ、各呼び出しの最後の子の失敗だけを判定に使う。回復した子の失敗は `failures_by_kind` には残す(D-241、T-081)。
 - **Implementation method**: `adapters/llm_claude_cli.py::build_argv` にユーザ設定を読まない指定(候補 `--setting-sources`)と有効ツールの許可リスト(候補 `--tools`、空のものを含む)を足し、拒否リストを外す(local。二重実装を避ける)。どちらのフラグもこのホストの CLI での存在は未確認。
 - **ホストでの実測**(`tests/measurements/collect_claude_cli.py` にサブコマンド)。2段に分ける。
   - 第1段(argv を変える前、DAG の先頭): `claude --version` と `--help` にあるフラグの列挙と、許可リストの各候補の下での `init.tools`(StructuredOutput が消えて `--json-schema` が壊れないかを含む)。ここで argv の形を決める。SEC-001 の手段が無いと分かったら `/revise`(D-178)。
