@@ -9,6 +9,9 @@
 - A-3: 3点の回帰残差と、`overhead × turns + material = 入力合計` がどちらも相対誤差 `TOLERANCE` 以内。
   material は記録した既知長 × k からだけ出し、表の `material` 列もそれと一致しなければならない。
 
+記録の環境の鍵は、製品がそのモデルの子に渡す環境(`llm_prompts.model_env`)と一致する。Haiku 4.5 は
+generate_recall と同じ `MAX_THINKING_TOKENS=0` の環境で取り直した(T-083、D-243)。
+
 T-060 で子 CLI の argv を変えたので、最終 argv で取り直した(C-019)。記録の argv は製品の `build_argv` の出力
 そのもので、定数の `argv_digest` は今の `build_argv` から取ったダイジェストと一致する(古い定数が残らない)。
 """
@@ -87,7 +90,7 @@ def check_table(model: str, log: Log) -> None:
     record = log.record
     assert record["model"] == model
     assert record["collector"] == COLLECTOR and (ROOT / COLLECTOR).is_file()
-    assert record["env_keys"] == ["HOME", "LANG", "PATH", "TZ"]
+    assert record["env_keys"] == sorted({"HOME", "LANG", "PATH", "TZ"} | llm_prompts.model_env(model).keys())
     assert record["metered_vars_in_parent_env"] == []
     assert "--safe-mode" in record["argv"]
     assert record["argv"][record["argv"].index("--model") + 1] == model
@@ -167,6 +170,19 @@ def test_c019_overhead_was_measured_with_the_final_argv(model: str) -> None:
     schema = json.loads(argv[argv.index("--json-schema") + 1])
     # 記録に残った argv は、製品の `build_argv` が今返す argv そのもの。
     assert argv == list(build_argv(model, system_prompt, schema))
+
+
+def test_haiku_was_measured_without_thinking() -> None:
+    """T-083 A-2: Haiku 4.5 だけが generate_recall と同じ思考なしの環境で測られ、他の2モデルは基本の4つのまま。"""
+    base = ["HOME", "LANG", "PATH", "TZ"]
+    assert load("claude-haiku-4-5").record["env_keys"] == sorted([*base, "MAX_THINKING_TOKENS"])
+    for model in ("claude-opus-5-5", "claude-sonnet-5-5"):
+        assert load(model).record["env_keys"] == base, model
+    # 判定の対照: 思考ありの環境で測った Haiku 4.5 の表は赤。
+    stale = load("claude-haiku-4-5")
+    stale.record["env_keys"] = base
+    with pytest.raises(AssertionError):
+        check_table("claude-haiku-4-5", stale)
 
 
 def test_overhead_digest_matches_the_product_argv() -> None:

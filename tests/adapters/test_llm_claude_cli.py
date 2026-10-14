@@ -219,6 +219,30 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
     assert flag(opus, "--model") == fixture_meta("success_opus")["model"]
 
 
+def test_only_generate_recall_disables_thinking(tmp_path: Path) -> None:
+    """T-083 A-1: generate_recall の子の環境だけに MAX_THINKING_TOKENS=0 が載り、argv はどのメソッドも変わらない。"""
+    runner = FakeRunner()
+    llm = build(RecordingMeter(), tmp_path, runner)
+    q = question("q1")
+    members = Deck(DECK, Language.JA, None, (q,))
+    llm.classify_clusters(members)
+    llm.summarize_cluster(members)
+    llm.generate_recall(q, Language.JA)
+    llm.describe_term("合成用語 固有句", Language.JA)
+    llm.check_entailment(material(q)[-1], q.stem)
+    base = llm.workspace.child_env()
+    assert set(base) == ALLOWED_ENV
+    envs = [dict(spec.env) for spec in runner.specs]
+    assert envs == [base, base, {**base, "MAX_THINKING_TOKENS": "0"}, base, base]
+    # 思考は環境で止め、argv(とそのダイジェスト)には何も足さない。
+    recall_argv = runner.specs[2].argv
+    assert recall_argv == llm_claude_cli.build_argv(
+        "claude-haiku-4-5", llm_prompts.RECALL_SYSTEM, llm_prompts.RECALL_SCHEMA
+    )
+    for spec in runner.specs:
+        assert not any("thinking" in arg.lower() or "effort" in arg.lower() for arg in spec.argv)
+
+
 def test_init_tools_mismatch_is_still_refused(tmp_path: Path) -> None:
     """拒否リストを外しても、呼び出しごとの `init.tools` の一致判定は残る(T-060 A-3)。"""
     for tools in (["StructuredOutput", "Bash"], ["Read"], []):
