@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-14T18:13:57+09:00'
+updated_at: '2026-10-14T19:05:32+09:00'
 gates:
   mandate:
     status: approved
@@ -1441,6 +1441,97 @@ tasks:
         step: test
       tree: sha256:ffa7069c69e3af1a79fea49f1a5ca92ceb60b9375648de6677e6d31b3d1bcce4
       updated_at: '2026-10-13T21:06:31+09:00'
+  T-081:
+    status: done
+    attempts: 1
+    completed_commit: 66f52af7f8461e0897a754be51f98be035162d91
+    handoff:
+      review:
+        findings:
+        - severity: must_fix
+          statement: 誤用の検査の pytest.raises(RuntimeError) が送出内容を見ていない。1つ目の `meter.begin_invocation("a",
+            reissue=True)`(子が1本も無い状態)は新しい検査ではなく `_open()` の「begin_invocation の前に子プロセスの記録が来た」で落ちるので、begin_invocation
+            の reissue 分岐を消しても、前の子の failure を見ない実装に変えても緑のまま。2つ目(PROVIDER_ERROR の子の後)だけが新しい検査を通るが、こちらも match
+            が無く、検査の文言や原因を取り違えた別の RuntimeError でも緑になる。両方に match を付け、1つ目は空の meter で出し直しを知らせた場合に何で落ちるべきかを意図どおりに固定する。
+          anchor: tests/pipeline/test_meter.py:576
+      updated_at: '2026-10-14T18:47:33+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 18da1423f03a79dcee25d31f4f1bfac7ffbd15e4
+        step: test
+      tree: sha256:af1b245dc8dc80c19534271dadda7f571c20daec6cbe1b079667923f5fa7a125
+      updated_at: '2026-10-14T18:47:33+09:00'
+  T-082:
+    status: todo
+    attempts: 1
+    handoff:
+      report:
+        outcome: implemented
+        summary: llm_prompts に分類専用の classify_question(問題文・選択肢・正解)を置き、render_question(要約用)はそれに解説を足す形にした。classify_clusters
+          の stdin は classify_question を使う。recall_payload は変えていない。CLASSIFY_SYSTEM に入力の形(stem・options・correct)を明記し、cluster
+          段の prompt_template ダイジェスト(キャッシュ鍵)が入力の変更で動くようにした。test_classify_payload_has_no_explanation は分類の
+          stdin に解説が無く、要約と想起素材の stdin に残ること、プロンプトが形を名指しすることを確かめる(修正前は分類の stdin の形で赤)。
+        at: '2026-10-14T18:57:49+09:00'
+        touched:
+        - src/quiz_sift/adapters/llm_prompts.py
+        - src/quiz_sift/adapters/llm_claude_cli.py
+        - tests/adapters/test_llm_claude_cli.py
+      updated_at: '2026-10-14T19:03:34+09:00'
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 748a3a66-0514-4576-9f28-8c9769cd285c
+        output_tail: 'T-082 を実装し、`ef128e4` でコミットして `rein report --outcome implemented` で報告しました。gate は6つとも緑です(`uv
+          run bash gate.sh …` で実行)。
+
+
+          - **分類の入力:** `llm_prompts` に分類専用の `classify_question` を置きました。各問題を問題文・選択肢・正解だけにして、解説は渡しません。`classify_clusters`
+          の stdin はこれを使います。
+
+          - **要約と想起素材の入力:** 要約用の `render_question` は、`classify_question` の形に解説を足すように書き直しました。中身は前と同じで、解説は残ります。想起素材の
+          `recall_payload` は触っていません。
+
+          - **キャッシュ鍵:** `CLASSIFY_SYSTEM` に入力の形(stem・options・correct)を書き足しました。cluster 段のキャッシュ鍵は、このプロンプトのダイジェストから作られます。そのため鍵が変わり、次の
+          cluster 段は一度キャッシュに当たらず作り直されます。
+
+          - **テスト:** `test_classify_payload_has_no_explanation` を追加しました。修正前に、分類の stdin の形が違うことで赤になるのを確かめてから実装しました。分類の
+          stdin に解説が無いこと、要約と想起素材の stdin に解説が残ること、プロンプトが入力の形を名指ししていることを見ます。'
+        at: '2026-10-14T18:57:56+09:00'
 dependency_audit:
   ran_at: '2026-10-14T09:03:53+00:00'
   commit: 94f640cda13e82b43f977becc547f3a20f69bc1b
