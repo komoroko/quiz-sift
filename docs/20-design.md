@@ -137,6 +137,7 @@
 - **Implementation method**: 3か所に重複している `_reference`(`recall/generate.py`、`script/generate.py`、`cluster/summary.py`)を `safety/entailment.reference_for(question, focus=None)` に1本化する。`focus=None` は正解 N 件すべて、`focus` を渡すと「この文が説明する正解」を明示し正解 N 件も併記する(local)。識別ポイントは参照先の誤答の本文を加える(D-192)。グロッサリの reference は変えない(D-195)。
 - **判定のまとめ**(D-242、ADR-029): ポートを `check_entailments(reference, statements)` の1本にする。主張は `id`・本文・任意の `focus`(その要素が説明する正解の本文)・任意の `distractors`(識別ポイントが参照する誤答の本文)を持ち、応答は `{"verdicts": [{"id", "verdict"}]}`。ID の欠けや余りは `INCOMPLETE_IDS`。recall は1問の答えの要素と識別ポイント、script は1トラックの中の1問ぶん(答えと識別ポイント)を1回で聞く。reference は `reference_for(question)`(正解 N 件と解説)を1回だけ作り、`focus` と誤答の節は主張の側に移す(`ENTAILMENT_SYSTEM` が意味を説明する)。`judge` は判定値の列を集約し、規則は変えない。クラスタ要約・グロッサリ・ミューテーションは1件の呼び出しにする。
 - **生成物の作り直し**(D-232、ADR-026): 想起素材・クラスタ要約・グロッサリの説明は、含意判定(クラスタ要約は実在性の検査も)に落ちた項目だけを `MAX_REGENERATIONS`(= 2、recall の D-171 と同じ)回まで作り直し、上限を超えたら従来どおり成果物を出さずに止める。recall は含意判定を1問の検査の最後に置き、検査名 `entailment` で同じ上限を共有する(D-191 を改める)。台本は文を生成しないので変えない。ログは ID と検査名・回数だけ。
+- **作り直しへの理由の受け渡し**(D-245): ポートの `summarize_cluster(members, retry=None)` と `generate_recall(question, language, retry=None)` に、前回の出力と落ちた検査(`Retry(previous, problems)`、`problems` は検査の名前とその対象の語句・主張の列)を渡す。アダプタは stdin に `retry` を足し、`SUMMARIZE_SYSTEM`・`RECALL_SYSTEM` に「前回の出力の問題を直して書き直す」ことと各検査の名前の意味を書く。`problems` はそれまでの全回の分を累積する。recall の検査の対象は `QuestionCheck` が持ち(検査を二重にしない)、選択肢は不透明キー(D-206)で渡す。recall の途中結果(ADR-028)は、作り直しの前に落ちた素材と理由を残し、再開しても同じ理由で作り直す。理由の本文はログと例外文に出さず、`Retry` は `repr=False`。
 - **Tests**: 判定器のスタブが要素2だけに contradicted を返し続けると成果物が書かれずに非0終了する(recall は上限まで作り直してから `RegenerationExhausted`、台本は `EntailmentRejected`)。参照先の誤答と矛盾する識別ポイントでも止まる。言い換えのフィクスチャでは誤検出 0。
 - **What this requires of a person**: なし(判定能力そのものは測らない。D-043/D-044 のまま)。
 - **Reversibility**: 可逆。
@@ -245,6 +246,12 @@
 | AR-E6 | major | リハーサルの記録が新しいコードで取られたことを判定できない | T-068 A-2: 記録のプロンプトとスキーマのダイジェストと子の環境の鍵を、今のコードと突き合わせる |
 | AR-E7 | minor | T-081 と T-084 が同じテストファイルを触るのに辺が無い | T-082 に T-081 への辺を足した(T-081 → T-082 → T-083 → T-084) |
 | AR-E8 | minor | 固定オーバーヘッドの定数の鍵に環境が入らない | 制約として ADR-029 と T-083 に書いた。環境はコードの表で決まり、記録の環境の鍵が表と一致することを T-083 A-2 で見る |
+| AR-F1 | major | recall の検査は対象を返さない | `QuestionCheck` に対象を持たせ、`verify.py` を T-086 の scope に足した |
+| AR-F2 | major | 前回の素材を元のラベルで渡すと D-206 の経路が開く | 不透明キーで渡すと明記し、A-2 に入れた |
+| AR-F3 | major | プロンプトの変更を見る受入が無い | T-086 A-4 を足した |
+| AR-F4 | major | T-068 の記録の照合が要約・想起素材のプロンプトを見ない | 照合に加えた |
+| AR-F5 | minor | ログの検査が修正前から緑、`Retry` の repr | `repr=False` と、A-1・A-2 にログの検査を入れた |
+| AR-F6 | minor | T-086 の scope の cli.py に理由が無い | 外した |
 | AR-E9 | minor | T-071 の blocked_by の重複と、Notes の「リハーサルは足さない」が改訂と矛盾する | 直した |
 
 ## Self-assessment (assumptions, confidence)

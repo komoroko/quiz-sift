@@ -129,6 +129,13 @@ claims:
   - NFR-1
   statement: クラスタの分類の入力に解説が無く(要約・生成・含意判定の入力には残る)、recall 生成の子プロセスだけが MAX_THINKING_TOKENS=0 で起動され、含意判定は1つの問題に属する主張を1回の呼び出しで聞いて主張の ID ごとの判定値を受け(ID の欠けや余りは INCOMPLETE_IDS、focus と誤答の本文は主張の側)、要素ごとの判定・focus・誤答の節・集約の規則のテストが緑のままである(ADR-029)。
   risk: medium
+- id: C-030
+  requirement_ids:
+  - NFR-1
+  - R-3
+  - R-4
+  statement: クラスタ要約と想起素材の作り直しの呼び出しが、前回の出力と落ちた検査の名前とその対象(問題文に無かった語句、consistent でなかった主張と判定値など)を受け取り、同じ入力のまま呼び直さず、recall は途中結果から再開しても同じ理由を渡し、理由の本文がログと例外文に出ない(D-245)。
+  risk: medium
 tasks:
 - id: T-054
   title: 【ホスト】子 CLI のフラグの実測 第1段(ユーザ設定の遮断と有効ツールの許可リスト)
@@ -1175,6 +1182,7 @@ tasks:
   - T-082
   - T-083
   - T-084
+  - T-086
   claim_ids:
   - C-026
   domains:
@@ -1196,7 +1204,7 @@ tasks:
       - tests/fixtures/decks/synthetic-nofm/
   - id: A-2
     statement: 使い捨ての作業ルートで実 CLI により cluster → recall → script を同じ列で走らせ、recall 段と script 段が exit 0 で終わり、想起素材の検査のすべての件数が 0 で含意判定が通ったことが
-      docs/test/measurements/recall-rehearsal.md に記録されている。記録に、取ったときの分類・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵があり、どれも今のコードの値と一致する(古いコードで取った記録は赤)。
+      docs/test/measurements/recall-rehearsal.md に記録されている。記録に、取ったときの分類・要約・想起素材・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵があり、どれも今のコードの値と一致する(古いコードで取った記録は赤)。
     evidence:
       kind: command
       command:
@@ -1949,6 +1957,72 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_render_reads_only_the_recorded_runs_stderr
       executor_profile: quality
   operator_surface: []
+- id: T-086
+  title: 要約と想起素材の作り直しに、前回の出力と落ちた理由を渡す
+  kind: parallel
+  blocked_by:
+  - T-084
+  claim_ids:
+  - C-030
+  domains:
+  - cluster
+  - recall
+  - adapters
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/ports/llm.py
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - src/quiz_sift/cluster/summary.py
+    - src/quiz_sift/recall/generate.py
+    - src/quiz_sift/recall/verify.py
+    - tests/acceptance/
+    - tests/adapters/
+    - tests/cluster/
+    - tests/recall/
+    - tests/ports/
+    - tests/nfr8/
+    - tests/support/
+    - tests/test_cli.py
+  acceptance:
+  - id: A-1
+    statement: クラスタ要約が実在性検査に落ちると、次の summarize_cluster の呼び出しは前回の要約と、それまでの全回の問題文に無かった語句を受け取る。含意判定に落ちると、前回の要約と判定値を受け取る。最初の呼び出しは理由を受け取らない。ログには語句と要約の本文が出ない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/cluster/test_summary.py::test_regeneration_receives_the_previous_summary_and_why_it_failed
+      executor_profile: quality
+  - id: A-2
+    statement: 想起素材が1問単位の検査か含意判定に落ちると、次の generate_recall の呼び出しは前回の素材と、それまでの全回の落ちた検査の名前とその対象を受け取る(対象は ungrounded_key・generic・duplicate_key がキーの語句、answer_mismatch・missing_options が選択肢、empty が要素、entailment が主張と判定値、verbatim は名前だけ)。前回の素材と対象の選択肢は不透明キー(o1…)で渡し、元のラベルは渡さない(D-206)。作り直しの途中で止まって --resume しても同じ理由を受け取る。ログには語句・主張・選択肢の本文が出ない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_regeneration_receives_the_previous_material_and_why_it_failed
+      executor_profile: quality
+  - id: A-3
+    statement: ClaudeCliLlm は理由を stdin の retry に載せ(argv は変えない)、理由の本文(語句・主張)は invocation のログと例外文に出ない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_retry_goes_to_stdin_and_not_to_logs
+      executor_profile: quality
+  - id: A-4
+    statement: SUMMARIZE_SYSTEM と RECALL_SYSTEM(render_recall_system 経由)が、retry があれば前回の出力の問題を直して書き直すことと、各検査の名前の意味を書いている。そのため cluster・recall 段の段のダイジェストが動き、旧形式の途中結果は使われない。Retry は repr に本文を出さない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_contract.py::test_prompts_explain_retry_and_check_names
+      executor_profile: quality
+  operator_surface: []
 - id: T-081
   title: 出し直しで回復した切り詰めを、レート枠による停止の判定で失敗に数えない
   kind: parallel
@@ -2009,6 +2083,7 @@ tasks:
   - T-078
   - T-080
   - T-081
+  - T-086
   claim_ids:
   - C-025
   - C-007
@@ -2821,6 +2896,17 @@ decisions:
   requirement_ids:
   - NFR-1
   - NFR-7
+- id: D-245
+  subject: 作り直しの呼び出しに渡すもの(D-232 の改訂)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: クラスタ要約と想起素材の作り直しの呼び出しに、前回の出力と、落ちた検査の名前とその対象を渡す(T-086)。グロッサリの説明は今サイクルのフル処理に含めないので変えない。理由の本文はログと例外文に出さない。
+  rationale: T-068 のリハーサル(2026-10-14)で、クラスタ c003 の要約が3回とも「問題文に実在しない語句が1件」で落ちて cluster 段が止まった。作り直しは同じ入力・同じ指示で呼ぶので、同じ語句を繰り返す。試行3の recall でも ungrounded_key の作り直しが 51 問で6回あった。理由を渡せば作り直しが収束し、作り直しの呼び出しも減る。再実行で確率的に通るのを待つのは対処ではない(人の判断)。
+  requirement_ids:
+  - NFR-1
+  - R-3
+  - R-4
 
 lenses:
 - id: L-REQ-AMBIGUITY
