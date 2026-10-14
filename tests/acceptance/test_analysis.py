@@ -45,6 +45,7 @@ from quiz_sift.ports.llm import (
     GroupProposal,
     LlmCallError,
     RecallDraft,
+    Retry,
 )
 from quiz_sift.ports.process import CommandResult, CommandSpec
 from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
@@ -235,7 +236,9 @@ class AnalysisLlm(StubLlm):
     call_failures: frozenset[str] = frozenset()
     recalled: list[str] = field(default_factory=list)
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
         self.calls.append("recall")
         qid = question.question_id.local_id
         self.recalled.append(qid)
@@ -260,7 +263,7 @@ class AnalysisLlm(StubLlm):
         failed = tuple(CallFailure(p.question_ids, "LlmCallError: 429") for p in proposals if p.label in self.failing)
         return ClassificationResult(ok, failed)
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         first = members.questions[0].question_id.local_id
         label = next(label for label, ids in self.groups.items() if first in ids)
         if label not in self.summaries:
@@ -1226,7 +1229,7 @@ class _UngroundedOnce(AnalysisLlm):
     ungrounded: str = ""
     returned: list[str] = field(default_factory=list)
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         summary = super().summarize_cluster(members)
         if summary == self.summaries[self.label] and self.ungrounded not in self.returned:
             self.returned.append(self.ungrounded)
@@ -1263,10 +1266,12 @@ def test_regeneration_logs_name_ids_and_counts_only(
     assert len(lines) == 3 and len(cluster_lines) == 2 and len(glossary_lines) == 1
     checks = []
     for line in cluster_lines:
-        match = re.fullmatch(r"cluster: クラスタ c\d{3} の要約を作り直す\((grounding|entailment); 1 回目\)", line)
+        match = re.fullmatch(
+            r"cluster: クラスタ c\d{3} の要約を作り直す\((ungrounded_terms|entailment); 1 回目\)", line
+        )
         assert match, line
         checks.append(match.group(1))
-    assert sorted(checks) == ["entailment", "grounding"]
+    assert sorted(checks) == ["entailment", "ungrounded_terms"]
     assert re.fullmatch(r"glossary: 用語 #\d+ の説明を作り直す\(entailment; 1 回目\)", glossary_lines[0])
     # 要約・説明・用語の本文はどのログにも出ない。
     assert not [text for text in (summary, ungrounded, description, "IAM", "EC2") for line in lines if text in line]

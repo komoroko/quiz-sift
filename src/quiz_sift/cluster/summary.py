@@ -8,7 +8,8 @@
 2. **含意判定**(NFR-1 / D-042): 要約が、そのクラスタの問題の正解・公式解説と矛盾しないこと。
 
 クラスタごとに「要約 → 実在性 → 含意判定」を行い、どちらかに落ちたらそのクラスタの要約だけを上限
-`MAX_REGENERATIONS` 回まで作り直す(D-232 / ADR-026)。上限を超えたクラスタが出た時点で、最後に落ちた検査に
+`MAX_REGENERATIONS` 回まで作り直す(D-232 / ADR-026)。作り直しの呼び出しには、前回の要約と、それまでの全回の
+落ちた検査(問題文に無かった語句か、含意判定の判定値)を渡す(D-245)。上限を超えたクラスタが出た時点で、最後に落ちた検査に
 応じて `UngroundedSummary` か `EntailmentRejected` で止める。全クラスタが通ったときだけ成果物を書く。
 `LlmCallError` は作り直さない(D-101)。
 
@@ -29,7 +30,7 @@ from quiz_sift.domain.ids import ClusterId
 from quiz_sift.domain.language import Language
 from quiz_sift.grounding.presence import is_present
 from quiz_sift.grounding.targets import SUMMARY_FIELDS, texts_for
-from quiz_sift.ports.llm import Entailment, EntailmentStatement, GroupProposal
+from quiz_sift.ports.llm import Entailment, EntailmentStatement, GroupProposal, Problem, Retry, with_problems
 from quiz_sift.safety.entailment import EntailmentChecker, EntailmentRejected, judge, reference_for
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,16 @@ OTHER_SUMMARY = {Language.JA: "その他", Language.EN: "Other"}
 """「その他」クラスタの要約として置く固定のラベル。"""
 MAX_REGENERATIONS = 2
 """1クラスタあたりの要約の作り直しの上限。生成は最初の1回と合わせて最大 `1 + MAX_REGENERATIONS` 回(D-232)。"""
+UNGROUNDED_TERMS = "ungrounded_terms"
+"""要約の語句が問題文に実在しなかったときの検査名。対象はその語句(D-245)。"""
+ENTAILMENT = "entailment"
+"""要約の含意判定が `consistent` でなかったときの検査名。対象は要約と判定値(D-245)。"""
 
 
 class SummaryLlm(EntailmentChecker, Protocol):
     """`ports.llm.Llm` のうち要約と含意判定だけを使う。`Llm` の実装はそのまま渡せる。"""
 
-    def summarize_cluster(self, members: Deck) -> str: ...
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str: ...
 
 
 class UngroundedSummary(SystemExit):
@@ -103,21 +108,27 @@ def _members(deck: Deck, group: GroupProposal) -> Deck:
 
 
 def _summarize(llm: SummaryLlm, cluster_id: ClusterId, members: Deck) -> str:
-    """1クラスタの要約を、実在性と含意判定を通るか上限まで作る。上限を超えたら最後に落ちた検査で止める。"""
+    """1クラスタの要約を、実在性と含意判定を通るか上限まで作る。上限を超えたら最後に落ちた検査で止める。
+
+    作り直しには前回の要約と、それまでの全回の落ちた検査を渡す。ログには検査の名前と回数だけを出す(NFR-2)。
+    """
     failure: UngroundedSummary | EntailmentRejected | None = None
+    retry: Retry[str] | None = None
     for attempt in range(1, MAX_REGENERATIONS + 2):
         if failure is not None:
-            check = "grounding" if isinstance(failure, UngroundedSummary) else "entailment"
+            check = UNGROUNDED_TERMS if isinstance(failure, UngroundedSummary) else ENTAILMENT
             logger.info("cluster: クラスタ %s の要約を作り直す(%s; %d 回目)", cluster_id.local_id, check, attempt - 1)
-        summary = llm.summarize_cluster(members)
+        summary = llm.summarize_cluster(members, retry=retry)
         missing = ungrounded_terms(summary, members)
         if missing:
             failure = UngroundedSummary(cluster_id, len(missing))
+            retry = with_problems(retry, summary, [Problem(UNGROUNDED_TERMS, missing)])
             continue
         verdict = judge(llm, _reference(members), [EntailmentStatement("summary", summary)])
         if verdict is Entailment.CONSISTENT:
             return summary
         failure = EntailmentRejected(verdict)
+        retry = with_problems(retry, summary, [Problem(ENTAILMENT, statements=((summary, verdict),))])
     assert failure is not None
     raise failure
 

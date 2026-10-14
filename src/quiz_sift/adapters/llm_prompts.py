@@ -4,6 +4,7 @@
 digest が動き、該当する段のキャッシュが1回無効化される。
 """
 
+from collections.abc import Mapping
 from typing import Final
 
 from quiz_sift.adapters.llm_contract import object_schema
@@ -11,7 +12,7 @@ from quiz_sift.domain.ids import OptionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.grounding.targets import RECALL_KEY_FIELDS, QuestionField
-from quiz_sift.ports.llm import Entailment
+from quiz_sift.ports.llm import Entailment, Problem, RecallDraft
 
 _OPUS = "claude-opus-5-5"
 _SONNET = "claude-sonnet-5-5"
@@ -64,6 +65,10 @@ SUMMARIZE_SYSTEM: Final = (
     "あなたは同じ論点に属する多肢選択問題群を読み、その論点を要約する。問題文に無い語句を持ち込まない。"
     "見出し・箇条書き・記号の装飾を使わない平文で、3文以内・200字以内に書く。"
     "専門用語は問題文の表記のまま使う。問題文に無い専門用語や見出し語を作らない。"
+    "retry があれば作り直しの依頼で、retry.previous は前回の要約、retry.problems はこれまでに落ちた検査の一覧。"
+    "各 problem の問題を直して書き直し、同じ問題を繰り返さない。検査の名前(check)の意味: "
+    "ungrounded_terms は terms の語句が問題文に無かった(その語句を使わない)。"
+    "entailment は statements の文が正解・解説と矛盾した(contradicted)か判断できなかった(uncertain)。"
 )
 _FIELD_PATHS: Final[dict[QuestionField, str]] = {
     "stem": "question.stem",
@@ -85,6 +90,18 @@ def render_recall_system(fields: tuple[QuestionField, ...]) -> str:
         "discrimination.text は正解と紛らわしい誤答との切り分け。"
         "discrimination.distractors には、切り分けた誤答選択肢のキー(question.correct に無いキー)を1件以上書く。"
         "本文では選択肢のラベル(A/B/C/D など)やキーで言及しない。"
+        "retry があれば作り直しの依頼で、retry.previous は前回の出力、retry.problems はこれまでに落ちた検査の一覧。"
+        "各 problem の問題を直して書き直し、同じ問題を繰り返さない。選択肢は question と同じキーで示す。"
+        "検査の名前(check)の意味: "
+        "empty は elements の要素が空だった。"
+        f"ungrounded_key は terms の語句が {sources} に無かった。"
+        "answer_mismatch は answers の option が question.correct と重複なく一致しなかった(options は食い違ったキー)。"
+        "missing_options は discrimination.distractors が誤答選択肢を1件も参照しないか、"
+        "誤答選択肢でないキー(options)を参照した。"
+        "generic は terms のすべてが他の論点の問題にも現れ、答えの手がかりにならなかった。"
+        "verbatim は discrimination.text が誤答選択肢の丸写しだった。"
+        "duplicate_key は terms の組が別の論点の問題の想起素材と同じだった。"
+        "entailment は statements の文が正解・解説と矛盾した(contradicted)か判断できなかった(uncertain)。"
     )
 
 
@@ -157,3 +174,29 @@ def recall_payload(question: Question) -> tuple[dict[str, object], dict[str, Opt
         "explanation": question.explanation,
     }
     return payload, keyed
+
+
+def problem_json(problem: Problem, keys: Mapping[OptionId, str]) -> dict[str, object]:
+    """作り直しに渡す検査1件。選択肢は `keys` の不透明キーにし、元のラベルを渡さない(D-206)。空の欄は載せない。"""
+    data: dict[str, object] = {"check": problem.check}
+    if problem.terms:
+        data["terms"] = list(problem.terms)
+    if problem.options:
+        data["options"] = [keys[option_id] for option_id in problem.options]
+    if problem.elements:
+        data["elements"] = list(problem.elements)
+    if problem.statements:
+        data["statements"] = [{"statement": text, "verdict": verdict.value} for text, verdict in problem.statements]
+    return data
+
+
+def recall_draft_json(draft: RecallDraft, keys: Mapping[OptionId, str]) -> dict[str, object]:
+    """作り直しに渡す前回の想起素材。`RECALL_SCHEMA` の応答と同じ形で、選択肢は `keys` の不透明キー(D-206)。"""
+    return {
+        "terms": list(draft.key.terms),
+        "answers": [{"option": keys[e.option_id], "text": e.text} for e in draft.answers],
+        "discrimination": {
+            "text": draft.discrimination.text,
+            "distractors": [keys[option_id] for option_id in draft.discrimination.distractor_ids],
+        },
+    }

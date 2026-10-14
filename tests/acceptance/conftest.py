@@ -23,7 +23,7 @@ from quiz_sift.domain.deck import Deck
 from quiz_sift.domain.ids import DeckId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
-from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, RecallDraft
+from quiz_sift.ports.llm import ClassificationResult, Entailment, EntailmentStatement, GroupProposal, RecallDraft, Retry
 from quiz_sift.ports.metering import RunMeter
 from quiz_sift.ports.tts import PcmAudio, Tts
 
@@ -73,11 +73,13 @@ class StubLlm:
         groups = tuple(GroupProposal(q.question_id.local_id, (q.question_id,)) for q in deck.questions)
         return ClassificationResult(assignments=groups, failures=())
 
-    def summarize_cluster(self, members: Deck) -> str:
+    def summarize_cluster(self, members: Deck, retry: Retry[str] | None = None) -> str:
         self.calls.append("summarize")
         return members.questions[0].stem
 
-    def generate_recall(self, question: Question, language: Language) -> RecallDraft:
+    def generate_recall(
+        self, question: Question, language: Language, retry: Retry[RecallDraft] | None = None
+    ) -> RecallDraft:
         self.calls.append("recall")
         return self.drafts[question.question_id.local_id]
 
