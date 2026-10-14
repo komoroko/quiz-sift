@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-14T19:05:32+09:00'
+updated_at: '2026-10-14T22:50:05+09:00'
 gates:
   mandate:
     status: approved
@@ -779,51 +779,83 @@ tasks:
       tree: sha256:2c91706b8eaa8063842eb2258c5f7276fc837876584fdf6071142c5896553015
       updated_at: '2026-10-07T15:37:39+09:00'
   T-068:
-    status: todo
-    attempts: 16
-    evidence:
-      steps:
-      - name: lint
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: format
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: types
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: test
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: docs
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: smoke
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: acceptance:A-2
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      - name: acceptance:A-3
-        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
-        reused: false
-      reported: implemented
-      acceptance:
-      - id: A-1
-        kind: artifact
-        reused: false
-      - id: A-2
-        kind: command
-        reused: false
-      - id: A-3
-        kind: command
-        reused: false
-      negative_control:
-        result: undetermined
-        detail: every path in this change is a test path, so base plus the test half is the head tree
-          — there is no contrast to measure
-      tree: sha256:a3a8488a0153b7d8fc27ffbc7c811d66e0e7dae26222911b4e280e7953641929
-      updated_at: '2026-10-07T06:10:42+09:00'
+    status: blocked
+    attempts: 17
+    handoff:
+      report:
+        outcome: blocked
+        summary: 'ホストの実測で cluster 段が exit 1 になった。合成デッキ synthetic-nofm を cluster --fresh-run(run_id ab32b40eee414203b3fa1ebf7e7f73ca、作業ルート
+          ~/t068-rehearsal-20261014b)で走らせたところ、クラスタ c003 の要約が実在性検査に落ち続けた(grounding で作り直し 2 回、3 回とも『問題文に実在しない語句が
+          1 件』)。meter の stop は exit_reason=UngroundedSummary、列は not_completable なので recall・script には進めず、記録
+          docs/test/measurements/recall-rehearsal.md は取り直せていない(旧記録のまま。新しい判定に対しては赤)。2026-10-12 の記録では cluster
+          は通っている。ADR-029 で分類の入力から解説を外したことでクラスタの切り方が変わった可能性があるが、要約の本文は製品がログに出さないので、どの語句かは確かめていない。原因は製品側(cluster/summary.py
+          の要約プロンプトと grounding/ の実在性検査)で、このタスクの scope 外。同じ止まり方は T-071 のフル処理でも起きうる。必要な判断: 要約・実在性検査を直すタスクを
+          /revise で立てるか、もう一度走らせるか(再実行は対処ではなく、確率的に通るのを待つだけ)。テストコードは実装済みでコミット済み(8680664): STAGES を cluster
+          → recall → script に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録、分類・判定のプロンプトとスキーマのダイジェストと generate_recall
+          の子の環境の鍵を記録して今のコードと突き合わせる判定(A-2)、誤答を正解と述べるミューテーションを 1 問 1 回で ClaudeCliLlm.check_entailments に聞いて件数・contradicted・uncertain
+          を記録する判定(A-4)と、それぞれ赤になることのテストを足した。lint・format・types は緑。'
+        at: '2026-10-14T22:49:51+09:00'
+        touched:
+        - tests/measurements/test_recall_rehearsal_logs.py
+      updated_at: '2026-10-14T22:50:05+09:00'
+      escalation:
+        kind: agent_blocked
+        message: 'T-068: the implementer reported blocked — ホストの実測で cluster 段が exit 1 になった。合成デッキ synthetic-nofm
+          を cluster --fresh-run(run_id ab32b40eee414203b3fa1ebf7e7f73ca、作業ルート ~/t068-rehearsal-20261014b)で走らせたところ、クラスタ
+          c003 の要約が実在性検査に落ち続けた(grounding で作り直し 2 回、3 回とも『問題文に実在しない語句が 1 件』)。meter の stop は exit_reason=UngroundedSummary、列は
+          not_completable なので recall・script には進めず、記録 docs/test/measurements/recall-rehearsal.md は取り直せていない(旧記録のまま。新しい判定に対しては赤)。2026-10-12
+          の記録では cluster は通っている。ADR-029 で分類の入力から解説を外したことでクラスタの切り方が変わった可能性があるが、要約の本文は製品がログに出さないので、どの語句かは確かめていない。原因は製品側(cluster/summary.py
+          の要約プロンプトと grounding/ の実在性検査)で、このタスクの scope 外。同じ止まり方は T-071 のフル処理でも起きうる。必要な判断: 要約・実在性検査を直すタスクを
+          /revise で立てるか、もう一度走らせるか(再実行は対処ではなく、確率的に通るのを待つだけ)。テストコードは実装済みでコミット済み(8680664): STAGES を cluster
+          → recall → script に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録、分類・判定のプロンプトとスキーマのダイジェストと generate_recall
+          の子の環境の鍵を記録して今のコードと突き合わせる判定(A-2)、誤答を正解と述べるミューテーションを 1 問 1 回で ClaudeCliLlm.check_entailments に聞いて件数・contradicted・uncertain
+          を記録する判定(A-4)と、それぞれ赤になることのテストを足した。lint・format・types は緑。'
+        tree: sha256:0fa4c3df14de0c3c9708fe2d7ce09af4449452549d8ae2513c750d6064493a78
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: 23da7db6-1a21-4182-9b6b-9463388341a6
+        output_tail: 'T-068 は blocked で止めました。実 CLI のリハーサルが最初の cluster 段で落ちたためです。recall・script・ミューテーション判定はどれも走っていません。報告は
+          `rein report` で監査チェーンに記録済みです(コマンドの終了コードは 2 でした)。
+
+
+          **何が起きたか**
+
+          - 合成デッキで cluster を新しい列(run_id `ab32b40eee414203b3fa1ebf7e7f73ca`)として走らせました。クラスタ c003 の要約が、作り直しを
+          2 回しても 3 回とも「問題文に無い語句が 1 件」で実在性検査に落ちました。
+
+          - 実行は `UngroundedSummary` で exit 1 になり、列は再開できない状態(`not_completable`)です。
+
+          - 2026-10-12 の記録では cluster は通っていました。ADR-029 で分類の入力から解説を外したため、クラスタの切り方が変わったのかもしれません。ただし要約の本文はログに出ないので、どの語句かは確かめていません。
+
+          - 原因は製品側(`cluster/summary.py` と `grounding/`)にあり、このタスクの scope 外です。同じ止まり方は T-071 のフル処理でも起きえます。
+
+
+          **できていること**(コミット 8680664、`tests/measurements/test_recall_rehearsal_logs.py`)
+
+          - 実行を cluster → recall → script の順に広げ、段ごとの呼び出し数・トークン数と 190 問への外挿を記録に書くようにしました。
+
+          - 分類・判定のプロンプトとスキーマのダイジェスト、generate_recall の子の環境の鍵を記録し、今のコードの値と突き合わせる判定を足しました(A-2)。
+
+          - ミューテーションの判定(A-4)と、それぞれの判定が赤になることを確かめるテストも足しました。ミューテーションは、誤答を正解と述べる主張を 1 問 1 回まとめて実 CLI に聞き、件数・contradicted・uncertain
+          を記録する形です。
+
+          - lint・format・types は緑です。
+
+          - test は赤です。`docs/test/measurements/recall-rehearsal.md` が古い記録のままで、新しい判定に通らないためです。docs と smoke
+          はまだ走らせていません。
+
+
+          **決めてほしいこと**
+
+          - `/revise` で、要約か実在性検査を直すタスクを立てるか。
+
+          - それとも同じリハーサルをもう一度走らせるか。再実行は原因を直すものではなく、たまたま通るのを待つだけです。
+
+
+          作業ルートは `~/t068-rehearsal-20261014b` に残してあります。'
+        at: '2026-10-14T22:50:02+09:00'
   T-069:
     status: done
     attempts: 15
@@ -1496,42 +1528,178 @@ tasks:
       tree: sha256:af1b245dc8dc80c19534271dadda7f571c20daec6cbe1b079667923f5fa7a125
       updated_at: '2026-10-14T18:47:33+09:00'
   T-082:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 2
+    completed_commit: 0ff4acf2e09ae4479c4f0957f92176b13dda1e80
     handoff:
-      report:
-        outcome: implemented
-        summary: llm_prompts に分類専用の classify_question(問題文・選択肢・正解)を置き、render_question(要約用)はそれに解説を足す形にした。classify_clusters
-          の stdin は classify_question を使う。recall_payload は変えていない。CLASSIFY_SYSTEM に入力の形(stem・options・correct)を明記し、cluster
-          段の prompt_template ダイジェスト(キャッシュ鍵)が入力の変更で動くようにした。test_classify_payload_has_no_explanation は分類の
-          stdin に解説が無く、要約と想起素材の stdin に残ること、プロンプトが形を名指しすることを確かめる(修正前は分類の stdin の形で赤)。
-        at: '2026-10-14T18:57:49+09:00'
-        touched:
-        - src/quiz_sift/adapters/llm_prompts.py
-        - src/quiz_sift/adapters/llm_claude_cli.py
-        - tests/adapters/test_llm_claude_cli.py
-      updated_at: '2026-10-14T19:03:34+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: 748a3a66-0514-4576-9f28-8c9769cd285c
-        output_tail: 'T-082 を実装し、`ef128e4` でコミットして `rein report --outcome implemented` で報告しました。gate は6つとも緑です(`uv
-          run bash gate.sh …` で実行)。
-
-
-          - **分類の入力:** `llm_prompts` に分類専用の `classify_question` を置きました。各問題を問題文・選択肢・正解だけにして、解説は渡しません。`classify_clusters`
-          の stdin はこれを使います。
-
-          - **要約と想起素材の入力:** 要約用の `render_question` は、`classify_question` の形に解説を足すように書き直しました。中身は前と同じで、解説は残ります。想起素材の
-          `recall_payload` は触っていません。
-
-          - **キャッシュ鍵:** `CLASSIFY_SYSTEM` に入力の形(stem・options・correct)を書き足しました。cluster 段のキャッシュ鍵は、このプロンプトのダイジェストから作られます。そのため鍵が変わり、次の
-          cluster 段は一度キャッシュに当たらず作り直されます。
-
-          - **テスト:** `test_classify_payload_has_no_explanation` を追加しました。修正前に、分類の stdin の形が違うことで赤になるのを確かめてから実装しました。分類の
-          stdin に解説が無いこと、要約と想起素材の stdin に解説が残ること、プロンプトが入力の形を名指ししていることを見ます。'
-        at: '2026-10-14T18:57:56+09:00'
+      review:
+        findings: []
+      updated_at: '2026-10-14T19:19:33+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: true
+      negative_control:
+        result: discriminating
+        base: 1112c671bec5cfae8f4d1c756d22b53e89ad4419
+        step: test
+      tree: sha256:39cf3dc18b7c22e412157a81ef5c829b27e82b3b336f26928d856eb819fa1eee
+      updated_at: '2026-10-14T19:19:33+09:00'
+  T-083:
+    status: done
+    attempts: 1
+    completed_commit: 9f9891c4f284e0f02743963574616f56608e1e0c
+    handoff:
+      review:
+        findings:
+        - severity: question
+          statement: Haiku 4.5 の取り直しでは、環境(MAX_THINKING_TOKENS=0)と CLI のバージョン(2.1.296 → 2.1.299)が同時に変わった。1ターンあたりの固定オーバーヘッドは
+            613.3 から 523.7 へ下がったが、この変更だけではどちらが原因か切り分けられない。入力トークンが下がった原因が CLI 側にあるなら、2.1.296 で測った Opus
+            5.5 と Sonnet 5.5 の定数(overhead.py:50,60)も今のホストの CLI では古くなっている。チケットは『環境変数は argv のダイジェストに入らないので
+            Opus と Sonnet の較正は今のまま使える』と仮定し、A-2 も他の2モデルを取り直さないよう求めている。CLI のバージョン差を同じサイクルで扱うのか(2モデルも 2.1.299
+            で取り直すか、Haiku を 2.1.296 で取り直して差の原因を切り分けるか)、それとも定数ごとの cli_version の記録で足りるとするのかは、計画が決めることになる。
+          anchor: src/quiz_sift/pipeline/overhead.py:64
+      updated_at: '2026-10-14T19:50:31+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: artifact
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 0ff4acf2e09ae4479c4f0957f92176b13dda1e80
+        step: test
+      tree: sha256:6043c7a1c48fca535693c607ec0107fb0702325127523d3e51069581e388ffb3
+      updated_at: '2026-10-14T19:50:31+09:00'
+  T-084:
+    status: done
+    attempts: 2
+    completed_commit: 4f5d1d91d3b8175c8f86cd1b120542e86a7ae638
+    handoff:
+      review:
+        findings:
+        - severity: must_fix
+          statement: 'focus は正解の選択肢、distractors は誤答の選択肢でなければならないという検査(「取り違えは黙って通さない」)は、変更前は tests/safety/test_entailment.py::test_reference_text_holds_the_right_sections
+            が reference_for(question, focus=b) と reference_for(question, distractors=(a,)/(別の問題の B,))
+            の ValueError で確かめていた。この変更でその assert は消え、検査は recall/generate.py:237-241 の _statements と script/generate.py:133-135
+            の _asks に移ったが、移った先を通るテストが差分のどこにも無い(tests/ に『正解の選択肢でなければ』『誤答の選択肢でなければ』を見るものが無い)。A-4 は『性質そのものは落とさない』と求めている。再現:
+            _statements の `if any(e.option_id not in question.correct_option_ids ...)` の行と _asks の `if
+            any(d not in texts or d in question.correct_option_ids ...)` の行を消しても、A-1〜A-5 と tests/safety・recall・script
+            のどのテストも赤にならない。そのとき誤答を指す distractor_ids は texts[d] でそのまま誤答の本文として渡り、別の問題の選択肢は KeyError になって、意味のある失敗にならない。_statements
+            と _asks に誤った focus・distractors を持つ素材を渡して ValueError を見るテストを足す。'
+          anchor: src/quiz_sift/recall/generate.py:237
+      updated_at: '2026-10-14T22:39:15+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-3
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: 9f9891c4f284e0f02743963574616f56608e1e0c
+        step: test
+      tree: sha256:60c76cb7f8b786c1d8822956be2e557f415f88ebe594674c56815cddb68a544a
+      updated_at: '2026-10-14T22:39:15+09:00'
 dependency_audit:
   ran_at: '2026-10-14T09:03:53+00:00'
   commit: 94f640cda13e82b43f977becc547f3a20f69bc1b
