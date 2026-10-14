@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-14T23:33:32+09:00'
+updated_at: '2026-10-15T03:46:17+09:00'
 gates:
   mandate:
     status: approved
@@ -1701,6 +1701,84 @@ tasks:
         step: test
       tree: sha256:60c76cb7f8b786c1d8822956be2e557f415f88ebe594674c56815cddb68a544a
       updated_at: '2026-10-14T22:39:15+09:00'
+  T-086:
+    status: todo
+    attempts: 2
+    handoff:
+      last_agent:
+        role: implementer
+        adapter: claude
+        rc: 0
+        session: f46eee15-30bf-4d72-af4e-109dd03f5db7
+        output_tail: 'レビューの指摘どおり、検査ごとの作り直しの対象を値で確かめるテストが無かったので、`tests/recall/test_verify.py` に足しました。`239a9fc`
+          でコミットし、`rein report --outcome implemented` で報告しました。変えたのはテストだけで、6つの gate はすべて緑です。
+
+
+          足した `test_failed_checks_carry_their_targets` は、検査関数(`check_question`)が返す対象を、指摘のあった4つの検査について値で確かめます。
+
+
+          | 検査 | 落ちる素材 | 確かめる対象 |
+
+          |---|---|---|
+
+          | empty | 空白だけの term と答えの要素を持つ | 要素の位置が `(''terms[1]'', ''answers[0]'')` で、空でない要素は入らない |
+
+          | generic | すべての語句が他の論点にも現れるキー | そのキーの語句 |
+
+          | duplicate_key | 別の論点の前の問題と同じ組のキー | そのキーの語句 |
+
+          | verbatim | 識別ポイントが誤答の丸写し | 対象を何も持たない(名前だけ) |
+
+
+          あわせて、落ちた検査の名前の列と対象の列が、同じ順に1件ずつ並ぶことも確かめます。
+
+
+          指摘にあった壊れ方を、1つずつ `verify.py` に入れてテストを走らせました。
+
+
+          - 空の要素ではなく空でない要素を返す
+
+          - generic と duplicate_key の対象に、キーの語句ではなく問題文に無かった語句を入れる
+
+          - verbatim に語句を載せる
+
+
+          4通りとも新しいテストが赤になりました。確かめた後、`verify.py` は元に戻してあります。'
+        at: '2026-10-15T03:38:02+09:00'
+      last_fault:
+        kind: ENV_TRANSIENT
+        where: 'T-086: implementer'
+        rc: 1
+        output_tail: You've hit your session limit · resets 3:10am (Asia/Tokyo)
+        at: '2026-10-14T23:51:27+09:00'
+      updated_at: '2026-10-15T03:43:39+09:00'
+      salvage_branch: build/quiz-sift-T-086-salvage-20261014-181131
+      salvage_state: restored
+      report:
+        outcome: implemented
+        summary: 'レビュー指摘を修正(テストのみ、製品コードの変更なし)。tests/recall/test_verify.py に test_failed_checks_carry_their_targets
+          を足し、check_question の problems を値で確かめる: 空白の term と答えの要素を持つ下書きで empty の elements == (''terms[1]'',
+          ''answers[0]'')、全 term が他の論点に現れるキーで generic の terms == key.terms、別の論点の前の問題と同じ組のキーで duplicate_key
+          の terms == そのキーの terms、識別ポイントの丸写しで verbatim の terms・options・elements・statements がすべて空。あわせて failures
+          と problems の check が同じ順に1件ずつ並ぶことも見る。レビューが挙げた書き換え(empty_elements が空でない要素を返す、GENERIC と DUPLICATE_KEY
+          に ungrounded を入れる、VERBATIM に terms を載せる)をそれぞれ verify.py に入れると、このテストが赤になることを確かめた(確認後に元へ戻した)。6つの
+          gate は緑。'
+        at: '2026-10-15T03:37:55+09:00'
+        touched:
+        - tests/recall/test_verify.py
+      review:
+        findings:
+        - severity: must_fix
+          statement: 'A-2 は検査ごとの対象を名指ししている(ungrounded_key・generic・duplicate_key はキーの語句、empty は要素、verbatim
+            は名前だけ)。しかし check_question が empty・generic・duplicate_key・verbatim について作る Problem の中身を確かめるテストが、この変更には1つも無い。test_generate.py
+            の A-2 テストが通るのは ungrounded_key・answer_mismatch・missing_options・entailment の経路だけである。test_llm_claude_cli.py
+            の A-3 テストは Problem(''empty'', elements=(''terms[0]'',)) と Problem(''verbatim'') を手で組んで渡しているので、verify.py
+            の算出を通らない。壊れる入力: empty_elements が位置ではなく空でない要素を返す、GENERIC や DUPLICATE_KEY の Problem に terms
+            ではなく ungrounded(空)を入れる、VERBATIM に terms を載せる、のいずれかに書き換えても全テストが緑のままになる。また、チケットが試験ファイルに挙げている
+            tests/recall/test_verify.py は変更されていない。check_question の結果の problems を、上の4検査それぞれについて値で確かめるテストを足すこと(例:
+            空白の term と空白の answer を持つ下書きで elements == (''terms[0]'', ''answers[0]'')、generic と duplicate_key
+            が落ちる下書きで terms == draft.key.terms、verbatim で terms・options・elements がすべて空)。'
+          anchor: src/quiz_sift/recall/verify.py:184
 dependency_audit:
   ran_at: '2026-10-14T14:25:02+00:00'
   commit: af4a0bdb1bdacb65cba2d12c0f98eb9d518d72e9
