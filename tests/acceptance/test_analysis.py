@@ -1266,7 +1266,9 @@ def test_regeneration_logs_name_ids_and_counts_only(
     assert len(lines) == 3 and len(cluster_lines) == 2 and len(glossary_lines) == 1
     checks = []
     for line in cluster_lines:
-        match = re.fullmatch(r"cluster: クラスタ c\d{3} の要約を作り直す\((ungrounded_terms|entailment); 1 回目\)", line)
+        match = re.fullmatch(
+            r"cluster: クラスタ c\d{3} の要約を作り直す\((ungrounded_terms|entailment); 1 回目\)", line
+        )
         assert match, line
         checks.append(match.group(1))
     assert sorted(checks) == ["entailment", "ungrounded_terms"]

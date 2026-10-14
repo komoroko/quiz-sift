@@ -12,13 +12,15 @@ from typing import Any
 import pytest
 from support.claude_fake import SENTINEL, exited, fake_stdout, sentinel_fragments
 
+from quiz_sift import cli
 from quiz_sift.adapters import llm_prompts
 from quiz_sift.adapters.claude_failure import classify
 from quiz_sift.adapters.llm_contract import ContractError, parse_entailment, parse_proposals, parse_recall
 from quiz_sift.domain.ids import DeckId, OptionId, QuestionId
 from quiz_sift.domain.question import Option, Question
+from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, GroupProposal
+from quiz_sift.ports.llm import Entailment, GroupProposal, Problem, RecallDraft, Retry
 from quiz_sift.ports.metering import FailureKind
 
 ADAPTERS = Path(__file__).resolve().parents[2] / "src" / "quiz_sift" / "adapters"
@@ -237,3 +239,40 @@ def test_recall_keys_map_back_to_option_ids() -> None:
         with pytest.raises(ContractError) as caught:
             parse_recall(broken, keyed)
         assert caught.value.kind is FailureKind.SCHEMA
+
+
+def test_prompts_explain_retry_and_check_names() -> None:
+    """T-086 A-4: 要約と想起素材のプロンプトが retry の扱いと各検査の名前の意味を書く(D-245)。
+
+    段の prompt_template はこのプロンプトを含むので、書き足したことで cluster・recall 段のダイジェストが動き、
+    retry を持たない旧形式の途中結果は使われない。`Retry` と `Problem` は repr に本文を出さない。
+    """
+
+    summary_checks = ("ungrounded_terms", "entailment")
+    recall_checks = (
+        "empty",
+        "ungrounded_key",
+        "answer_mismatch",
+        "missing_options",
+        "generic",
+        "verbatim",
+        "duplicate_key",
+        "entailment",
+    )
+    for system, checks in ((llm_prompts.SUMMARIZE_SYSTEM, summary_checks), (llm_prompts.RECALL_SYSTEM, recall_checks)):
+        assert "retry.previous" in system and "retry.problems" in system
+        for check in checks:
+            assert f"{check} は" in system, check
+    assert llm_prompts.RECALL_SYSTEM == llm_prompts.render_recall_system(("stem",))
+    assert llm_prompts.SUMMARIZE_SYSTEM in cli.CLUSTER.prompt_template
+    assert llm_prompts.RECALL_SYSTEM in cli.RECALL.prompt_template
+
+    option = OptionId(QuestionId(DeckId("d"), "q"), "A")
+    problem = Problem("entailment", ("語句本文",), (option,), ("terms[0]",), (("主張本文", Entailment.UNCERTAIN),))
+    draft = RecallDraft(
+        RecallKey(("キー本文",)), (AnswerElement(option, "答え本文"),), DiscriminationPoint("識別本文", ())
+    )
+    for value in (problem, Retry("要約本文", (problem,)), Retry(draft, (problem,))):
+        assert not any(
+            text in repr(value) for text in ("語句本文", "主張本文", "要約本文", "キー本文", "答え本文", "識別本文")
+        )

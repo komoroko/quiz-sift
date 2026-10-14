@@ -505,7 +505,7 @@ def test_regeneration_receives_the_previous_material_and_why_it_failed(
     )
     # 2回目: 機械検査は通るが、答えが正解・解説と矛盾する(entailment)。
     second = replace(good, answers=(AnswerElement(option("q01", "B"), CONTRADICTING),))
-    sequences = {"q01": (first, second, good)}
+    sequences: dict[str, tuple[RecallDraft, ...]] = {"q01": (first, second, good)}
     contradicted = frozenset({CONTRADICTING})
 
     llm = StubLlm(GOOD, contradicted=contradicted, sequences=sequences)
