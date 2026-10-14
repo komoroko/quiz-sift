@@ -221,7 +221,9 @@ class Meter:
 
     def begin_invocation(self, argv_digest: str, *, reissue: bool = False) -> InvocationScope:
         if reissue:
-            previous = self._open()
+            if not self._invocations:
+                raise RuntimeError("出し直す子プロセスがまだ無い")
+            previous = self._invocations[-1]
             if previous.failure is not FailureKind.TRUNCATED:
                 raise RuntimeError(f"出し直しの前の子が TRUNCATED で終わっていない: {previous.failure}")
             previous.reissued = True

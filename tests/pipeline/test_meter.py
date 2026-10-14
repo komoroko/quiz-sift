@@ -574,11 +574,13 @@ def test_recovered_truncation_does_not_hide_a_rate_limit_stop(tmp_path: Path) ->
 
     # 出し直しは TRUNCATED で終わった子の後にだけ来る。他の形は記録の取り違えなので落とす。
     meter = make_meter(tmp_path / "misuse.jsonl")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="^出し直す子プロセスがまだ無い$"):
         meter.begin_invocation("a", reissue=True)
     child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
-    with pytest.raises(RuntimeError):
+    not_truncated = "^出し直しの前の子が TRUNCATED で終わっていない: FailureKind.PROVIDER_ERROR$"
+    with pytest.raises(RuntimeError, match=not_truncated):
         meter.begin_invocation("a", reissue=True)
+    assert meter.finish(exit_code=1, exit_reason=None)["provider_invocations"] == 1, "落とした出し直しを数えた"
 
 
 def test_overage_counts_and_check(tmp_path: Path) -> None:
