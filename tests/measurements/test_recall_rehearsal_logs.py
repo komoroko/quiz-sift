@@ -11,7 +11,7 @@
   render は読まない。実行条件(`conditions.json`)には、そのときのコードの分類・要約・想起素材・判定の
   プロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵を書く。script まで exit 0 なら、
   合成デッキの各問題の誤答を正解と述べるミューテーションを、1問1回のまとめた判定で実 CLI
-  (`ClaudeCliLlm.check_entailments`)に聞き、判定値の件数を `mutations.json` に
+  (`ClaudeCliLlm.check_entailments`)に聞き、判定値の件数を `mutations.json` に、
   その呼び出しの計測を `mutation-meter.jsonl` に書く。
 - `... render --out-root <作業ルート>` は journal・`meter.jsonl`・recall と script の成果物・`mutations.json` から
   `docs/test/measurements/recall-rehearsal.md` を書く。LLM は呼ばない。開始行と終了行は加工せずに写す。
