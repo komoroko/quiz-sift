@@ -84,8 +84,12 @@ class RunMeter(UsageRecorder, Protocol):
         """`Llm` のメソッド呼び出し1回(`llm_calls`)。"""
         ...
 
-    def begin_invocation(self, argv_digest: str) -> InvocationScope:
-        """子プロセス1本の起動(`provider_invocations`)。以降の記録はこの1本に属する(D-107)。"""
+    def begin_invocation(self, argv_digest: str, *, reissue: bool = False) -> InvocationScope:
+        """子プロセス1本の起動(`provider_invocations`)。以降の記録はこの1本に属する(D-107)。
+
+        `reissue` が真なら、直前の `TRUNCATED` の子の出し直し(D-231)。出し直された子はレート枠による停止の
+        判定から外れ、`failures_by_kind` には残る(D-241)。
+        """
         ...
 
     def end_invocation(

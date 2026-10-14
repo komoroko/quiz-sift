@@ -124,8 +124,8 @@ class CountingMeter:
         self._methods.append(method)
         self._inner.begin_call(method)
 
-    def begin_invocation(self, argv_digest: str) -> InvocationScope:
-        return self._inner.begin_invocation(argv_digest)
+    def begin_invocation(self, argv_digest: str, *, reissue: bool = False) -> InvocationScope:
+        return self._inner.begin_invocation(argv_digest, reissue=reissue)
 
     def end_invocation(
         self,

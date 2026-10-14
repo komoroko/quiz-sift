@@ -114,8 +114,8 @@ class RecordingMeter:
     def begin_call(self, method: str) -> None:
         self.calls.append(("begin_call", (method,)))
 
-    def begin_invocation(self, argv_digest: str) -> InvocationScope:
-        self.calls.append(("begin_invocation", (argv_digest,)))
+    def begin_invocation(self, argv_digest: str, *, reissue: bool = False) -> InvocationScope:
+        self.calls.append(("begin_invocation", (argv_digest, reissue)))
         self._invocations += 1
         return InvocationScope(self._invocations - 1, argv_digest)
 
@@ -432,6 +432,13 @@ def test_truncated_invocation_is_reissued_up_to_the_limit(tmp_path: Path) -> Non
         "end_invocation",
         "record_quota",
     ]
+    # 出し直しの子だけが reissue で起動を知らせる(D-241)。
+    assert [reissue for _, reissue in recording.of("begin_invocation")] == [False, True]
+    recording = RecordingMeter()
+    runner = FakeRunner(in_order(TRUNCATED, TRUNCATED, TRUNCATED))
+    with pytest.raises(llm_contract.ContractError, match="^truncated"):
+        build(recording, tmp_path, runner).describe_term("合成用語", Language.JA)
+    assert [reissue for _, reissue in recording.of("begin_invocation")] == [False, True, True]
 
 
 def test_only_truncated_is_reissued(tmp_path: Path) -> None:
@@ -503,7 +510,7 @@ def test_every_nfr7_value_reaches_the_meter(tmp_path: Path) -> None:
 
     init = next(e for e in success_events() if e["type"] == "system" and e["subtype"] == "init")
     fixture_result = next(e for e in success_events() if e["type"] == "result")
-    assert meter.of("begin_invocation") == [(argv_digest(runner.specs[0].argv),)]
+    assert meter.of("begin_invocation") == [(argv_digest(runner.specs[0].argv), False)]
     assert meter.of("end_invocation") == [
         (
             "claude-opus-5-5",

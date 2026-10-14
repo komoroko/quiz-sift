@@ -6,7 +6,8 @@
 1. usage・num_turns・total_cost_usd・is_error・skills のダイジェストと、`rate_limit_event` ごとの枠を
    **成否の判定より先に** meter へ渡す(AR-65)。stdout を行ごとに読める範囲で拾い、厳格な判定を待たない。
 2. `claude_failure.classify` で7種に分類し、失敗なら meter へ記録する。`TRUNCATED` の子だけを同じ argv と stdin で
-   最大 `MAX_REISSUES` 回出し直し、他の種別は出し直さない(D-101、D-231)。出し直しも子プロセス1本として 1〜3 を通る。
+   最大 `MAX_REISSUES` 回出し直し、他の種別は出し直さない(D-101、D-231)。出し直しも子プロセス1本として 1〜3 を通り、
+   出し直しであることを `begin_invocation(..., reissue=True)` で meter へ知らせる(D-241)。
 3. `InvocationRecord` を1件ログへ出す。記録は構造化項目だけで、子の出力の本文を持たない(AR-146、ADR-024)。
 
 `classify_clusters` は 25 問ごとに分割し、overage か枠切れ(`rate_limit_stop`)で失敗したバッチがあれば
@@ -238,17 +239,26 @@ class ClaudeCliLlm:
         model = prompts.MODELS[method]
         argv = build_argv(model, system, schema)
         stdin = json.dumps(payload, ensure_ascii=False)
-        for _ in range(MAX_REISSUES):
-            judgement, is_error = self._spawn(model, argv, stdin, parse)
+        for reissue in range(MAX_REISSUES):
+            judgement, is_error = self._spawn(model, argv, stdin, parse, reissue=reissue > 0)
             if judgement.failure is not FailureKind.TRUNCATED:
                 return judgement, is_error
-        return self._spawn(model, argv, stdin, parse)
+        return self._spawn(model, argv, stdin, parse, reissue=True)
 
     def _spawn[T](
-        self, model: str, argv: tuple[str, ...], stdin: str, parse: Callable[[Mapping[str, Any]], T]
+        self,
+        model: str,
+        argv: tuple[str, ...],
+        stdin: str,
+        parse: Callable[[Mapping[str, Any]], T],
+        *,
+        reissue: bool,
     ) -> tuple[Judgement[T], bool | None]:
-        """子プロセス1本。usage と枠を判定より先に meter へ渡し、失敗を記録し、記録を1件ログへ出す。"""
-        self._meter.begin_invocation(argv_digest(argv))
+        """子プロセス1本。usage と枠を判定より先に meter へ渡し、失敗を記録し、記録を1件ログへ出す。
+
+        `reissue` は直前の `TRUNCATED` の子の出し直しであることを meter へ知らせる(D-241)。
+        """
+        self._meter.begin_invocation(argv_digest(argv), reissue=reissue)
         with self.workspace.new_cwd() as cwd:
             spec = CommandSpec(argv=argv, env=self.workspace.child_env(), cwd=cwd, stdin=stdin)
             started = self.clock.monotonic()

@@ -504,6 +504,83 @@ def test_allowed_status_failure_is_not_a_rate_limit_stop(tmp_path: Path) -> None
     assert entry["rate_limit_stopped_invocations"] == 1
 
 
+def test_recovered_truncation_does_not_hide_a_rate_limit_stop(tmp_path: Path) -> None:
+    """T-081 A-1: 出し直された子だけを枠切れの判定から外す。failures_by_kind には残す(D-241)。"""
+    opus = "claude-opus-5-5"
+    usage = TokenUsage(1, 0, 0, 1)
+
+    def child(meter: Meter, status: str, *, is_error: bool, failure: FailureKind | None, reissue: bool = False) -> None:
+        meter.begin_invocation("a", reissue=reissue)
+        meter.record_quota(quota(status, 1_790_000_000, 1.0, 0.99))
+        meter.end_invocation(opus, 1, usage, None, is_error, None)
+        if failure is not None:
+            meter.record_failure(failure)
+
+    # 試行3の recall の形: 1回目の呼び出しは TRUNCATED を出し直しで回復し、2回目の呼び出しが枠切れで止まった。
+    log = tmp_path / "recall.jsonl"
+    meter = Meter(
+        FakeClock(),
+        log_path=log,
+        run_id="seq",
+        execution_id="exec-recall",
+        stage="recall",
+        cache_mode="fresh",
+        env_names=(),
+        overhead=MappingProxyType({}),
+    )
+    meter.begin_call("generate_recall")
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED)
+    child(meter, "allowed", is_error=False, failure=None, reissue=True)
+    meter.begin_call("generate_recall")
+    child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
+    entry = finish(meter, 1, "StageFailed")
+    assert entry["ended_by_rate_limit"]["value"] is True  # type: ignore[index]
+    assert entry["stop"] == {"exit_code": 1, "exit_reason": "StageFailed", "kind": "rate_limit"}
+    assert entry["failures_by_kind"]["truncated"] == 1, "回復した子の失敗も数える"  # type: ignore[index]
+    assert entry["failed_invocations"] == 2
+    assert entry["sequence"]["status"] == "resumable"  # type: ignore[index]
+
+    # 出し直しを使い切って TRUNCATED で終わった呼び出しがあれば偽のまま。
+    meter = make_meter(tmp_path / "exhausted.jsonl")
+    meter.begin_call("generate_recall")
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED)
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED, reissue=True)
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED, reissue=True)
+    meter.begin_call("generate_recall")
+    child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
+    entry = finish(meter, 1, "StageFailed")
+    assert entry["ended_by_rate_limit"]["value"] is False  # type: ignore[index]
+    assert entry["stop"]["kind"] == "other"  # type: ignore[index]
+    assert entry["failures_by_kind"]["truncated"] == 3  # type: ignore[index]
+
+    # 分類の形: 1回の begin_call の途中のバッチで出し直しを使い切り、最後のバッチが枠切れ。偽のまま。
+    meter = make_meter(tmp_path / "classify.jsonl")
+    meter.begin_call("classify_clusters")
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED)
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED, reissue=True)
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED, reissue=True)
+    child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
+    entry = finish(meter, 1, "StageFailed")
+    assert entry["ended_by_rate_limit"]["value"] is False  # type: ignore[index]
+
+    # 同じ分類の形でも、途中のバッチが出し直しで回復していれば真。
+    meter = make_meter(tmp_path / "classify-recovered.jsonl")
+    meter.begin_call("classify_clusters")
+    child(meter, "allowed", is_error=False, failure=FailureKind.TRUNCATED)
+    child(meter, "allowed", is_error=False, failure=None, reissue=True)
+    child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
+    entry = finish(meter, 1, "StageFailed")
+    assert entry["ended_by_rate_limit"]["value"] is True  # type: ignore[index]
+
+    # 出し直しは TRUNCATED で終わった子の後にだけ来る。他の形は記録の取り違えなので落とす。
+    meter = make_meter(tmp_path / "misuse.jsonl")
+    with pytest.raises(RuntimeError):
+        meter.begin_invocation("a", reissue=True)
+    child(meter, "rejected", is_error=True, failure=FailureKind.PROVIDER_ERROR)
+    with pytest.raises(RuntimeError):
+        meter.begin_invocation("a", reissue=True)
+
+
 def test_overage_counts_and_check(tmp_path: Path) -> None:
     expected = ["self", "model", "turns", "usage", "cost_usd", "is_error", "skills_digest"]
     assert list(inspect.signature(Meter.end_invocation).parameters) == expected
