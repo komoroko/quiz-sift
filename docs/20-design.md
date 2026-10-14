@@ -135,6 +135,7 @@
 
 ### NFR-1 → design
 - **Implementation method**: 3か所に重複している `_reference`(`recall/generate.py`、`script/generate.py`、`cluster/summary.py`)を `safety/entailment.reference_for(question, focus=None)` に1本化する。`focus=None` は正解 N 件すべて、`focus` を渡すと「この文が説明する正解」を明示し正解 N 件も併記する(local)。識別ポイントは参照先の誤答の本文を加える(D-192)。グロッサリの reference は変えない(D-195)。
+- **判定のまとめ**(D-242、ADR-029): ポートを `check_entailments(reference, statements)` の1本にする。主張は `id`・本文・任意の `focus`(その要素が説明する正解の本文)・任意の `distractors`(識別ポイントが参照する誤答の本文)を持ち、応答は `{"verdicts": [{"id", "verdict"}]}`。ID の欠けや余りは `INCOMPLETE_IDS`。recall は1問の答えの要素と識別ポイント、script は1トラックの中の1問ぶん(答えと識別ポイント)を1回で聞く。reference は `reference_for(question)`(正解 N 件と解説)を1回だけ作り、`focus` と誤答の節は主張の側に移す(`ENTAILMENT_SYSTEM` が意味を説明する)。`judge` は判定値の列を集約し、規則は変えない。クラスタ要約・グロッサリ・ミューテーションは1件の呼び出しにする。
 - **生成物の作り直し**(D-232、ADR-026): 想起素材・クラスタ要約・グロッサリの説明は、含意判定(クラスタ要約は実在性の検査も)に落ちた項目だけを `MAX_REGENERATIONS`(= 2、recall の D-171 と同じ)回まで作り直し、上限を超えたら従来どおり成果物を出さずに止める。recall は含意判定を1問の検査の最後に置き、検査名 `entailment` で同じ上限を共有する(D-191 を改める)。台本は文を生成しないので変えない。ログは ID と検査名・回数だけ。
 - **Tests**: 判定器のスタブが要素2だけに contradicted を返し続けると成果物が書かれずに非0終了する(recall は上限まで作り直してから `RegenerationExhausted`、台本は `EntailmentRejected`)。参照先の誤答と矛盾する識別ポイントでも止まる。言い換えのフィクスチャでは誤検出 0。
 - **What this requires of a person**: なし(判定能力そのものは測らない。D-043/D-044 のまま)。
@@ -171,7 +172,8 @@
 - **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 3(1回 = `--fresh-run` の列1本)。較正とリハーサルは可逆。
 
 ### NFR-8 → design
-- **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。`RunMeter._ended_by_rate_limit` は、子を `begin_call` ごとにまとめ、各呼び出しの最後の子の失敗だけを判定に使う。回復した子の失敗は `failures_by_kind` には残す(D-241、T-081)。
+- **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。`RunMeter._ended_by_rate_limit` は、出し直された子(同じ `_invoke` の中で後に別の子が続いたもの)を判定から外す。アダプタは出し直しの子を `begin_invocation(..., reissue=True)` で知らせ、meter は直前の子を出し直し済みと印す。`classify_clusters` のように1回の `begin_call` が複数のバッチを持っても、バッチごとの最後の子が判定に入る。回復した子の失敗は `failures_by_kind` には残す(D-241、T-081)。
+- **入力と出力の削減**(D-242、ADR-029): `llm_prompts.render_question` の分類用の形から `explanation` を外す(分類専用の関数にし、要約は今の形のまま)。`llm_prompts` に `MODELS` と並べてメソッドごとの追加の環境変数を置き、`generate_recall` だけ `MAX_THINKING_TOKENS=0`。`ClaudeCliLlm._spawn` は `workspace.child_env()` にそれを重ねて子に渡し、`SubprocessRunner` の環境の鍵の検査は同じ表から許可集合を組む(NFR-8 (b2))。Haiku 4.5 の固定オーバーヘッドはその環境で取り直し、較正の記録に環境の鍵を残す。合成デッキのリハーサル(`test_recall_rehearsal_logs.py`)は段を cluster → recall → script に広げ、script 段の exit 0 と呼び出し数・トークン数を記録する。
 - **Implementation method**: `adapters/llm_claude_cli.py::build_argv` にユーザ設定を読まない指定(候補 `--setting-sources`)と有効ツールの許可リスト(候補 `--tools`、空のものを含む)を足し、拒否リストを外す(local。二重実装を避ける)。どちらのフラグもこのホストの CLI での存在は未確認。
 - **ホストでの実測**(`tests/measurements/collect_claude_cli.py` にサブコマンド)。2段に分ける。
   - 第1段(argv を変える前、DAG の先頭): `claude --version` と `--help` にあるフラグの列挙と、許可リストの各候補の下での `init.tools`(StructuredOutput が消えて `--json-schema` が壊れないかを含む)。ここで argv の形を決める。SEC-001 の手段が無いと分かったら `/revise`(D-178)。
@@ -230,6 +232,20 @@
 **要件の blocker 修正の再確認**: AR-R1 は解消済み(G-1 の32行目の字面も直した)。AR-R2 は要件の段で解消済み。設計の段に残っていた2点(実測 argv と `build_argv` の一致、陰性対照の失敗原因の区別)は AR-D8・AR-D13 で直した。
 
 **提案レンズ**(採否はゲートで人が決める): L-DES-ADR、L-DES-FAILURE-WALK はこの回で適用し、指摘を上の表に入れた。
+
+### 2026-10-14 の改訂(D-241・D-242、ADR-029)のレビュー
+
+| ID | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| AR-E1 | blocker | 子の環境の鍵は HOME・PATH・LANG・TZ に固定(`SubprocessRunner` が強制)で、思考を止める環境変数を足すと generate_recall の起動が落ちる | revise_requirement: NFR-8 (b2) に generate_recall だけの例外を書き、T-083 の scope に `claude_process.py` を足して、実物の runner の受入を加えた |
+| AR-E2 | major | 1問1本の reference に誤答の節を置くと、答えの要素の判定に誤答が混ざり、C-013 の検査と R-4 と衝突する | revise_design: `focus` と誤答の本文を主張の側に移し、共通の reference は正解 N 件と解説だけにした。書き換える検査を T-084 A-4 に列挙した |
+| AR-E3 | major | `classify_clusters` は1回の `begin_call` で複数のバッチを呼ぶので、`begin_call` の単位で最後の子を見ると、途中のバッチの失敗が隠れる | revise_design: 出し直された子だけを外す(アダプタが出し直しを meter に知らせる)。T-081 の scope と A-1 に分類の形を加えた |
+| AR-E4 | major | render が journal の全実行の標準エラーを今のプロンプトで振り分けるので、プロンプトが変わると旧試行の記録で落ちる | revise_design: render は記録する列の標準エラーだけを読む(T-084 A-5) |
+| AR-E5 | major | まとめた判定の精度の劣化は、通過の記録では見えない | T-068 A-4: 合成のミューテーションの検出数を記録する(合格ラインなし。D-044) |
+| AR-E6 | major | リハーサルの記録が新しいコードで取られたことを判定できない | T-068 A-2: 記録のプロンプトとスキーマのダイジェストと子の環境の鍵を、今のコードと突き合わせる |
+| AR-E7 | minor | T-081 と T-084 が同じテストファイルを触るのに辺が無い | T-082 に T-081 への辺を足した(T-081 → T-082 → T-083 → T-084) |
+| AR-E8 | minor | 固定オーバーヘッドの定数の鍵に環境が入らない | 制約として ADR-029 と T-083 に書いた。環境はコードの表で決まり、記録の環境の鍵が表と一致することを T-083 A-2 で見る |
+| AR-E9 | minor | T-071 の blocked_by の重複と、Notes の「リハーサルは足さない」が改訂と矛盾する | 直した |
 
 ## Self-assessment (assumptions, confidence)
 - **Assumptions made**:

@@ -43,7 +43,7 @@ claims:
 - id: C-026
   requirement_ids:
   - R-4
-  statement: 日本語と英語と複数正解問題を含む合成デッキを実 CLI で recall 段まで通すと、recall 段が exit 0 で終わり、想起素材の検査のすべての件数が 0 で含意判定が通り、問題ごとの再生成回数とレート枠の使用率が記録される(ホストでの実測)。
+  statement: 日本語と英語と複数正解問題を含む合成デッキを実 CLI で script 段まで通すと、recall 段と script 段が exit 0 で終わり、想起素材の検査のすべての件数が 0 で含意判定が通り、問題ごとの再生成回数と、段ごとの呼び出し数・トークン数・レート枠の使用率が記録される(ホストでの実測)。
   risk: high
 - id: C-006
   requirement_ids:
@@ -123,6 +123,12 @@ claims:
   - NFR-7
   statement: 実行の列で、recall・script 段は、枠切れで止まった後に同じ列を --resume すると、前の実行で判定まで済んだ項目(recall は問題、script はトラック)を呼び直さずに残りから続け、作り直しの上限は再開をまたいで数え、1回で走れば止まる項目(上限超過の問題、contradicted か uncertain のトラック)は、判定の途中で止まった場合も含めて再開しても止まり、途中結果は段のキャッシュ鍵(run_id・モデル・プロンプト・前段成果物)が違えば使われず、段の成果物は全項目が検査を通ったときだけ書かれ、成果物の確定で途中結果が消え、再開のログは件数だけである。
   risk: high
+- id: C-029
+  requirement_ids:
+  - NFR-7
+  - NFR-1
+  statement: クラスタの分類の入力に解説が無く(要約・生成・含意判定の入力には残る)、recall 生成の子プロセスだけが MAX_THINKING_TOKENS=0 で起動され、含意判定は1つの問題に属する主張を1回の呼び出しで聞いて主張の ID ごとの判定値を受け(ID の欠けや余りは INCOMPLETE_IDS、focus と誤答の本文は主張の側)、要素ごとの判定・focus・誤答の節・集約の規則のテストが緑のままである(ADR-029)。
+  risk: medium
 tasks:
 - id: T-054
   title: 【ホスト】子 CLI のフラグの実測 第1段(ユーザ設定の遮断と有効ツールの許可リスト)
@@ -1158,13 +1164,17 @@ tasks:
     allow:
     - uv lock
 - id: T-068
-  title: 【ホスト】合成デッキを実 CLI で recall 段まで通すリハーサル
+  title: 【ホスト】合成デッキを実 CLI で script 段まで通すリハーサル(ADR-029 の後に取り直す)
   kind: integration
   blocked_by:
   - T-056
   - T-060
   - T-061
   - T-063
+  - T-081
+  - T-082
+  - T-083
+  - T-084
   claim_ids:
   - C-026
   domains:
@@ -1185,8 +1195,8 @@ tasks:
       produces:
       - tests/fixtures/decks/synthetic-nofm/
   - id: A-2
-    statement: 使い捨ての作業ルートで実 CLI により cluster から recall まで走らせ、recall 段が exit 0 で終わり、想起素材の検査のすべての件数が 0 で含意判定が通ったことが
-      docs/test/measurements/recall-rehearsal.md に記録されている。
+    statement: 使い捨ての作業ルートで実 CLI により cluster → recall → script を同じ列で走らせ、recall 段と script 段が exit 0 で終わり、想起素材の検査のすべての件数が 0 で含意判定が通ったことが
+      docs/test/measurements/recall-rehearsal.md に記録されている。記録に、取ったときの分類・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵があり、どれも今のコードの値と一致する(古いコードで取った記録は赤)。
     evidence:
       kind: command
       command:
@@ -1197,7 +1207,7 @@ tasks:
       produces:
       - docs/test/measurements/recall-rehearsal.md
   - id: A-3
-    statement: 記録に問題ごとの再生成回数と、呼び出し数・トークン数、それを 190 問に外挿した値と、前サイクルの列の utilization とトークン数の比から推定した枠の使用率が書かれている。utilization
+    statement: 記録に問題ごとの再生成回数と、段ごとの呼び出し数・トークン数、それを 190 問に外挿した値と、前サイクルの列の utilization とトークン数の比から推定した枠の使用率が書かれている。utilization
       の生の値も併記する(D-218)。
     evidence:
       kind: command
@@ -1205,6 +1215,15 @@ tasks:
       - pytest
       - -q
       - tests/measurements/test_recall_rehearsal_logs.py::test_c026_record_has_regenerations_and_extrapolated_usage
+      executor_profile: quality
+  - id: A-4
+    statement: 記録に、合成デッキから作ったミューテーション(正解と矛盾する主張)を、まとめた判定(1問1回)で実 CLI に聞いた件数・contradicted・uncertain の数が書かれている。合格ラインは置かない(D-044)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_recall_rehearsal_logs.py::test_c026_record_has_batched_mutation_counts
       executor_profile: quality
   operator_surface: []
   requires:
@@ -1748,6 +1767,188 @@ tasks:
       - tests/acceptance/test_analysis.py::test_script_resume_logs_counts_only
       executor_profile: quality
   operator_surface: []
+- id: T-082
+  title: クラスタの分類の入力から解説を外す
+  kind: parallel
+  blocked_by:
+  - T-081
+  claim_ids:
+  - C-029
+  domains:
+  - adapters
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - tests/adapters/
+  acceptance:
+  - id: A-1
+    statement: classify_clusters の子プロセスの stdin の各問題が問題文・選択肢・正解を持ち、解説を持たない。summarize_cluster と generate_recall の stdin には解説が残る(ADR-029)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_classify_payload_has_no_explanation
+      executor_profile: quality
+  operator_surface: []
+- id: T-083
+  title: 【ホスト】recall 生成の子プロセスの思考を止め、Haiku 4.5 の固定オーバーヘッドを取り直す
+  kind: parallel
+  blocked_by:
+  - T-082
+  claim_ids:
+  - C-029
+  - C-019
+  domains:
+  - adapters
+  - measurement
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - src/quiz_sift/adapters/claude_process.py
+    - src/quiz_sift/pipeline/overhead.py
+    - tests/adapters/
+    - tests/measurements/measure_overhead.py
+    - tests/measurements/test_overhead_logs.py
+    - docs/test/measurements/overhead-claude-haiku-4-5.md
+  acceptance:
+  - id: A-1
+    statement: generate_recall の子プロセスの環境だけに MAX_THINKING_TOKENS=0 があり、他のメソッドの子の環境は今のまま(HOME・PATH・LANG・TZ)で、どのメソッドも argv は変わらない。実物の SubprocessRunner は generate_recall の環境で起動し、他のメソッドの環境に MAX_THINKING_TOKENS があれば起動の前に失敗する(NFR-8 (b2)、ADR-029)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_only_generate_recall_disables_thinking
+      - tests/adapters/test_claude_process.py::test_runner_allows_thinking_env_only_for_generate_recall
+      executor_profile: quality
+  - id: A-2
+    statement: Haiku 4.5 の較正表が、製品が generate_recall に渡すのと同じ環境(MAX_THINKING_TOKENS=0 を含む)で k = 1, 2, 3 を測ったもので、記録に環境の鍵があり、overhead.OVERHEAD の Haiku 4.5 の定数が表の回帰と一致する。他の2モデルの記録と定数は変わらない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_overhead_logs.py
+      executor_profile: quality
+  - id: A-3
+    statement: Haiku 4.5 の較正表がコミットされている。
+    evidence:
+      kind: artifact
+      paths:
+      - docs/test/measurements/overhead-claude-haiku-4-5.md
+  operator_surface:
+  - kind: default_value
+    name: 固定オーバーヘッドの定数(Haiku 4.5 を思考なしの環境で取り直す)
+    paths:
+    - src/quiz_sift/pipeline/overhead.py
+    reversible: true
+  requires:
+  - probe:
+    - which
+    - claude
+    says: ホストの PATH に claude(Claude Code CLI)がある
+  - probe:
+    - python3
+    - -c
+    - import os,sys; sys.exit(0 if os.path.lexists(os.path.expanduser('~/.quiz-sift-claude-home/.claude/.credentials.json'))
+      else 1)
+    says: 最小ホーム ~/.quiz-sift-claude-home が用意され、資格情報ファイルがある(HOME=~/.quiz-sift-claude-home claude /login
+      を1回。ファイルは開かずに存在だけを見る)
+  environment:
+    allow:
+    - uv run python tests/measurements/measure_overhead.py
+- id: T-084
+  title: 含意判定を1問1回にまとめ、判定値を主張の ID で受ける
+  kind: parallel
+  blocked_by:
+  - T-083
+  claim_ids:
+  - C-029
+  domains:
+  - safety
+  - adapters
+  risk: high
+  scope:
+    include:
+    - src/quiz_sift/ports/llm.py
+    - src/quiz_sift/safety/entailment.py
+    - src/quiz_sift/adapters/llm_prompts.py
+    - src/quiz_sift/adapters/llm_claude_cli.py
+    - src/quiz_sift/recall/generate.py
+    - src/quiz_sift/script/generate.py
+    - src/quiz_sift/cluster/summary.py
+    - src/quiz_sift/glossary/verify.py
+    - src/quiz_sift/cli.py
+    - tests/acceptance/
+    - tests/adapters/
+    - tests/cluster/
+    - tests/glossary/
+    - tests/recall/
+    - tests/script/
+    - tests/safety/
+    - tests/ports/
+    - tests/nfr8/
+    - tests/support/
+    - tests/test_cli.py
+    - tests/test_cli_sequence.py
+    - tests/measurements/test_full_run_logs.py
+  acceptance:
+  - id: A-1
+    statement: ClaudeCliLlm.check_entailments は reference を1回、主張(id・本文・任意の focus)の列を1回の子プロセスで渡し、応答の判定値を主張の ID で対応づけて返す。ID の欠けか余りがあれば INCOMPLETE_IDS で失敗する。check_entailment(1件版)はポートにも実装にも無い。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/adapters/test_llm_claude_cli.py::test_check_entailments_maps_verdicts_by_id
+      executor_profile: quality
+  - id: A-2
+    statement: recall 段は、1問の1回の生成につき含意判定を1回だけ呼び、reference は正解 N 件と解説で、答えの要素ごとに focus を、識別ポイントに参照先の誤答の本文を主張の側で付ける。答えの要素の主張には誤答の本文が無い。要素2だけが contradicted のとき、その問題を作り直し、上限を超えたら RegenerationExhausted で止まる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/recall/test_generate.py::test_entailment_is_one_call_per_question
+      executor_profile: quality
+  - id: A-3
+    statement: script 段は、トラックの中の1問ぶんの主張(答えと識別ポイント)を1回で聞き、判定値を途中結果に残す。1件でも contradicted か uncertain なら EntailmentRejected で止まり、再開しても止まる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/script/test_generate.py::test_entailment_is_one_call_per_question
+      executor_profile: quality
+  - id: A-4
+    statement: NFR-1 の既存の判定のテスト(要素ごとの判定、言い換えで誤検出しない、誤答の扱い、集約、クラスタ要約とグロッサリの作り直し、途中結果からの再開)が緑である。reference の節を見ていた検査(C-013 の focus の節・答えの reference に誤答の節が無いこと、偽の判定器 distractor)は、同じ性質を主張の側の focus・distractors で見る形に書き換え、性質そのものは落とさない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/safety
+      - tests/recall
+      - tests/script
+      - tests/cluster
+      - tests/glossary
+      - tests/acceptance
+      executor_profile: quality
+  - id: A-5
+    statement: render は記録する列(本列と使う再現性の列)の標準エラーだけを読み、旧プロンプトの子の記録を持つ別の列の実行が journal にあっても記録を作る。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_render_reads_only_the_recorded_runs_stderr
+      executor_profile: quality
+  operator_surface: []
 - id: T-081
   title: 出し直しで回復した切り詰めを、レート枠による停止の判定で失敗に数えない
   kind: parallel
@@ -1760,12 +1961,17 @@ tasks:
   scope:
     include:
     - src/quiz_sift/pipeline/meter.py
+    - src/quiz_sift/ports/metering.py
+    - src/quiz_sift/adapters/llm_claude_cli.py
     - tests/pipeline/test_meter.py
+    - tests/adapters/
+    - tests/ports/test_metering.py
+    - tests/support/cli_harness.py
     - tests/measurements/test_full_run_logs.py
   acceptance:
   - id: A-1
-    statement: 1回の呼び出しで TRUNCATED の子が出し直し(D-231)で回復し、別の呼び出しが枠切れ(is_error 真、最後の rate_limit_event が rejected、overage 偽)で失敗して止まった実行の終了行で、ended_by_rate_limit.value
-      が真、stop.kind が rate_limit になり、その列が resumable になる。出し直しを使い切って TRUNCATED で終わった呼び出しがあれば偽のまま。failures_by_kind の truncated は回復した子も数える(D-241)。
+    statement: 判定から外すのは出し直された子(同じ _invoke の中で後に別の子が続いたもの)だけである。1回の呼び出しで TRUNCATED の子が出し直し(D-231)で回復し、別の呼び出しが枠切れ(is_error 真、最後の rate_limit_event が rejected、overage 偽)で失敗して止まった実行の終了行で、ended_by_rate_limit.value
+      が真、stop.kind が rate_limit になり、その列が resumable になる。出し直しを使い切って TRUNCATED で終わった呼び出しがあれば偽のまま(classify_clusters のように1回の begin_call が複数のバッチを持ち、途中のバッチで使い切り、最後のバッチが枠切れの場合も偽)。failures_by_kind の truncated は回復した子も数える(D-241)。
     evidence:
       kind: command
       command:
@@ -1855,10 +2061,10 @@ tasks:
     tasks:
     - T-068
     - T-069
-    says: 合成デッキで recall 段まで(実 CLI)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
+    says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・思考なしの生成・まとめた判定を含む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
     max: 4
-    cost: 1本あたり子プロセス 1,200〜1,600・5時間枠 2〜3 個・週次枠の約 30%・枠待ちを含め壁時計 10〜20 時間(推定)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
+    cost: 1本あたり子プロセス 600〜900・5時間枠 1.5〜2 個・週次枠の約 20%・枠待ちを含め壁時計 6〜15 時間(推定。ADR-029 の削減を試行3の実測に当てた外挿で、T-068 の記録で確かめる)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
   says: 'T-054 の実測で、ホストの claude CLI にユーザ設定を読まない指定があった(記録の結論が「ユーザ設定の遮断: あり」)。'
@@ -2586,6 +2792,35 @@ decisions:
   requirement_ids:
   - NFR-7
   - NFR-8
+- id: D-242
+  subject: 呼び出しの入力と出力を減らす(ADR-029)
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 分類の入力から解説を外す。recall 生成の子プロセスだけ思考を止める(MAX_THINKING_TOKENS=0)。含意判定は1つの問題に属する主張を1回にまとめ、判定値を主張の ID で受ける。含意判定の reference と、要約・生成の入力の解説は削らない。合成デッキのリハーサルを script 段まで広げて取り直す。本サイクルで行う。
+  rationale: 試行3でトークン消費が多く、事前の抽出が無いこと(解説がデッキの 76%)、recall 生成の出力の大半が思考であること(thinking-probe.md)、判定が主張ごとに同じ全文を送り直していることが分かった。人が「現状の実装は気にせず、本サイクルで作りきる」と決めた(2026-10-14)。reference を絞る案は NFR-1 の根拠を欠くので採らない。
+  requirement_ids:
+  - NFR-7
+  - NFR-1
+- id: D-243
+  subject: 思考を止めるメソッドの範囲
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: generate_recall だけ。classify・summarize・describe_term(Opus 5.5)と check_entailments(Sonnet 5.5)は止めない。
+  rationale: 試行3の呼び出しログで、出力が膨らんでいたのは recall 生成(1回 3,600)だけで、Opus の要約は 860、Sonnet の判定は 70 だった。止めて減るのは僅かで、要約の質と判定の精度を下げうる。覆すなら T-083 の対応表だけを直す。
+  requirement_ids:
+  - NFR-7
+- id: D-244
+  subject: 含意判定をまとめる単位
+  reach: local
+  status: settled
+  settled_by: loop
+  answer: 1つの問題(recall は1回の生成、script はトラックの中の1問ぶん)。トラックやクラスタの単位にはしない。
+  rationale: reference は問題ごとに違うので、問題をまたいでまとめても reference は減らない。問題の単位なら reference を1回送るだけで、作り直しも問題の単位のまま保てる。覆すなら T-084 だけを直す。
+  requirement_ids:
+  - NFR-1
+  - NFR-7
 
 lenses:
 - id: L-REQ-AMBIGUITY
