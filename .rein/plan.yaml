@@ -98,7 +98,7 @@ claims:
   - NFR-8
   statement: R-2 で得た実デッキ(期待 190 問)で、ホストで走らせた cluster から audio までの1列が completed になり、予算の外の再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で
     metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大
-    4 本)。
+    5 本)。
   risk: high
 - id: C-023
   requirement_ids:
@@ -127,7 +127,7 @@ claims:
   requirement_ids:
   - NFR-7
   - NFR-1
-  statement: クラスタの分類の入力に解説が無く(要約・生成・含意判定の入力には残る)、recall 生成の子プロセスだけが MAX_THINKING_TOKENS=0 で起動され、含意判定は1つの問題に属する主張を1回の呼び出しで聞いて主張の ID ごとの判定値を受け(ID の欠けや余りは INCOMPLETE_IDS、focus と誤答の本文は主張の側)、要素ごとの判定・focus・誤答の節・集約の規則のテストが緑のままである(ADR-029)。
+  statement: クラスタの分類の入力に解説が無く(要約・生成・含意判定の入力には残る)、どのメソッドの子プロセスも思考を止めずに起動され(recall 生成の思考の停止は D-246 で取り消した)、含意判定は1つの問題に属する主張を1回の呼び出しで聞いて主張の ID ごとの判定値を受け(ID の欠けや余りは INCOMPLETE_IDS、focus と誤答の本文は主張の側)、要素ごとの判定・focus・誤答の節・集約の規則のテストが緑のままである(ADR-029)。
   risk: medium
 - id: C-030
   requirement_ids:
@@ -1802,13 +1802,14 @@ tasks:
       executor_profile: quality
   operator_surface: []
 - id: T-083
-  title: 【ホスト】recall 生成の子プロセスの思考を止め、Haiku 4.5 の固定オーバーヘッドを取り直す
+  title: 【ホスト】recall 生成の思考を戻し(D-246)、Haiku 4.5 の固定オーバーヘッドと、合成デッキを実 CLI で script 段まで通すリハーサルを取り直す
   kind: parallel
   blocked_by:
   - T-082
   claim_ids:
   - C-029
   - C-019
+  - C-026
   domains:
   - adapters
   - measurement
@@ -1823,19 +1824,22 @@ tasks:
     - tests/measurements/measure_overhead.py
     - tests/measurements/test_overhead_logs.py
     - docs/test/measurements/overhead-claude-haiku-4-5.md
+    - tests/measurements/test_recall_rehearsal_logs.py
+    - docs/test/measurements/recall-rehearsal.md
+    - tests/measurements/test_full_run_logs.py
   acceptance:
   - id: A-1
-    statement: generate_recall の子プロセスの環境だけに MAX_THINKING_TOKENS=0 があり、他のメソッドの子の環境は今のまま(HOME・PATH・LANG・TZ)で、どのメソッドも argv は変わらない。実物の SubprocessRunner は generate_recall の環境で起動し、他のメソッドの環境に MAX_THINKING_TOKENS があれば起動の前に失敗する(NFR-8 (b2)、ADR-029)。
+    statement: どのメソッド(generate_recall を含む)の子プロセスの環境も HOME・PATH・LANG・TZ の4つだけで、思考を止める変数を渡さず、argv は変わらない。実物の SubprocessRunner はそれ以外の鍵があれば起動の前に失敗する。メソッドごとの追加の環境の表(llm_prompts.CHILD_ENV・model_env)は残っていない(NFR-8 (b2)、D-246)。
     evidence:
       kind: command
       command:
       - pytest
       - -q
-      - tests/adapters/test_llm_claude_cli.py::test_only_generate_recall_disables_thinking
-      - tests/adapters/test_claude_process.py::test_runner_allows_thinking_env_only_for_generate_recall
+      - tests/adapters/test_llm_claude_cli.py::test_no_method_disables_thinking
+      - tests/adapters/test_claude_process.py::test_runner_rejects_any_key_beyond_the_base_four
       executor_profile: quality
   - id: A-2
-    statement: Haiku 4.5 の較正表が、製品が generate_recall に渡すのと同じ環境(MAX_THINKING_TOKENS=0 を含む)で k = 1, 2, 3 を測ったもので、記録に環境の鍵があり、overhead.OVERHEAD の Haiku 4.5 の定数が表の回帰と一致する。他の2モデルの記録と定数は変わらない。
+    statement: Haiku 4.5 の較正表が、思考を止めない今の環境(鍵は HOME・PATH・LANG・TZ)で k = 1, 2, 3 を測ったもので、記録に環境の鍵と CLI のバージョンがあり、overhead.OVERHEAD の Haiku 4.5 の定数が表の回帰と一致する。他の2モデルの記録と定数は変わらない。
     evidence:
       kind: command
       command:
@@ -1844,14 +1848,32 @@ tasks:
       - tests/measurements/test_overhead_logs.py
       executor_profile: quality
   - id: A-3
-    statement: Haiku 4.5 の較正表がコミットされている。
+    statement: Haiku 4.5 の較正表(思考ありの今の環境で取り直したもの)がコミットされている。
     evidence:
       kind: artifact
       paths:
       - docs/test/measurements/overhead-claude-haiku-4-5.md
+  - id: A-4
+    statement: 取り直したリハーサルの記録に、再生成のあった問題の数と、作り直しの上限(MAX_REGENERATIONS 回)まで使った問題の数が書かれ、generate_recall の子の環境の鍵に MAX_THINKING_TOKENS が無い(MAX_THINKING_TOKENS を含む記録は赤)。合格ラインは置かない(16 問では作り直し率の差を判定できない)。数は T-071 の通過の承認で人が読む(D-246。比較の値は、思考を止めた 2026-10-15 の記録が 6/16、思考ありの 2026-10-07 の記録が 0/16)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_recall_rehearsal_logs.py::test_d246_record_shows_regenerations_without_the_thinking_env
+      executor_profile: quality
+  - id: A-5
+    statement: test_full_run_logs.py の試行の上限 MAX_ATTEMPTS が 5 で、--fresh-run の列が 6 本なら赤、5 本なら緑(D-246。T-081 A-2 の 4 をこれで改める)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_attempts_count_fresh_runs_only
+      executor_profile: quality
   operator_surface:
   - kind: default_value
-    name: 固定オーバーヘッドの定数(Haiku 4.5 を思考なしの環境で取り直す)
+    name: 固定オーバーヘッドの定数(Haiku 4.5 を思考ありの今の環境で取り直す)
     paths:
     - src/quiz_sift/pipeline/overhead.py
     reversible: true
@@ -1870,6 +1892,7 @@ tasks:
   environment:
     allow:
     - uv run python tests/measurements/measure_overhead.py
+    - uv run python tests/measurements/test_recall_rehearsal_logs.py
 - id: T-084
   title: 含意判定を1問1回にまとめ、判定値を主張の ID で受ける
   kind: parallel
@@ -2084,6 +2107,7 @@ tasks:
   - T-080
   - T-081
   - T-086
+  - T-083
   claim_ids:
   - C-025
   - C-007
@@ -2117,7 +2141,7 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_c007_every_cluster_has_inner_silence
       executor_profile: quality
   - id: A-3
-    statement: 使った --fresh-run の本列は 4 本以内である。
+    statement: 使った --fresh-run の本列は 5 本以内である。
     evidence:
       kind: command
       command:
@@ -2136,10 +2160,11 @@ tasks:
     tasks:
     - T-068
     - T-069
-    says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・思考なしの生成・まとめた判定を含む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
+    - T-083
+    says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・まとめた判定と、D-246 で思考を戻した生成を含む。再生成のあった問題の数をこの承認で読む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
-    max: 4
-    cost: 1本あたり子プロセス 600〜900・5時間枠 1.5〜2 個・週次枠の約 20%・枠待ちを含め壁時計 6〜15 時間(推定。ADR-029 の削減を試行3の実測に当てた外挿で、T-068 の記録で確かめる)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
+    max: 5
+    cost: 1本あたり子プロセス 600〜900・5時間枠 2 個前後・週次枠の約 20%・枠待ちを含め壁時計 6〜15 時間(推定。試行4の実測からの外挿)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
   says: 'T-054 の実測で、ホストの claude CLI にユーザ設定を読まない指定があった(記録の結論が「ユーザ設定の遮断: あり」)。'
@@ -2882,8 +2907,8 @@ decisions:
   reach: local
   status: settled
   settled_by: loop
-  answer: generate_recall だけ。classify・summarize・describe_term(Opus 5.5)と check_entailments(Sonnet 5.5)は止めない。
-  rationale: 試行3の呼び出しログで、出力が膨らんでいたのは recall 生成(1回 3,600)だけで、Opus の要約は 860、Sonnet の判定は 70 だった。止めて減るのは僅かで、要約の質と判定の精度を下げうる。覆すなら T-083 の対応表だけを直す。
+  answer: generate_recall だけ。classify・summarize・describe_term(Opus 5.5)と check_entailments(Sonnet 5.5)は止めない。D-246 で generate_recall の停止も取り消したので、どのメソッドも止めない。
+  rationale: 試行3の呼び出しログで、出力が膨らんでいたのは recall 生成(1回 3,600)だけで、Opus の要約は 860、Sonnet の判定は 70 だった。止めて減るのは僅かで、要約の質と判定の精度を下げうる。覆すなら T-083 の対応表だけを直す(D-246 で表ごと消した)。
   requirement_ids:
   - NFR-7
 - id: D-244
@@ -2907,6 +2932,17 @@ decisions:
   - NFR-1
   - R-3
   - R-4
+- id: D-246
+  subject: recall 生成の思考の停止(D-242 (b)、ADR-029 決定2)の取り消しと、試行の上限
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: generate_recall の子プロセスの思考を止めない。メソッドごとの追加の環境の表を消し、子の環境を HOME・PATH・LANG・TZ の4つに戻す(NFR-8 (b2) の例外を外す)。Haiku 4.5 の固定オーバーヘッドを今の環境で取り直す。合成リハーサルを取り直し、再生成のあった問題の数を人が T-071 の通過の承認で読んでから試行5に進む(16 問では作り直し率の差を判定できないので合格ラインは置かない)。T-071 の試行の上限を 5 にする。戻し・取り直し・上限の変更は T-083 を改めて行う。T-084・T-086・T-068・T-081 は済んでいて下流が始まっているので開き直さない。T-081 の A-2(上限 4)は T-083 A-5 で改める。コードとリハーサルの記録が食い違う間は記録の検査が赤になるので、戻しと取り直しを1つのタスクにまとめる。
+  rationale: 試行4(列 1a8dc37d…、2026-10-15)の recall で、作り直しの上限を使い切った問題が 136 問中9問出た。途中結果の exhausted は再開しても作り直されないので、列は完走できない。作り直しの理由は 63 回すべて ungrounded_key で、試行3(思考あり)の 6/51 に対し 45/136。同じ合成デッキでも、思考ありの 2026-10-07 の記録は 0/16、思考を止めた 2026-10-15 の記録は 6/16 だった。T-086 のプロンプト変更と CLI 2.1.300 が同時に入っており、切り分けはしていない。トークンの削減より品質を優先する(人の判断、2026-10-15)。
+  requirement_ids:
+  - NFR-7
+  - NFR-8
+  - NFR-1
 
 lenses:
 - id: L-REQ-AMBIGUITY

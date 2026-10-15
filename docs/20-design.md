@@ -170,11 +170,11 @@
 - **フル処理の記録**(AR-13、AR-24): `render` は、列の中で**最後に**成功した cluster の実行の割当を記録に使う(試行3の列は判定器の変更で cluster を作り直すので、最初の成功は下流が使った割当と違う)。再現性の列の classify の `llm_calls` は、終了行の `llm_calls` から、他メソッドの出し直しでない子の数を引いて出す(他メソッドの子プロセス数をそのまま引く形は、TRUNCATED の出し直しで 0 になる)。メソッド別の内訳の比較も、出し直しを除いた数で行う。classify の分割呼び出しで出し直しが起きた列は、子プロセス数が ⌈N/25⌉ でなくなり赤になる。再現性の列は予算の外なので取り直す。
 - **モデル**(D-236、ADR-027): `llm_prompts.MODELS` の含意判定を `claude-sonnet-5-5`、用語説明を `claude-opus-5-5` にする。`meter.PRICES` に Sonnet 5.5 を足す。`overhead.OVERHEAD` の Sonnet 5.5 の定数は、既存の2モデルと同じ較正(`measure_overhead.py`、k = 1, 2, 3)で別のタスクが足す。T-071 の判定は overhead の状態を読まないので、較正はフル処理を待たせない。
 - **What this requires of a person**: 最小ホームと資格情報、CosyVoice を用意し、週次枠のリセット後に始め、止まれば `--resume` すること。
-- **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 3(1回 = `--fresh-run` の列1本)。較正とリハーサルは可逆。
+- **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 5(1回 = `--fresh-run` の列1本。D-241 で 4、D-246 で 5)。較正とリハーサルは可逆。
 
 ### NFR-8 → design
 - **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。`RunMeter._ended_by_rate_limit` は、出し直された子(同じ `_invoke` の中で後に別の子が続いたもの)を判定から外す。アダプタは出し直しの子を `begin_invocation(..., reissue=True)` で知らせ、meter は直前の子を出し直し済みと印す。`classify_clusters` のように1回の `begin_call` が複数のバッチを持っても、バッチごとの最後の子が判定に入る。回復した子の失敗は `failures_by_kind` には残す(D-241、T-081)。
-- **入力と出力の削減**(D-242、ADR-029): `llm_prompts.render_question` の分類用の形から `explanation` を外す(分類専用の関数にし、要約は今の形のまま)。`llm_prompts` に `MODELS` と並べてメソッドごとの追加の環境変数を置き、`generate_recall` だけ `MAX_THINKING_TOKENS=0`。`ClaudeCliLlm._spawn` は `workspace.child_env()` にそれを重ねて子に渡し、`SubprocessRunner` の環境の鍵の検査は同じ表から許可集合を組む(NFR-8 (b2))。Haiku 4.5 の固定オーバーヘッドはその環境で取り直し、較正の記録に環境の鍵を残す。合成デッキのリハーサル(`test_recall_rehearsal_logs.py`)は段を cluster → recall → script に広げ、script 段の exit 0 と呼び出し数・トークン数を記録する。
+- **入力と出力の削減**(D-242、ADR-029): `llm_prompts.render_question` の分類用の形から `explanation` を外す(分類専用の関数にし、要約は今の形のまま)。子の環境は `workspace.child_env()`(HOME・PATH・LANG・TZ)のままで、どのメソッドも思考を止めない(D-246。D-242 で置いた `generate_recall` だけの `MAX_THINKING_TOKENS=0` と、そのためのメソッドごとの追加の環境の表は消す。`SubprocessRunner` の環境の鍵の検査は `CHILD_ENV_KEYS` との完全一致に戻す。NFR-8 (b2))。Haiku 4.5 の固定オーバーヘッドは今の環境と CLI で取り直し、較正の記録に環境の鍵を残す。合成デッキのリハーサル(`test_recall_rehearsal_logs.py`)は段を cluster → recall → script に広げ、script 段の exit 0 と呼び出し数・トークン数を記録する。
 - **Implementation method**: `adapters/llm_claude_cli.py::build_argv` にユーザ設定を読まない指定(候補 `--setting-sources`)と有効ツールの許可リスト(候補 `--tools`、空のものを含む)を足し、拒否リストを外す(local。二重実装を避ける)。どちらのフラグもこのホストの CLI での存在は未確認。
 - **ホストでの実測**(`tests/measurements/collect_claude_cli.py` にサブコマンド)。2段に分ける。
   - 第1段(argv を変える前、DAG の先頭): `claude --version` と `--help` にあるフラグの列挙と、許可リストの各候補の下での `init.tools`(StructuredOutput が消えて `--json-schema` が壊れないかを含む)。ここで argv の形を決める。SEC-001 の手段が無いと分かったら `/revise`(D-178)。
@@ -191,7 +191,7 @@
 1. 想起キーの照合先が問題文だけになり、検査は今より厳しくなる。汎用語キーの判定はプロンプトから他クラスタが見えず、再生成は偶然に頼る。合成リハーサルは実データの他クラスタとの重なりを再現しないので、上限超過で止まるリスクはフル処理まで残る。
 2. CosyVoice が torch 2.10 で動くかは未確認。プローブで先に確かめる。
 3. CLI のフラグが無い、または許可リストの下で StructuredOutput が消える場合、SEC-001 は `/revise`、SEC-002 は受容に回る。
-4. 1試行が週次枠の大半を使う見込みで、試行3回は数週にまたがりうる。
+4. 1試行が週次枠の大半を使う見込みで、試行5回(D-241、D-246)は数週にまたがりうる。
 5. `Question` の型変更の波及が広い(src 約 12、tests 10 以上)。foundation のタスクが大きくなる。`cli.py` と `llm_claude_cli.py` を複数のタスクが触るので、`/tasks` で DAG の辺を引いて直列にする。
 6. 通常モードの段キャッシュは、成果物の形が変わっても upstream が変わらない段で古い成果物を読みうる。フル処理は `--fresh-run` なので影響しない。
 7. cluster 段は途中結果を残さない。判定を Sonnet に替えると cluster 段のキャッシュ鍵が動き、試行3の列は cluster から作り直す。1つの枠に収まらなければ、cluster 段も再開のたびに最初からになる(試行3では Opus の判定で 0.01 → 0.79 に収まった。Sonnet の判定が要約の作り直しを増やせば消費は上がる)。2回続けて止まったら打ち切る(D-237)。
@@ -253,6 +253,20 @@
 | AR-F5 | minor | ログの検査が修正前から緑、`Retry` の repr | `repr=False` と、A-1・A-2 にログの検査を入れた |
 | AR-F6 | minor | T-086 の scope の cli.py に理由が無い | 外した |
 | AR-E9 | minor | T-071 の blocked_by の重複と、Notes の「リハーサルは足さない」が改訂と矛盾する | 直した |
+
+### 2026-10-15 の改訂(D-246)のレビュー
+
+| ID | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| AR-G1 | blocker | 改訂の途中で T-083 を defer した記録が state と監査ログに残り、理由文(「T-068 が戻す」)が今の計画と食い違う | rein に defer を戻す手段は無い。T-083 は計画に戻し、rein が todo として frontier に置くことを確かめた(`rein dag`)。理由文の誤りは acceptance で示す |
+| AR-G2 | major | 「16 問中 2 問以下」は 16 問では判定がぶれる(試行3の率でも約3割が赤、効果が無くても約6%が緑)。取り直しを繰り返しても記録に残らない | 合格ラインを外し、数を記録して T-071 の通過の承認で人が読む(T-083 A-4) |
+| AR-G3 | major | 試行5の本当の失敗要因は、190 問のうち1問でも上限を使い切ること。合成デッキはその端を再現しない | 残るリスクとして mandate の承認と T-071 の通過の承認で示す。記録に上限まで使った問題の数を書く |
+| AR-G4 | major | 閾値がどの claim にも無く、NFR-7 の「合格ラインは置かない」と矛盾する | AR-G2 の対応で閾値を外した |
+| AR-G5 | major | 「上限を使い切った問題が無い」は、上限超過で recall が止まると記録自体ができないので空振りする | 「作り直しを上限まで使った問題の数」を記録する形にした |
+| AR-G6 | minor | 思考なしの記録を前提にした陰性テスト(`test_record_taken_without_the_recall_env_is_red`)が、取り直しの後に赤になる | T-083 の To do に、向きを逆にする(MAX_THINKING_TOKENS を含む記録が赤)と書いた |
+| AR-G7 | minor | 子の環境はキャッシュ鍵に入らないので、試行4の列を再開すると思考なしの途中結果を読み戻す。ADR-029 の「環境が変わるので鍵が動く」は誤り | ADR-029 の Consequences を直し、試行4の列は再開しないと T-071 に書いた |
+| AR-G8 | minor | ADR-029・T-068・T-071・D-243・設計の古い記述 | 直した |
+| AR-G9 | minor | done のタスクの上流に todo のタスクがある | T-081 は開き直さず(上限の変更は T-083 A-5)、T-083 だけが todo。`rein dag --validate` は通る |
 
 ## Self-assessment (assumptions, confidence)
 - **Assumptions made**:
