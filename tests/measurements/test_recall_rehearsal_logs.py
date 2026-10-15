@@ -861,6 +861,37 @@ def test_d246_record_shows_regenerations_without_the_thinking_env() -> None:
     )
 
 
+def test_regeneration_counts_count_regenerated_and_exhausted_questions() -> None:
+    """T-083 A-4: 0 以外の値と上限の値を含む入力で二つの数を固定する(記録は全問 0 で数え方を見られない)。"""
+    assert MAX_REGENERATIONS == 2
+    assert regeneration_counts([0, 1, 2, 2]) == (3, 2)
+    assert regeneration_counts([0, 0]) == (0, 0)
+    assert regeneration_counts([1, 1]) == (2, 0)
+
+    text = _read()
+    per_question = _table_with(_section(text, "問題ごとの再生成回数"), "| 問題 | 再生成回数 |")
+    qid, count = _rows(per_question)[0]
+    row = f"| `{qid}` | {count} |"
+    assert count == "0" and text.count(row) == 1, "記録の1行目を書き換えられない"
+    exhausted_line = re.compile(r"^(\| 作り直しを上限\(\d+ 回\)まで使った問題の数 \| )(\d+) \|$", re.M)
+    regenerated_line = re.compile(r"^(\| 再生成のあった問題の数 \| )(\d+) \|$", re.M)
+
+    def bump(pattern: re.Pattern[str], body: str) -> str:
+        return pattern.sub(lambda m: f"{m.group(1)}{int(m.group(2)) + 1} |", body, count=1)
+
+    # 1回だけ再生成した問題は「再生成のあった問題」に数える(要約を書き換えないと赤)。
+    _broken(
+        check_regenerations_summarized, text.replace(row, f"| `{qid}` | 1 |", 1), "再生成のあった問題の数が表と違う"
+    )
+    # 上限まで使った問題は両方に数える。再生成の数だけ合わせても、上限の数が表と違えば赤。
+    at_limit = bump(regenerated_line, text.replace(row, f"| `{qid}` | {MAX_REGENERATIONS} |", 1))
+    _broken(check_regenerations_summarized, at_limit, "作り直しを上限まで使った問題の数が表と違う")
+    # 両方を合わせれば緑(上の赤が数え方によるものであることの対照)。
+    check_regenerations_summarized(bump(exhausted_line, at_limit))
+    # 上限の数の行だけを +1 した記録は赤。
+    _broken(check_regenerations_summarized, bump(exhausted_line, text), "作り直しを上限まで使った問題の数が表と違う")
+
+
 def test_c026_record_has_batched_mutation_counts() -> None:
     """A-4"""
     check_mutations_recorded(_read())
