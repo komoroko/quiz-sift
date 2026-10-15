@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-15T17:52:38+09:00'
+updated_at: '2026-10-15T18:44:33+09:00'
 gates:
   mandate:
     status: approved
@@ -1691,6 +1691,79 @@ tasks:
         step: test
       tree: sha256:a96d83bd5bc6b78da44a2be0370e0cb49973f70cb906361b26d7beafe185077e
       updated_at: '2026-10-15T03:58:52+09:00'
+  T-083:
+    status: done
+    attempts: 1
+    completed_commit: b2e39bc61c56af344f0ec8036933228c1ec4e968
+    handoff:
+      review:
+        findings:
+        - severity: must_fix
+          statement: 'A-4 の『作り直しを上限(MAX_REGENERATIONS 回)まで使った問題の数』の値を、誤っていれば赤にするテストが無い(L-CODE-TEST-INERTNESS)。コミットされた記録は
+            16 問すべて再生成 0 回で、二つの数もどちらも 0 である。そのため regeneration_counts の上限の判定と、check_regenerations_summarized
+            の exhausted の一致の assert が一度も効いていない。再現: regeneration_counts の `n == MAX_REGENERATIONS` を `n
+            > MAX_REGENERATIONS` に変える(常に 0 になる)か、`assert int(summary[label][0]) == exhausted` の行を消す。どちらでも
+            test_d246_record_shows_regenerations_without_the_thinking_env を含む全テストが緑のまま通る。『再生成のあった問題の数』の側も同じで、`n
+            > 0` を `n > 1` に変えても全問 0 のデータでは区別がつかない(+1 の改変で見ているのは要約の行と問題ごとの表の不一致だけで、数え方の誤りは見ていない)。直す方向:
+            0 以外の値と上限の値を含む入力(例 [0, 1, 2, 2] → (3, 2))で regeneration_counts を固定し、加えて、問題ごとの表の1行を上限の値に書き換えた記録、または上限の数の行だけを
+            +1 した記録で、『作り直しを上限まで使った問題の数が表と違う』が赤になることを _broken で確かめる。'
+          anchor: tests/measurements/test_recall_rehearsal_logs.py:139
+      updated_at: '2026-10-15T18:44:33+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-1
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-2
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-4
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      - name: acceptance:A-5
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: false
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: artifact
+        reused: false
+      - id: A-4
+        kind: command
+        reused: false
+      - id: A-5
+        kind: command
+        reused: false
+      negative_control:
+        result: discriminating
+        base: a75207735810835ae8c9d8acc4c5e294dead73fd
+        step: test
+      tree: sha256:bce6038c5061b957acee8d83a9026b080a5ff236cf06b75195582525927a902b
+      updated_at: '2026-10-15T18:44:33+09:00'
 dependency_audit:
   ran_at: '2026-10-15T05:31:43+00:00'
   commit: 4cc5fdb10ea8c3ba00115a62fa6658894a5030d7
