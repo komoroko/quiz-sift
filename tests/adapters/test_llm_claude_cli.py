@@ -230,8 +230,8 @@ def test_argv_matches_the_frozen_shape_and_the_fixture(tmp_path: Path) -> None:
     assert flag(opus, "--model") == fixture_meta("success_opus")["model"]
 
 
-def test_only_generate_recall_disables_thinking(tmp_path: Path) -> None:
-    """T-083 A-1: generate_recall の子の環境だけに MAX_THINKING_TOKENS=0 が載り、argv はどのメソッドも変わらない。"""
+def test_no_method_disables_thinking(tmp_path: Path) -> None:
+    """T-083 A-1: どのメソッドの子の環境も基本の4つだけで、思考を止める変数が無く、argv も変わらない(D-246)。"""
     runner = FakeRunner()
     llm = build(RecordingMeter(), tmp_path, runner)
     q = question("q1")
@@ -244,8 +244,10 @@ def test_only_generate_recall_disables_thinking(tmp_path: Path) -> None:
     base = llm.workspace.child_env()
     assert set(base) == ALLOWED_ENV
     envs = [dict(spec.env) for spec in runner.specs]
-    assert envs == [base, base, {**base, "MAX_THINKING_TOKENS": "0"}, base, base]
-    # 思考は環境で止め、argv(とそのダイジェスト)には何も足さない。
+    assert envs == [base] * 5
+    # メソッドごとの追加の環境の表は残っていない。
+    assert not hasattr(llm_prompts, "CHILD_ENV") and not hasattr(llm_prompts, "model_env")
+    # argv(とそのダイジェスト)にも思考の指定は無い。
     recall_argv = runner.specs[2].argv
     assert recall_argv == llm_claude_cli.build_argv(
         "claude-haiku-4-5", llm_prompts.RECALL_SYSTEM, llm_prompts.RECALL_SCHEMA

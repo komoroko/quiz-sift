@@ -9,8 +9,8 @@
 - A-3: 3点の回帰残差と、`overhead × turns + material = 入力合計` がどちらも相対誤差 `TOLERANCE` 以内。
   material は記録した既知長 × k からだけ出し、表の `material` 列もそれと一致しなければならない。
 
-記録の環境の鍵は、製品がそのモデルの子に渡す環境(`llm_prompts.model_env`)と一致する。Haiku 4.5 は
-generate_recall と同じ `MAX_THINKING_TOKENS=0` の環境で取り直した(T-083、D-243)。
+記録の環境の鍵は、製品がどのモデルの子にも渡す HOME・PATH・LANG・TZ の4つ(`CHILD_ENV_KEYS`)と一致する。
+Haiku 4.5 は、思考を止めない今の環境で取り直した(T-083、D-246)。
 
 T-060 で子 CLI の argv を変えたので、最終 argv で取り直した(C-019)。記録の argv は製品の `build_argv` の出力
 そのもので、定数の `argv_digest` は今の `build_argv` から取ったダイジェストと一致する(古い定数が残らない)。
@@ -26,6 +26,7 @@ import pytest
 import yaml
 
 from quiz_sift.adapters import llm_prompts
+from quiz_sift.adapters.claude_process import CHILD_ENV_KEYS
 from quiz_sift.adapters.llm_claude_cli import argv_digest, build_argv
 from quiz_sift.pipeline.overhead import OVERHEAD, OverheadConstant
 
@@ -90,7 +91,7 @@ def check_table(model: str, log: Log) -> None:
     record = log.record
     assert record["model"] == model
     assert record["collector"] == COLLECTOR and (ROOT / COLLECTOR).is_file()
-    assert record["env_keys"] == sorted({"HOME", "LANG", "PATH", "TZ"} | llm_prompts.model_env(model).keys())
+    assert record["env_keys"] == sorted(CHILD_ENV_KEYS)
     assert record["metered_vars_in_parent_env"] == []
     assert "--safe-mode" in record["argv"]
     assert record["argv"][record["argv"].index("--model") + 1] == model
@@ -172,15 +173,26 @@ def test_c019_overhead_was_measured_with_the_final_argv(model: str) -> None:
     assert argv == list(build_argv(model, system_prompt, schema))
 
 
-def test_haiku_was_measured_without_thinking() -> None:
-    """T-083 A-2: Haiku 4.5 だけが generate_recall と同じ思考なしの環境で測られ、他の2モデルは基本の4つのまま。"""
-    base = ["HOME", "LANG", "PATH", "TZ"]
-    assert load("claude-haiku-4-5").record["env_keys"] == sorted([*base, "MAX_THINKING_TOKENS"])
-    for model in ("claude-opus-5-5", "claude-sonnet-5-5"):
-        assert load(model).record["env_keys"] == base, model
-    # 判定の対照: 思考ありの環境で測った Haiku 4.5 の表は赤。
+UNCHANGED = {"claude-opus-5-5": (532.1666666666667, "2026-10-13"), "claude-sonnet-5-5": (532.5, "2026-10-13")}
+"""T-083 で取り直さない2モデルの定数と測定日(T-079 の較正表)。"""
+
+
+def test_haiku_was_remeasured_with_thinking() -> None:
+    """T-083 A-2: Haiku 4.5 は思考を止めない今の環境(基本の4つの鍵)で取り直し、他の2モデルは変わらない(D-246)。"""
+    haiku = load("claude-haiku-4-5")
+    assert haiku.record["env_keys"] == ["HOME", "LANG", "PATH", "TZ"]
+    # 思考を止めた環境で取った前の表(2026-10-14、CLI 2.1.299)より後に測った。
+    assert haiku.record["measured_at"][:10] >= "2026-10-15"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", str(haiku.record["cli_version"]))
+    check_constant("claude-haiku-4-5", haiku, OVERHEAD["claude-haiku-4-5"])
+    for model, (per_turn, measured_at) in UNCHANGED.items():
+        log = load(model)
+        assert log.record["env_keys"] == ["HOME", "LANG", "PATH", "TZ"], model
+        assert log.record["measured_at"][:10] == measured_at, model
+        assert OVERHEAD[model].per_turn_tokens == per_turn, model
+    # 判定の対照: 思考を止めた環境で測った Haiku 4.5 の表は赤。
     stale = load("claude-haiku-4-5")
-    stale.record["env_keys"] = base
+    stale.record["env_keys"] = sorted([*CHILD_ENV_KEYS, "MAX_THINKING_TOKENS"])
     with pytest.raises(AssertionError):
         check_table("claude-haiku-4-5", stale)
 

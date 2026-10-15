@@ -26,29 +26,6 @@ MODELS: Final = {
 }
 """`ports.llm.Llm` のメソッドごとのモデル ID(ADR-027)。"""
 
-CHILD_ENV: Final[dict[str, dict[str, str]]] = {
-    "classify_clusters": {},
-    "summarize_cluster": {},
-    "generate_recall": {"MAX_THINKING_TOKENS": "0"},
-    "describe_term": {},
-    "check_entailments": {},
-}
-"""メソッドごとに子プロセスの環境へ足す変数(D-243、ADR-029)。思考は argv でなく環境で止め、argv のダイジェストを
-動かさない。"""
-
-
-def model_env(model: str) -> dict[str, str]:
-    """そのモデルを使うメソッドの追加の環境。表に無いモデルは追加なし。
-
-    `SubprocessRunner` はメソッドを知らないので、argv の `--model` からこれを引いて環境を検査する(NFR-8 (b2))。
-    同じモデルを使うメソッドどうしで表が違えば、モデルからは決まらないので落とす。
-    """
-    envs = {tuple(sorted(CHILD_ENV[method].items())) for method, used in MODELS.items() if used == model}
-    if len(envs) > 1:
-        raise ValueError(f"{model} を使うメソッドどうしで追加の環境が違う: {sorted(envs)}")
-    return dict(envs.pop()) if envs else {}
-
-
 CLASSIFY_BATCH_SIZE: Final = 25
 """分類の分割呼び出し1回あたりの問題数。`unassigned` の分だけ応答が増えるので 50 から下げた(AR-62)。"""
 

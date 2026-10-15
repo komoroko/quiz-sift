@@ -21,12 +21,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import NoReturn
 
-from quiz_sift.adapters.llm_prompts import model_env
 from quiz_sift.ports.process import CommandResult, CommandSpec, Outcome
 
 CHILD_ENV_KEYS = frozenset({"HOME", "PATH", "LANG", "TZ"})
-"""子プロセスへ渡す環境の基本の許可集合(NFR-8 (b))。親環境は継承しない。メソッドごとの追加は
-`llm_prompts.CHILD_ENV`(NFR-8 (b2))。"""
+"""子プロセスへ渡す環境の許可集合(NFR-8 (b)、(b2))。親環境は継承しない。どのメソッドの子もこの4つだけ(D-246)。"""
 
 MINIMAL_HOME_NAME = ".quiz-sift-claude-home"
 """人間が `HOME=~/.quiz-sift-claude-home claude /login` で用意する最小ホーム(ADR-014)。"""
@@ -51,20 +49,13 @@ class PreflightError(SystemExit):
 class SubprocessRunner:
     """`CommandRunner` の実装。env は `spec.env` だけを渡し、その変数名は許可集合と一致しなければならない。
 
-    許可集合は基本の4つに、argv の `--model` を使うメソッドの追加の環境(`llm_prompts.model_env`)の鍵を足したもので、
-    追加の変数は値も表と一致しなければならない(NFR-8 (b2))。
-
     子は新しいセッション(プロセスグループ)で起動し、止めるときはグループごと SIGKILL する(ADR-023)。
     子だけを kill すると、pipe を継承した孫が書き込み側を開いたまま残り、`communicate()` が戻らない。
     """
 
     def run(self, spec: CommandSpec) -> CommandResult:
-        extra = model_env(_model(spec.argv))
-        allowed = CHILD_ENV_KEYS | extra.keys()
-        if set(spec.env) != allowed or any(spec.env[key] != value for key, value in extra.items()):
-            raise ValueError(
-                f"子プロセスの環境は {sorted(allowed)} と追加の値 {extra} に一致しない: {sorted(spec.env)}"
-            )
+        if set(spec.env) != CHILD_ENV_KEYS:
+            raise ValueError(f"子プロセスの環境は {sorted(CHILD_ENV_KEYS)} に一致しない: {sorted(spec.env)}")
         # Popen の内側(fork の後)や、Popen が戻ってから下の try に入るまでに例外が来ると、起動済みの子を
         # killpg する経路が無い。そこまでは DEFERRED_SIGNALS を遅らせ、届いていた分は下の try の中で処理する。
         # 子はマスクを継承するので、exec の前に元のマスクへ戻す。マスクはスレッドごとなので、この遅延は
@@ -113,11 +104,6 @@ class SubprocessRunner:
             proc.wait()
             raise
         return CommandResult(Outcome.EXITED, proc.returncode, stdout, stderr)
-
-
-def _model(argv: tuple[str, ...]) -> str:
-    """argv の `--model` の値。無ければ空文字(追加の環境を許さない)。"""
-    return argv[argv.index("--model") + 1] if "--model" in argv[:-1] else ""
 
 
 def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
