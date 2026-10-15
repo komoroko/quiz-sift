@@ -12,21 +12,20 @@ argv は `ClaudeCliLlm` と同じ `build_argv` の形(`--safe-mode` を含む)�
 
 | k | material | input_tokens | cache_creation_input_tokens | cache_read_input_tokens | 入力合計 | num_turns | skills_digest |
 |---|---|---|---|---|---|---|---|
-| 1 | 800 | 1848 | 0 | 0 | 1848 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
-| 2 | 1600 | 2646 | 0 | 0 | 2646 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
-| 3 | 2400 | 3448 | 0 | 0 | 3448 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
+| 1 | 800 | 2024 | 0 | 0 | 2024 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
+| 2 | 1600 | 2827 | 0 | 0 | 2827 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
+| 3 | 2400 | 3625 | 0 | 0 | 3625 | 2 | `348e49f34f1c7aecaeb9ed1ea5c254e6a5e2f28c94a03e98e1bd09cb47e04f14` |
 
 ## 記録
 
 ```yaml
 model: claude-haiku-4-5
-measured_at: '2026-10-14T19:31:07+09:00'
-cli_version: 2.1.299
+measured_at: '2026-10-15T18:04:00+09:00'
+cli_version: 2.1.300
 collector: tests/measurements/measure_overhead.py
 env_keys:
 - HOME
 - LANG
-- MAX_THINKING_TOKENS
 - PATH
 - TZ
 metered_vars_in_parent_env: []
@@ -62,8 +61,8 @@ block:
   tokens: 800
 bucket: input_tokens
 regression:
-  intercept: 1047.3333333333335
-  slope: 800.0
+  intercept: 1224.3333333333335
+  slope: 800.5
   num_turns: 2
-  per_turn_tokens: 523.6666666666667
+  per_turn_tokens: 612.1666666666667
 ```

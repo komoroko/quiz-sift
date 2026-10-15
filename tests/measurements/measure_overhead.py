@@ -9,7 +9,7 @@
 - argv は `ClaudeCliLlm` と同じ `build_argv` で組む(`--safe-mode` を含む)。本文のフラグ(`--system-prompt` /
   `--json-schema`)の値だけが合成のもので、`argv_digest` はその値を伏せて取るので製品の呼び出しと一致する。
 - 子プロセスの起動は製品の `Workspace` / `SubprocessRunner` を使う。起動前検査も製品のものを先に走らせる。
-  環境は、そのモデルを使うメソッドと同じもの(`child_env()` に `llm_prompts.model_env` を重ねる。D-243)。
+  環境は製品の子と同じ `child_env()`(HOME・PATH・LANG・TZ の4つ。D-246)。
 - 親環境に metered 認証変数が1つでもあれば採らない。
 - 送るのは合成ブロック(`UNIT` を `REPEAT` 回並べたもの。既知長 `BLOCK_TOKENS`)の k 回反復だけ(k = 1, 2, 3)。
   既知長は構成から決めた値で、合計からは出さない。構成の仮定(`UNIT` 1つが1トークン)が外れていれば、
@@ -59,15 +59,10 @@ def table_path(repo: Path, model: str) -> Path:
     return repo / "docs" / "test" / "measurements" / f"overhead-{model}.md"
 
 
-def child_env(workspace: Workspace, model: str) -> dict[str, str]:
-    """製品がそのモデルの子に渡すのと同じ環境。"""
-    return {**workspace.child_env(), **llm_prompts.model_env(model)}
-
-
-def measure_point(workspace: Workspace, model: str, argv: Sequence[str], k: int) -> dict[str, Any]:
+def measure_point(workspace: Workspace, argv: Sequence[str], k: int) -> dict[str, Any]:
     """合成ブロックの k 回反復を1回送り、表の1行ぶんを返す。失敗した呼び出しは表に入れず止める。"""
     with workspace.new_cwd() as cwd:
-        spec = CommandSpec(argv=tuple(argv), env=child_env(workspace, model), cwd=cwd, stdin=UNIT * REPEAT * k)
+        spec = CommandSpec(argv=tuple(argv), env=workspace.child_env(), cwd=cwd, stdin=UNIT * REPEAT * k)
         result = SubprocessRunner().run(spec)
     if result.outcome is not Outcome.EXITED or result.returncode != 0:
         raise SystemExit(f"k={k}: claude が失敗した({result.outcome.value}, {result.returncode}): {result.stderr!r}")
@@ -141,7 +136,7 @@ argv は `ClaudeCliLlm` と同じ `build_argv` の形(`--safe-mode` を含む)�
 def measure(repo: Path, model: str, cli_version: str) -> None:
     workspace = Workspace()
     argv = build_argv(model, SYSTEM_PROMPT, SCHEMA)
-    rows = [measure_point(workspace, model, argv, k) for k in KS]
+    rows = [measure_point(workspace, argv, k) for k in KS]
     turns = {row["num_turns"] for row in rows}
     if len(turns) != 1:
         raise SystemExit(f"{model}: num_turns が点ごとに違う: {sorted(turns)}")
@@ -152,7 +147,7 @@ def measure(repo: Path, model: str, cli_version: str) -> None:
         "measured_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "cli_version": cli_version,
         "collector": COLLECTOR,
-        "env_keys": sorted(child_env(workspace, model)),
+        "env_keys": sorted(workspace.child_env()),
         "metered_vars_in_parent_env": [],
         "argv": list(argv),
         "argv_digest": argv_digest(argv),

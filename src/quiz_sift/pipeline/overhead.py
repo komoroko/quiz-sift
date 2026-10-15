@@ -61,13 +61,13 @@ OVERHEAD: Mapping[str, OverheadConstant] = MappingProxyType(
             argv_digest="ecad8eb0cb14906e78a8fe8f23cc29b8b1dc210e2f5034458ce1dee2046a4e06",
             skills_digest=_SKILLS_2026_10_13,
         ),
-        # 切片 1047.3333333333335 / num_turns 2。generate_recall と同じ MAX_THINKING_TOKENS=0 の環境(T-083)。
+        # 切片 1224.3333333333335 / num_turns 2。思考を止めない今の環境(T-083、D-246)。
         "claude-haiku-4-5": OverheadConstant(
             model="claude-haiku-4-5",
-            per_turn_tokens=523.6666666666667,
+            per_turn_tokens=612.1666666666667,
             bucket="input_tokens",
-            measured_at=date(2026, 10, 14),
-            cli_version="2.1.299",
+            measured_at=date(2026, 10, 15),
+            cli_version="2.1.300",
             argv_digest="66c1b01769d3385b32422acb877cdeef860ff266d144d816e701b7a7bab0dcb2",
             skills_digest=_SKILLS_2026_10_13,
         ),

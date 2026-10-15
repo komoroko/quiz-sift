@@ -34,6 +34,8 @@
   一致する。
 - A-4: ミューテーションの件数がフィクスチャの誤答の数と一致し、判定の呼び出しが問題数と同じ(1問1回)で、
   contradicted・uncertain・consistent の和が件数と一致する。合格ラインは置かない(D-044)。
+- T-083 A-4: 再生成のあった問題の数と、作り直しを上限まで使った問題の数が問題ごとの表と一致し、generate_recall の
+  子の環境の鍵に MAX_THINKING_TOKENS が無い(D-246)。合格ラインは置かない。
 """
 
 import argparse
@@ -45,7 +47,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -119,20 +121,25 @@ def prompt_digest(system: str, schema: Mapping[str, object]) -> str:
 def code_conditions() -> dict[str, Any]:
     """今のコードの、分類・要約・想起素材・判定のプロンプトとスキーマのダイジェストと、generate_recall の子の環境の鍵。
 
-    子の環境は `ClaudeCliLlm._spawn` が `workspace.child_env()` に `CHILD_ENV` を重ねたもので、`SubprocessRunner` は
-    鍵が `CHILD_ENV_KEYS` と `model_env` の和に一致しなければ起動しない。exit 0 の recall はこの鍵で走っている。
+    子の環境は `ClaudeCliLlm._spawn` が渡す `workspace.child_env()` そのもので、`SubprocessRunner` は鍵が
+    `CHILD_ENV_KEYS` に一致しなければ起動しない(D-246)。exit 0 の recall はこの鍵で走っている。
     """
     from quiz_sift.adapters import llm_prompts
     from quiz_sift.adapters.claude_process import CHILD_ENV_KEYS
 
-    model = llm_prompts.MODELS["generate_recall"]
     return {
         "classify_digest": prompt_digest(llm_prompts.CLASSIFY_SYSTEM, llm_prompts.CLASSIFY_SCHEMA),
         "summarize_digest": prompt_digest(llm_prompts.SUMMARIZE_SYSTEM, llm_prompts.SUMMARIZE_SCHEMA),
         "recall_digest": prompt_digest(llm_prompts.RECALL_SYSTEM, llm_prompts.RECALL_SCHEMA),
         "entailment_digest": prompt_digest(llm_prompts.ENTAILMENT_SYSTEM, llm_prompts.ENTAILMENT_SCHEMA),
-        "recall_env_keys": sorted(CHILD_ENV_KEYS | llm_prompts.model_env(model).keys()),
+        "recall_env_keys": sorted(CHILD_ENV_KEYS),
     }
+
+
+def regeneration_counts(counts: Iterable[int]) -> tuple[int, int]:
+    """再生成のあった問題の数と、作り直しを上限(`MAX_REGENERATIONS` 回)まで使った問題の数。"""
+    values = list(counts)
+    return sum(n > 0 for n in values), sum(n == MAX_REGENERATIONS for n in values)
 
 
 def mutation_count(questions: Sequence[Mapping[str, Any]]) -> int:
@@ -408,6 +415,7 @@ def render_log(
     multi = sum(len(q["answers"]) > 1 for q in questions)
     check_rows = "\n".join(f"| `{name}` | {report[name]} |" for name in CHECKS)
     regen_rows = "\n".join(f"| `{q}` | {n} |" for q, n in report["regenerations"].items())
+    regenerated, exhausted = regeneration_counts(report["regenerations"].values())
     stage_rows = "\n".join(
         f"| {end['stage']} | {end['llm_calls']} | {end['provider_invocations']} | {total_tokens(end['tokens'])} "
         f"| {end['llm_calls'] * scale:.2f} | {total_tokens(end['tokens']) * scale:.2f} |"
@@ -485,6 +493,14 @@ recall の成果物の `report` の件数。成果物は、検査と含意判定
 | 問題 | 再生成回数 |
 |---|---|
 {regen_rows}
+
+| 項目 | 値 |
+|---|---|
+| 再生成のあった問題の数 | {regenerated} |
+| 作り直しを上限({MAX_REGENERATIONS} 回)まで使った問題の数 | {exhausted} |
+
+合格ラインは置かない(16 問では作り直し率の差を判定できない。D-246)。比較の値は、同じ合成デッキで思考を止めた
+2026-10-15 の記録が 6/16、思考ありの 2026-10-07 の記録が 0/16 である。
 
 ## 呼び出し数とトークン数
 
@@ -701,7 +717,7 @@ def check_recall_passed(text: str) -> None:
 def check_usage_recorded(text: str) -> None:
     """A-3: 再生成回数、呼び出し数・トークン数とその外挿、前サイクルの比からの推定、utilization の生の値。"""
     questions = fixture_questions()
-    regenerations = _table(_section(text, "問題ごとの再生成回数"))
+    regenerations = _table(_table_with(_section(text, "問題ごとの再生成回数"), "| 問題 | 再生成回数 |"))
     assert set(regenerations) == {q["id"] for q in questions}, "再生成回数が全問ぶん無い"
     for qid, (count,) in regenerations.items():
         assert 0 <= int(count) <= MAX_REGENERATIONS, f"問題 {qid} の再生成回数が範囲外: {count}"
@@ -737,6 +753,24 @@ def check_usage_recorded(text: str) -> None:
     for window in WINDOWS:
         assert _close(ratio_table[window][0], ratios[window]), f"{window} の比が前サイクルの列から計算した値と違う"
         assert _close(estimate_table[window][0], usage[f"estimated_{window}"]), f"{window} の推定が違う"
+
+
+def check_regenerations_summarized(text: str) -> None:
+    """D-246 の A-4: 再生成のあった問題の数と上限まで使った問題の数があり、generate_recall の子が思考を止めていない。
+
+    合格ラインは置かない(16 問では作り直し率の差を判定できない)。数は T-071 の通過の承認で人が読む。
+    """
+    keys = _table(_section(text, "実行条件"))["generate_recall の子の環境の鍵"][0].split(",")
+    assert "MAX_THINKING_TOKENS" not in keys, "generate_recall の子の環境に MAX_THINKING_TOKENS がある"
+    body = _section(text, "問題ごとの再生成回数")
+    per_question = _table(_table_with(body, "| 問題 | 再生成回数 |"))
+    summary = _table(_table_with(body, "| 項目 | 値 |"))
+    regenerated, exhausted = regeneration_counts(int(count) for (count,) in per_question.values())
+    assert "再生成のあった問題の数" in summary, "再生成のあった問題の数が無い"
+    assert int(summary["再生成のあった問題の数"][0]) == regenerated, "再生成のあった問題の数が表と違う"
+    label = f"作り直しを上限({MAX_REGENERATIONS} 回)まで使った問題の数"
+    assert label in summary, "作り直しを上限まで使った問題の数が無い"
+    assert int(summary[label][0]) == exhausted, "作り直しを上限まで使った問題の数が表と違う"
 
 
 def check_mutations_recorded(text: str) -> None:
@@ -792,6 +826,39 @@ def test_c026_recall_stage_passed_on_the_synthetic_deck() -> None:
 def test_c026_record_has_regenerations_and_extrapolated_usage() -> None:
     """A-3"""
     check_usage_recorded(_read())
+
+
+def test_d246_record_shows_regenerations_without_the_thinking_env() -> None:
+    """T-083 A-4: 二つの数があり、思考を止めずに取った記録。数が無い記録と、MAX_THINKING_TOKENS を含む記録は赤。"""
+    text = _read()
+    check_regenerations_summarized(text)
+    keys = _table(_section(text, "実行条件"))["generate_recall の子の環境の鍵"][0]
+    _broken(
+        check_regenerations_summarized,
+        text.replace(f"`{keys}`", f"`{keys},MAX_THINKING_TOKENS`", 1),
+        "generate_recall の子の環境に MAX_THINKING_TOKENS がある",
+    )
+    _broken(
+        check_regenerations_summarized,
+        re.sub(r"^\| 再生成のあった問題の数 \| \d+ \|\n", "", text, count=1, flags=re.M),
+        "再生成のあった問題の数が無い",
+    )
+    _broken(
+        check_regenerations_summarized,
+        re.sub(r"^\| 作り直しを上限\(\d+ 回\)まで使った問題の数 \| \d+ \|\n", "", text, count=1, flags=re.M),
+        "作り直しを上限まで使った問題の数が無い",
+    )
+    _broken(
+        check_regenerations_summarized,
+        re.sub(
+            r"^\| 再生成のあった問題の数 \| (\d+) \|$",
+            lambda m: f"| 再生成のあった問題の数 | {int(m.group(1)) + 1} |",
+            text,
+            count=1,
+            flags=re.M,
+        ),
+        "再生成のあった問題の数が表と違う",
+    )
 
 
 def test_c026_record_has_batched_mutation_counts() -> None:
@@ -876,11 +943,13 @@ def test_record_taken_with_another_recall_prompt_is_red() -> None:
     )
 
 
-def test_record_taken_without_the_recall_env_is_red() -> None:
-    """generate_recall の思考を止める環境(ADR-029)の前に取った記録。"""
+def test_record_taken_with_the_thinking_env_is_red() -> None:
+    """generate_recall の思考を止めていたとき(D-246 で取り消した ADR-029 の決定2)に取った記録。"""
+    keys = ",".join(code_conditions()["recall_env_keys"])
+    thinking = ",".join(sorted([*code_conditions()["recall_env_keys"], "MAX_THINKING_TOKENS"]))
     _broken(
         check_recall_passed,
-        _read().replace(",MAX_THINKING_TOKENS,", ",", 1),
+        _read().replace(f"`{keys}`", f"`{thinking}`", 1),
         "generate_recall の子の環境の鍵が今のコードの値と違う",
     )
 
@@ -917,7 +986,7 @@ def test_record_from_another_deck_is_red() -> None:
 
 def test_record_missing_a_regeneration_is_red() -> None:
     text = _read()
-    first = _rows(_section(text, "問題ごとの再生成回数"))[0]
+    first = _rows(_table_with(_section(text, "問題ごとの再生成回数"), "| 問題 | 再生成回数 |"))[0]
     _broken(check_usage_recorded, text.replace(f"| `{first[0]}` | {first[1]} |\n", "", 1), "再生成回数が全問ぶん無い")
 
 
