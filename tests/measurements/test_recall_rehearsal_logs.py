@@ -638,7 +638,7 @@ def _rows(body: str) -> list[list[str]]:
 
 def _table_with(body: str, header: str) -> str:
     """`body` の中で、見出し行が `header` で始まる表だけを返す。"""
-    found = [t for t in body.split("\n\n") if t.startswith(header)]
+    found = [t.strip() for t in body.split("\n\n") if t.strip().startswith(header)]
     assert len(found) == 1, f"見出し {header} の表がちょうど1つない"
     return found[0]
 
