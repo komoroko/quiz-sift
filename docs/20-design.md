@@ -78,7 +78,7 @@
   - **照合先の定数**: `QuestionField`(stem / options / explanation)と、`RECALL_KEY_FIELDS = ("stem",)`、`OTHER_CLUSTER_FIELDS = SUMMARY_FIELDS = ("stem", "options", "explanation")`(D-198)、`texts_for(question, fields)`。検査はこの定数経由でしか照合先を作らない。重複している `question_texts`/`_texts` は消す。
   - **プロンプト**: `render_recall_system(fields)` という関数で組み立て、`RECALL_SYSTEM = render_recall_system(RECALL_KEY_FIELDS)` とする。「terms の各要素は question.stem から連続した部分をそのまま写す」と指示する。片方だけを変えると赤になるテストは、(i) `RECALL_SYSTEM == render_recall_system(RECALL_KEY_FIELDS)`、(ii) 問題文にだけある語は grounded・選択肢にだけある語は ungrounded のフィクスチャ、(iii) 別の fields を渡すと検査とプロンプトの両方が変わること(関数に渡して確かめ、import 時の定数を monkeypatch しない)。「4択」の文言は `CLASSIFY_SYSTEM`・`SUMMARIZE_SYSTEM` も「多肢選択」に直す。
   - **スキーマ**: `RecallDraft(key, answers: (AnswerElement(option_id, text), ...), discrimination: DiscriminationPoint(text, distractor_ids))`。payload の選択肢は不透明なキーで渡し、`parse_recall` がキーを `OptionId` に写し戻す(D-206)。未知のキーは `SCHEMA` で、例外文には件数だけを載せる(NFR-2)。`adapters/llm_anthropic.py` は削除する(D-216、NFR-8)。
-  - **検査(1問単位、純粋関数)**: 空要素、`ungrounded_key`、`answer_mismatch`(要素の ID の集合が正解の集合と一致しない)、`missing_options`(名前は残し、中身は「`distractor_ids` が1件以上で、すべて誤答」。括弧の検査 `_QUOTED`/`referenced_options` は消す)、`generic`、`verbatim`。問題をまたぐのは `duplicate_keys` だけで、クラスタをまたぐ場合だけ数え(D-200)、クラスタ順で後の問題を落ちとする。
+  - **検査(1問単位、純粋関数)**: 空要素、`ungrounded_key`、`answer_mismatch`(要素の ID の集合が正解の集合と一致しない)、`missing_options`(名前は残し、中身は「`distractor_ids` が1件以上で、すべて誤答」。括弧の検査 `_QUOTED`/`referenced_options` は消す)、`generic`、`verbatim`、`option_key`(D-247。term・答えの要素・識別ポイントの本文を NFKC で正規化して小文字にし、ASCII の英数字に挟まれない `o1`…`o6` を含み、そのキーが問題の問題文・選択肢・解説(同じ正規化)に無ければ落とす。作り直しの理由は名前だけ。`RECALL_SYSTEM` に検査の意味を書き、report に `option_keys` の件数を足す。本文でのキーの言及を禁じる文は既にあり、それでも漏れたので検査で落とす)。問題をまたぐのは `duplicate_keys` だけで、クラスタをまたぐ場合だけ数え(D-200)、クラスタ順で後の問題を落ちとする。
   - **再生成ループ**: `cli.Pipeline._recall_drafts` と `_Drafted` を廃止し、`recall/generate.py` に一本化する。1問ごとに `1 + MAX_REGENERATIONS`(= 3)回まで生成 → 検査。`LlmCallError` は再生成しない(D-101。ただし子プロセスの切り詰めはアダプタが出し直す。D-231)。`meter.stop_seen()` での早期停止を保つ(D-144)。上限を超えた問題があっても全問を回し切り、その後に超えた問題をすべて列挙して `RegenerationExhausted(SystemExit)` で止まる(D-217。メッセージは問題 ID・検査名・回数だけ)。
   - **含意判定**: 答えの要素は `reference_for(q, focus=要素の option_id)`、識別ポイントは `reference_for(q, distractors=distractor_ids)`(D-192)。機械検査を通った素材だけを判定し、不合格は検査名 `entailment` として同じ上限の中で作り直す(D-232、ADR-026。当初の「再生成せず `EntailmentRejected`」を改めた)。
   - **reference の形**: 誤答の本文を「正しい情報」として渡すと、「X は当てはまらない」という正しい識別ポイントが contradicted になる。そこで reference を「正解: …」と「誤答選択肢(この問題では正しくない記述): …」の節に分け、`ENTAILMENT_SYSTEM` に「誤答選択肢の節は、この問題の答えとして正しくない記述の一覧である。statement が誤答選択肢を正しくないと述べることは矛盾ではない」と足す。プロンプトの変更は ADR-019 の運用の変更で、実判定での効果は合成リハーサル(C-026)で確かめる。
@@ -92,6 +92,7 @@
 - **Required features/modules**: `script/label_guard.py`、`script/generate.py`、`domain/script.py`、`cli.py`(script)。
 - **Implementation method**:
   - `_SERIES` を letter `ABCDEF`・number `123456`・kana `アイウエオカ` に、正規表現の文字クラスを A–F、1–6、①–⑥、ア–カに広げ、`_FULLWIDTH` の正規化に Ｅ・Ｆ・５・６・⑤・⑥ を足す。判定は「系列の先頭から M 件がすべて揃う」(日本語は present、英語は chain/markers。D-201)。判定はトラック単位なので、M はそのトラックに含まれる問題の M の最小値(D-211)。`find_enumerations` に M を渡す。
+  - 日本語の記号の系列(D-247): 記号 A〜F の直前がカタカナか漢字で、直前のカタカナ・漢字の連なりと記号を合わせた字面がそのトラックの問題の問題文に現れるときだけ、名前としてラベルに数えない。`find_enumerations` にトラックの問題文を渡す(`script/generate.py` から)。品詞解析は使わない。問題文に無い形と単独の記号は数え、番号とかなの系列は変えない。
   - 台本の識別ポイントのセグメント `Discrimination` に、想起素材から `distractor_ids` を引き継ぐ。台本段の含意判定(`script/generate._claims`)は、識別ポイントについて `reference_for(q, distractors=…)` を使う(NFR-1 の台本の側)。
   - `Answer(texts: tuple[str, ...])` にし(local)、`question_script` が N 要素の答えから組み立てる。要素数が `answer_count` と違えば `MissingAnswerElement(SystemExit)`。連結の語に「1.」「(1)」「1番」を使わない。
 - **Existing assets to reuse**: `track_text`、`plan_tracks`、セグメント型。
@@ -170,7 +171,7 @@
 - **フル処理の記録**(AR-13、AR-24): `render` は、列の中で**最後に**成功した cluster の実行の割当を記録に使う(試行3の列は判定器の変更で cluster を作り直すので、最初の成功は下流が使った割当と違う)。再現性の列の classify の `llm_calls` は、終了行の `llm_calls` から、他メソッドの出し直しでない子の数を引いて出す(他メソッドの子プロセス数をそのまま引く形は、TRUNCATED の出し直しで 0 になる)。メソッド別の内訳の比較も、出し直しを除いた数で行う。classify の分割呼び出しで出し直しが起きた列は、子プロセス数が ⌈N/25⌉ でなくなり赤になる。再現性の列は予算の外なので取り直す。
 - **モデル**(D-236、ADR-027): `llm_prompts.MODELS` の含意判定を `claude-sonnet-5-5`、用語説明を `claude-opus-5-5` にする。`meter.PRICES` に Sonnet 5.5 を足す。`overhead.OVERHEAD` の Sonnet 5.5 の定数は、既存の2モデルと同じ較正(`measure_overhead.py`、k = 1, 2, 3)で別のタスクが足す。T-071 の判定は overhead の状態を読まないので、較正はフル処理を待たせない。
 - **What this requires of a person**: 最小ホームと資格情報、CosyVoice を用意し、週次枠のリセット後に始め、止まれば `--resume` すること。
-- **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 5(1回 = `--fresh-run` の列1本。D-241 で 4、D-246 で 5)。較正とリハーサルは可逆。
+- **Reversibility**: フル処理は不可逆(教材本文が最小ホームのセッション記録に残る、レート枠の消費)。`reversible: false`、rehearsal は合成リハーサルと TTS プローブ、attempts は max 6(1回 = `--fresh-run` の列1本。D-241 で 4、D-246 で 5、D-247 で 6)。較正とリハーサルは可逆。
 
 ### NFR-8 → design
 - **切り詰めの出し直し**(D-231): `ClaudeCliLlm` の子プロセスを起動する1か所で、`TRUNCATED` で終わった子だけを同じ argv と stdin で最大 `MAX_REISSUES`(= 2)回出し直す。他の種別は出し直さない(D-101)。出し直しは `provider_invocations` に入り `llm_calls` には入らないので、2語の差はチャンク分割と出し直しで説明できる。ログは件数だけ。`RunMeter._ended_by_rate_limit` は、出し直された子(同じ `_invoke` の中で後に別の子が続いたもの)を判定から外す。アダプタは出し直しの子を `begin_invocation(..., reissue=True)` で知らせ、meter は直前の子を出し直し済みと印す。`classify_clusters` のように1回の `begin_call` が複数のバッチを持っても、バッチごとの最後の子が判定に入る。回復した子の失敗は `failures_by_kind` には残す(D-241、T-081)。
@@ -191,12 +192,13 @@
 1. 想起キーの照合先が問題文だけになり、検査は今より厳しくなる。汎用語キーの判定はプロンプトから他クラスタが見えず、再生成は偶然に頼る。合成リハーサルは実データの他クラスタとの重なりを再現しないので、上限超過で止まるリスクはフル処理まで残る。
 2. CosyVoice が torch 2.10 で動くかは未確認。プローブで先に確かめる。
 3. CLI のフラグが無い、または許可リストの下で StructuredOutput が消える場合、SEC-001 は `/revise`、SEC-002 は受容に回る。
-4. 1試行が週次枠の大半を使う見込みで、試行5回(D-241、D-246)は数週にまたがりうる。
+4. 1試行で週次枠の約 20% を使う(試行5の実測は recall の終わりまでで 0.14)。試行6回(D-241、D-246、D-247)は数週にまたがりうる。
 5. `Question` の型変更の波及が広い(src 約 12、tests 10 以上)。foundation のタスクが大きくなる。`cli.py` と `llm_claude_cli.py` を複数のタスクが触るので、`/tasks` で DAG の辺を引いて直列にする。
 6. 通常モードの段キャッシュは、成果物の形が変わっても upstream が変わらない段で古い成果物を読みうる。フル処理は `--fresh-run` なので影響しない。
 7. cluster 段は途中結果を残さない。判定を Sonnet に替えると cluster 段のキャッシュ鍵が動き、試行3の列は cluster から作り直す。1つの枠に収まらなければ、cluster 段も再開のたびに最初からになる(試行3では Opus の判定で 0.01 → 0.79 に収まった。Sonnet の判定が要約の作り直しを増やせば消費は上がる)。2回続けて止まったら打ち切る(D-237)。
 8. 判定器が Opus 5.5 から Sonnet 5.5 に変わる。合成リハーサル(T-068)は Opus の判定で通したもので、Sonnet の判定と途中結果からの再開は、実 CLI ではフル処理で初めて通る(人の判断でリハーサルを足さない)。
 9. 再開できるのは枠切れの停止だけ。recall の約 700 本の呼び出しのうち1本でも TIMEOUT などで落ちれば、列は `not_completable` になり、最後の試行が終わる(従来と同じ)。
+10. script 段のラベル列挙の検査は、実データでは試行5で初めて通った。D-247 で直した2つの形(選択肢のキーの漏れ、カタカナか漢字の名詞に続く記号)以外の誤検出(例: 「A社」のように記号が先に来る名前)は、試行6の script 段で初めて分かる。script 段の停止は枠切れではないので、試行を1回使う。試行6の前に、試行5の列の cluster と recall の成果物に `option_key` と新しいラベル判定だけをかけて(`test_full_run_logs.py precheck`。LLM を呼ばず、ID と件数だけを出す)、その分を減らす。また、キーを漏らす問題が3回とも漏らせば上限超過で止まる。試行5の漏れの率は 18% で、その偏りはリハーサルの option_key の作り直しの数で見る。
 
 ## Open questions
 - なし。
@@ -267,6 +269,21 @@
 | AR-G7 | minor | 子の環境はキャッシュ鍵に入らないので、試行4の列を再開すると思考なしの途中結果を読み戻す。ADR-029 の「環境が変わるので鍵が動く」は誤り | ADR-029 の Consequences を直し、試行4の列は再開しないと T-071 に書いた |
 | AR-G8 | minor | ADR-029・T-068・T-071・D-243・設計の古い記述 | 直した |
 | AR-G9 | minor | done のタスクの上流に todo のタスクがある | T-081 は開き直さず(上限の変更は T-083 A-5)、T-083 だけが todo。`rein dag --validate` は通る |
+
+### 2026-10-19 の改訂(D-247)のレビュー
+
+| ID | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| AR-H1 | major | プロンプトは既に本文でのキーの言及を禁じており、禁止を書き足しても対処にならない。作り直しの指示が原因の可能性 | 試行5の成果物で確かめた。漏れは 190 問中 34 問で、作り直しのあった問題はそのうち3問。作り直しの指示から漏れたのではない。プロンプトの禁止の書き足しをやめ、検査で落とす形にした |
+| AR-H2 | major | 漏れ方の変種(「o1.」「O1）」「（ｏ１）」)を拾う規則が決まっていない | NFKC と小文字化のうえで ASCII の英数字に挟まれない `o1`…`o6` と決め、試行5で見つかった全部の形を A-1 に書いた |
+| AR-H3 | major | 記録の option_keys の件数は最終の素材についての数で、常に 0 | 記録には recall のログの作り直しの行から、option_key で作り直した問題の数を書く(A-4) |
+| AR-H4 | major | カタカナ・漢字に続く記号をすべて外すと「肢A」「オプションA」が素通りする | 外すのは、直前の連なりと合わせた字面がトラックの問題の問題文に現れる記号だけにした(A-3) |
+| AR-H5 | major | 試行6の前の事前検査の道具がどこにも無い | T-087 に `precheck` サブコマンドを置いた(A-6)。T-071 の承認の前に走らせる |
+| AR-H6 | minor | 「英数字に挟まれない」の書き方が文書ごとに違う | ASCII の英数字と統一した |
+| AR-H7 | minor | 「正解はA」「答えA」の但し書きは何もしていない | 問題文の字面で決める規則に替えたので、但し書きを消した |
+| AR-H8 | minor | フィクスチャが半角の「(o1)」だけでは試行5の形でない。作り直しの証拠が純粋関数のテストに無い | 全角を含む形を A-1 に書き、作り直しは test_generate.py のノードで見る(A-2) |
+| AR-H9 | minor | 問題の本文に同じ字面のキーがあると、その漏れを落とせない | aip-c01 には該当が無いことを確かめた。T-087 の Notes に残す |
+| AR-H10 | minor | 要求の所要の見積もりが古い | 試行5の実測に合わせた |
 
 ## Self-assessment (assumptions, confidence)
 - **Assumptions made**:
