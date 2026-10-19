@@ -242,7 +242,7 @@ def test_recall_keys_map_back_to_option_ids() -> None:
 
 
 def test_recall_prompt_explains_option_key() -> None:
-    """T-087 A-2: 想起素材のプロンプトが option_key の意味を書く。段の prompt_template に入るので recall 段の鍵が動く。"""
+    """T-087 A-2: 想起素材のプロンプトが option_key の意味を書く(recall 段の鍵が動く)。"""
     system = llm_prompts.RECALL_SYSTEM
     assert "option_key は" in system
     explained = system[system.index("option_key は") :].split("。")[0]

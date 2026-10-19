@@ -697,7 +697,8 @@ def precheck(out_root: Path, deck: str) -> str:
         for row in artifact("cluster")["clusters"]
     ]
     materials = {
-        (m.cluster_id, m.question_id): m for m in (material_from(row, deck_id) for row in artifact("recall")["materials"])
+        (m.cluster_id, m.question_id): m
+        for m in (material_from(row, deck_id) for row in artifact("recall")["materials"])
     }
     leaked = {qid for (_, qid), m in materials.items() if leaked_option_keys(m.draft, questions[qid])}
     per_cluster = [
@@ -1400,7 +1401,13 @@ def test_precheck_reports_ids_and_counts_only(tmp_path: Path, capsys: pytest.Cap
     )
     # 本文(素材・要約・問題文・選択肢)の断片は出ない。
     rows = [json.loads(line) for line in (root / "data" / PRECHECK_DECK / "questions.jsonl").read_text().splitlines()]
-    for text in (PRECHECK_TEXT, "肢A", "o2", *(r["stem"][:8] for r in rows), *(o["text"][:8] for o in rows[0]["options"])):
+    for text in (
+        PRECHECK_TEXT,
+        "肢A",
+        "o2",
+        *(r["stem"][:8] for r in rows),
+        *(o["text"][:8] for o in rows[0]["options"]),
+    ):
         assert text not in output, text
 
 

@@ -565,7 +565,8 @@ def test_option_key_failure_regenerates_only_that_question(
     """T-087 A-2: option_key で落ちた問題だけを同じ上限の中で作り直し、retry には検査の名前だけを渡す(D-247)。"""
     good = GOOD["q02"]
     leaked = replace(
-        good, discrimination=DiscriminationPoint("解o1は" + good.discrimination.text, good.discrimination.distractor_ids)
+        good,
+        discrimination=DiscriminationPoint("解o1は" + good.discrimination.text, good.discrimination.distractor_ids),
     )
     llm = StubLlm(GOOD, sequences={"q02": (leaked, good)})
     writer = Writer(tmp_path / "recall.tsv")

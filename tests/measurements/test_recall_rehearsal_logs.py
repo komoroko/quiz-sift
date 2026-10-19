@@ -430,7 +430,7 @@ def render_log(
     regenerated, exhausted = regeneration_counts(report["regenerations"].values())
     stage_rows = "\n".join(
         f"| {end['stage']} | {end['llm_calls']} | {end['provider_invocations']} | {total_tokens(end['tokens'])} "
-        f"| {end['llm_calls'] * scale:.2f} | {total_tokens(end['tokens']) * scale:.2f} |"
+        f"| {end['llm_calls'] * scale:.3f} | {total_tokens(end['tokens']) * scale:.3f} |"
         for end in (json.loads(start) | json.loads(e) for _, start, e in executions)
     )
     raw_rows = "\n".join(
@@ -533,9 +533,9 @@ cluster から script までの合計:
 
 | 項目 | リハーサル | {TARGET_QUESTIONS} 問への外挿 |
 |---|---|---|
-| 呼び出し数 | {usage["calls"]} | {usage["calls_190"]:.2f} |
-| プロバイダ呼び出し数 | {usage["invocations"]} | {usage["invocations_190"]:.2f} |
-| トークン数 | {usage["tokens"]} | {usage["tokens_190"]:.2f} |
+| 呼び出し数 | {usage["calls"]} | {usage["calls_190"]:.3f} |
+| プロバイダ呼び出し数 | {usage["invocations"]} | {usage["invocations_190"]:.3f} |
+| トークン数 | {usage["tokens"]} | {usage["tokens_190"]:.3f} |
 
 ## レート枠
 
@@ -886,7 +886,7 @@ def test_d246_record_shows_regenerations_without_the_thinking_env() -> None:
 
 
 def test_option_key_regenerations_are_counted_from_the_recall_log() -> None:
-    """T-087 A-4: option_key で作り直した問題は、作り直しの行の落ちた検査から数える。同じ問題は1回、他の検査は数えない。"""
+    """T-087 A-4: option_key で作り直した問題は、作り直しの行の落ちた検査から数える(同じ問題は1回)。"""
     stderr = "\n".join(
         (
             "run_id: " + "f" * 32,
@@ -903,7 +903,9 @@ def test_option_key_regenerations_are_counted_from_the_recall_log() -> None:
     text = _read()
     line = re.compile(r"^(\| option_key で作り直した問題の数 \| )(\d+) \|$", re.M)
     _broken(check_regenerations_summarized, line.sub("", text, count=1), "option_key で作り直した問題の数が無い")
-    regenerated = int(_table(_table_with(_section(text, "問題ごとの再生成回数"), "| 項目 | 値 |"))["再生成のあった問題の数"][0])
+    regenerated = int(
+        _table(_table_with(_section(text, "問題ごとの再生成回数"), "| 項目 | 値 |"))["再生成のあった問題の数"][0]
+    )
     _broken(
         check_regenerations_summarized,
         line.sub(lambda m: f"{m.group(1)}{regenerated + 1} |", text, count=1),

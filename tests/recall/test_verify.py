@@ -156,7 +156,7 @@ LEAKED_KEY_FORMS = ("（o1）", "。o1は", "、o2の", "解o2は", "・o3・", 
 def test_option_key_in_material_text_fails_unless_the_question_has_it(
     deck: Deck, clusters: tuple[Cluster, ...]
 ) -> None:
-    """T-087 A-1: term・答えの要素・識別ポイントのどれかが選択肢のキーを含み、問題の本文に無ければ option_key で落ちる。"""
+    """T-087 A-1: 素材の本文が選択肢のキーを含み、問題の本文に無ければ option_key で落ちる。"""
     texts = _texts(deck, clusters)
     q01 = question(deck, "q01")
     good = GOOD["q01"]
@@ -168,7 +168,8 @@ def test_option_key_in_material_text_fails_unless_the_question_has_it(
     assert "option_key" not in failures(q01, good)
     for form in LEAKED_KEY_FORMS:
         in_discrimination = replace(
-            good, discrimination=DiscriminationPoint(good.discrimination.text + form, good.discrimination.distractor_ids)
+            good,
+            discrimination=DiscriminationPoint(good.discrimination.text + form, good.discrimination.distractor_ids),
         )
         in_answer = replace(good, answers=(AnswerElement(good.answers[0].option_id, form + "が正解"),))
         in_term = replace(good, key=RecallKey((*good.key.terms, form)))
@@ -178,13 +179,15 @@ def test_option_key_in_material_text_fails_unless_the_question_has_it(
     # ASCII の英数字に挟まれたもの・o7 以降・o10 はキーではない。
     for text in ("go1", "o1x", "So1", "o7", "o10", "Co2e"):
         draft = replace(
-            good, discrimination=DiscriminationPoint(good.discrimination.text + text, good.discrimination.distractor_ids)
+            good,
+            discrimination=DiscriminationPoint(good.discrimination.text + text, good.discrimination.distractor_ids),
         )
         assert "option_key" not in failures(q01, draft), text
 
     # 問題の本文(問題文・選択肢・解説、同じ正規化)に同じ字面のキーがあれば落とさない。別のキーは落とす。
     leaked = replace(
-        good, discrimination=DiscriminationPoint(good.discrimination.text + "（o1）", good.discrimination.distractor_ids)
+        good,
+        discrimination=DiscriminationPoint(good.discrimination.text + "（o1）", good.discrimination.distractor_ids),
     )
     for named in (
         replace(q01, stem=q01.stem + " モデル O1 を使う。"),
@@ -193,7 +196,8 @@ def test_option_key_in_material_text_fails_unless_the_question_has_it(
     ):
         assert "option_key" not in failures(named, leaked)
         other = replace(
-            good, discrimination=DiscriminationPoint(good.discrimination.text + "、o2の", good.discrimination.distractor_ids)
+            good,
+            discrimination=DiscriminationPoint(good.discrimination.text + "、o2の", good.discrimination.distractor_ids),
         )
         assert "option_key" in failures(named, other)
 
