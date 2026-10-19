@@ -13,10 +13,14 @@
 - **丸写しの禁止**(`verbatim`、AR-12): 識別ポイントのうち、**全**誤答選択肢との一致区間の和を除いた残りが
   全体の 30% 以上あること。1件ずつ比べると、2件を貼り合わせた識別ポイントがどちらとも半分しか
   一致せずに通ってしまう。
+- **選択肢のキーの漏れ**(`option_key`、D-247): 想起キーの term・答えの要素・識別ポイントのどれかが、生成に渡した
+  選択肢のキー(`o1`…`o6`)を含み、そのキーがその問題の問題文・選択肢・解説に無いこと。NFKC で正規化して小文字に
+  した本文で、ASCII の英数字に挟まれない形を探す。台本でラベルとして読まれる経路を生成の側で塞ぐ。
 - **重複禁止**(`duplicate_key`): 問題をまたぐ唯一の検査。キーは `frozenset(terms)` で比べ(AR-25)、
   **異なるクラスタ**の素材の間だけで数える(D-200)。クラスタ順で後に来た問題を落ちとする。
 """
 
+import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -39,6 +43,7 @@ ANSWER_MISMATCH: Final = "answer_mismatch"
 MISSING_OPTIONS: Final = "missing_options"
 GENERIC: Final = "generic"
 VERBATIM: Final = "verbatim"
+OPTION_KEY: Final = "option_key"
 DUPLICATE_KEY: Final = "duplicate_key"
 
 
@@ -63,6 +68,22 @@ def empty_elements(draft: RecallDraft) -> tuple[str, ...]:
         ("discrimination", draft.discrimination.text),
     )
     return tuple(name for name, text in texts if not text.strip())
+
+
+_OPTION_KEY = re.compile(r"(?<![a-z0-9])o[1-6](?![a-z0-9])")
+"""生成に渡す選択肢のキー(`llm_prompts.recall_payload` の `o1`…`o6`)。正規化した本文で探す。"""
+
+
+def _option_keys(text: str) -> set[str]:
+    return set(_OPTION_KEY.findall(_normalize(text)))
+
+
+def leaked_option_keys(draft: RecallDraft, question: Question) -> tuple[str, ...]:
+    """素材の本文に現れる選択肢のキーのうち、その問題の問題文・選択肢・解説に無いもの。"""
+    texts = (*draft.key.terms, *(e.text for e in draft.answers), draft.discrimination.text)
+    own = texts_for(question, OTHER_CLUSTER_FIELDS)
+    found = set().union(*map(_option_keys, texts)) - set().union(*map(_option_keys, own))
+    return tuple(sorted(found))
 
 
 def mismatched_answers(draft: RecallDraft, question: Question) -> tuple[OptionId, ...]:
@@ -191,6 +212,8 @@ def check_question(
         ),
         (GENERIC, is_generic(key_rates), Problem(GENERIC, terms)),
         (VERBATIM, is_verbatim(draft.discrimination.text, question), Problem(VERBATIM)),
+        # 本文もキーも渡さない(名前だけ)。キーを示すと、言い換えた形での漏れを誘う。
+        (OPTION_KEY, bool(leaked_option_keys(draft, question)), Problem(OPTION_KEY)),
         (DUPLICATE_KEY, is_duplicate(material, earlier), Problem(DUPLICATE_KEY, terms)),
     )
     failed = [(name, problem) for name, failed, problem in checks if failed]
@@ -219,6 +242,8 @@ class RecallReport:
     """全 term が他クラスタにも出現するキーの数。"""
     verbatim: int
     """誤答選択肢の丸写しである識別ポイントの数。"""
+    option_keys: int
+    """本文に選択肢のキーが漏れた素材の数(D-247)。"""
     term_rates: tuple[TermRate, ...] = ()
     regenerations: tuple[tuple[QuestionId, int], ...] = ()
 
@@ -232,6 +257,7 @@ class RecallReport:
             or self.duplicate_keys
             or self.generic_keys
             or self.verbatim
+            or self.option_keys
         )
 
 
@@ -246,6 +272,7 @@ def report(checks: Sequence[QuestionCheck], regenerations: Mapping[QuestionId, i
         duplicate_keys=failures.count(DUPLICATE_KEY),
         generic_keys=failures.count(GENERIC),
         verbatim=failures.count(VERBATIM),
+        option_keys=failures.count(OPTION_KEY),
         term_rates=tuple(rate for check in checks for rate in check.rates),
         regenerations=tuple(regenerations.items()),
     )

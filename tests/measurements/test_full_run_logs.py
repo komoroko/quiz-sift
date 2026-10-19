@@ -16,6 +16,10 @@
   `docs/test/measurements/` の full-run.md・reproducibility.md・audio-silence.md を書く。LLM も TTS も呼ばない。
   `meter.jsonl` の開始行と終了行は加工せずに写す。標準エラーからは子プロセスの数とクラスタ段の実行サマリ(数値)
   だけを取る。出力は件数・ID・ダイジェスト・環境変数名・レート枠の値だけで、教材本文を含まない(NFR-2)。
+- `... precheck --out-root <作業ルート> --deck <デッキ>` は、最後のフル処理の列が書いた cluster と recall の成果物に、
+  検査 `option_key` と日本語のラベル判定(D-247)だけをかける。LLM は呼ばない。recall の成果物は素材だけを読み
+  (report の形が変わっても読める)、option_key で落ちる問題の ID と、ラベル列挙が出るトラックの番号と系列と、
+  そのトラックに option_key で落ちる問題があるかを出す。本文は出さない。
 
 ループ側のテストは out/ を読まない。読むのはコミットされた md と、テストが一時ディレクトリに作る合成の
 作業ルートだけである(D-220)。
@@ -75,8 +79,8 @@ MIN_QUESTIONS, MAX_QUESTIONS = 100, 200
 CLASSIFY_BATCH_SIZE = 25
 """分類の分割呼び出し1回あたりの問題数(設計 R-3 節、AR-62)。⌈N/25⌉ の 25。"""
 REPRO_SEQUENCES = 2
-MAX_ATTEMPTS = 5
-"""フル処理の試行の上限(D-181、D-241、D-246、NFR-7。1回 = `--fresh-run` の列1本)。"""
+MAX_ATTEMPTS = 6
+"""フル処理の試行の上限(D-181、D-241、D-246、D-247、NFR-7。1回 = `--fresh-run` の列1本)。"""
 ATTEMPTS = "試行"
 
 END_KEYS = frozenset(
@@ -665,6 +669,63 @@ def render_records(out_root: Path, deck: str) -> tuple[str, str, str]:
     return full_log, repro_log, silence_log
 
 
+def precheck(out_root: Path, deck: str) -> str:
+    """最後のフル処理の列の cluster と recall の成果物に option_key とラベル判定をかけた結果。ID と件数だけを返す。"""
+    from quiz_sift.domain.cluster import Cluster
+    from quiz_sift.domain.ids import ClusterId, DeckId, QuestionId
+    from quiz_sift.ingest.deck import ingest_deck
+    from quiz_sift.recall.generate import material_from
+    from quiz_sift.recall.verify import leaked_option_keys
+    from quiz_sift.script.generate import question_script
+    from quiz_sift.script.label_guard import find_enumerations
+    from quiz_sift.script.split import plan_tracks
+
+    deck_id = DeckId(deck)
+    loaded = ingest_deck(out_root / "data", deck_id).deck
+    questions = {q.question_id: q for q in loaded.questions}
+    executions = [e for e in _read_journal(out_root, deck) if e["entry"] == "execution" and e["run_id"] is not None]
+    run_id = [e for e in executions if e["kind"] == "full"][-1]["run_id"]
+
+    def artifact(stage: str) -> Any:
+        done = [e for e in executions if e["run_id"] == run_id and _stage_of(e) == stage and e["exit_code"] == 0]
+        if not done:
+            raise SystemExit(f"列 {run_id} に exit 0 の {stage} が無い")
+        return json.loads(Path(done[-1]["stdout"]).read_bytes())
+
+    clusters = [
+        Cluster(ClusterId(deck_id, row["id"]), row["summary"], tuple(QuestionId(deck_id, q) for q in row["questions"]))
+        for row in artifact("cluster")["clusters"]
+    ]
+    materials = {
+        (m.cluster_id, m.question_id): m for m in (material_from(row, deck_id) for row in artifact("recall")["materials"])
+    }
+    leaked = {qid for (_, qid), m in materials.items() if leaked_option_keys(m.draft, questions[qid])}
+    per_cluster = [
+        (
+            c.cluster_id,
+            [question_script(materials[(c.cluster_id, q)], questions[q], loaded.language) for q in c.question_ids],
+        )
+        for c in clusters
+    ]
+    lines = [f"run_id: {run_id}", f"option_key: {len(leaked)} 問"]
+    lines += [f"  {qid.local_id}" for qid in sorted(leaked, key=lambda q: q.local_id)]
+    enumerating = []
+    for track in plan_tracks(per_cluster, loaded.language).tracks:
+        option_count = min(len(questions[q.question_id].options) for q in track.questions)
+        stems = [questions[q.question_id].stem for q in track.questions]
+        found = find_enumerations(track.segments, loaded.language, option_count, stems)
+        if found:
+            series = ",".join(sorted({e.series for e in found}))
+            with_leak = "あり" if any(q.question_id in leaked for q in track.questions) else "なし"
+            enumerating.append(f"  {track.cluster_id.local_id}-{track.part} {series} option_key={with_leak}")
+    return "\n".join([*lines, f"label_enumerations: {len(enumerating)} トラック", *enumerating]) + "\n"
+
+
+def _precheck(args: argparse.Namespace) -> int:
+    print(precheck(args.out_root, args.deck), end="", flush=True)
+    return 0
+
+
 def _render(args: argparse.Namespace) -> int:
     for path, text in zip((FULL_LOG, REPRO_LOG, SILENCE_LOG), render_records(args.out_root, args.deck), strict=True):
         path.write_text(text, encoding="utf-8")
@@ -1242,7 +1303,7 @@ def test_full_run_judges_go_red_on_each_missing_item(tmp_path: Path) -> None:
 
 
 def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
-    """T-070・T-083 A-5: 試行は --fresh-run の列ごと。--resume と再現性の列は数えず、6本目の本列は赤。"""
+    """T-070・T-087 A-5: 試行は --fresh-run の列ごと。--resume と再現性の列は数えず、7本目の本列は赤。"""
     # 止まった列2本(どちらも --resume を1回ずつ)+ 本列(--resume 5回、うち枠で止まった1回)+ 再現性の2列。
     full, _, _ = _synthetic_records(tmp_path / "three", earlier_attempts=2, stopped=1)
     check_attempt_budget(full)
@@ -1250,16 +1311,97 @@ def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
     assert [(int(fresh), int(resume)) for _, fresh, resume in rows] == [(1, 1), (1, 1), (1, 5)]
     assert not {"c" * 32, "d" * 32} & {run_id for run_id, _, _ in rows}, "再現性の列を試行に数えた"
 
-    assert MAX_ATTEMPTS == 5
-    check_attempt_budget(_synthetic_records(tmp_path / "five", earlier_attempts=4)[0])
-    sixth, _, _ = _synthetic_records(tmp_path / "six", earlier_attempts=5)
-    _red(check_attempt_budget, sixth)
+    assert MAX_ATTEMPTS == 6
+    check_attempt_budget(_synthetic_records(tmp_path / "six", earlier_attempts=5)[0])
+    seventh, _, _ = _synthetic_records(tmp_path / "seven", earlier_attempts=6)
+    _red(check_attempt_budget, seventh)
     # exec を通さずに起動した --fresh-run も試行に数える。前サイクルの開始行(journal の最初の実行より前)は数えない。
-    _red(check_attempt_budget, _synthetic_records(tmp_path / "unjournaled", unjournaled=5)[0])
-    _red(check_attempt_budget, _synthetic_records(tmp_path / "mixed", earlier_attempts=2, unjournaled=3)[0])
-    check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=4, previous_cycle=3)[0])
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "unjournaled", unjournaled=6)[0])
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "mixed", earlier_attempts=2, unjournaled=4)[0])
+    check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=5, previous_cycle=3)[0])
     _red(check_attempt_budget, full.replace("| 1 | 5 |", "| 1 | 4 |"))
     _red(check_attempt_budget, full.replace(f"| `{'1' * 32}` | 1 |", f"| `{'1' * 32}` | 2 |"))
+
+
+PRECHECK_DECK = "synthetic-nofm"
+PRECHECK_TEXT = "合成の素材本文-5c1e"
+"""precheck の合成の素材に入れる本文。出力に1回でも出れば本文を出している。"""
+
+
+def _precheck_root(root: Path) -> Path:
+    """合成デッキと、その最後のフル処理の列の cluster・recall の成果物を持つ作業ルート。
+
+    db-01 の識別ポイントに選択肢のキー(o2)が漏れ、クラスタ c-db の素材は「肢A」〜「肢D」を言及する。recall の
+    成果物の report は旧い形(option_keys が無い)で、precheck は素材だけを読む。
+    """
+    fixture = ROOT / "tests" / "fixtures" / "decks" / PRECHECK_DECK
+    shutil.copytree(fixture, root / "data" / PRECHECK_DECK)
+    rows = [json.loads(line) for line in (fixture / "questions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    groups = {prefix: [r["id"] for r in rows if r["id"].startswith(prefix)] for prefix in ("db", "net", "ml", "k8s")}
+    labels = {"db-01": "肢A", "db-02": "肢B", "db-03": "肢C", "db-04": "肢D"}
+    materials = []
+    for prefix, ids in groups.items():
+        for row in rows:
+            if row["id"] not in ids:
+                continue
+            wrong = [o["id"] for o in row["options"] if o["id"] not in row["answers"]]
+            leak = "（o2）" if row["id"] == "db-01" else ""
+            materials.append(
+                {
+                    "cluster": f"c-{prefix}",
+                    "question": row["id"],
+                    "terms": [row["stem"][:4]],
+                    "answers": [{"option": a, "text": f"{PRECHECK_TEXT}の正解"} for a in row["answers"]],
+                    "discrimination": {
+                        "text": f"{labels.get(row['id'], '')}{PRECHECK_TEXT}の切り分け{leak}",
+                        "distractors": wrong[:1],
+                    },
+                }
+            )
+    directory = _journal_dir(root, PRECHECK_DECK)
+    directory.mkdir(parents=True)
+    cluster_path, recall_path = directory / "cluster.json", directory / "recall.json"
+    clusters = [{"id": f"c-{p}", "summary": PRECHECK_TEXT, "questions": ids} for p, ids in groups.items()]
+    cluster_path.write_text(json.dumps({"clusters": clusters}, ensure_ascii=False), encoding="utf-8")
+    old_report = {"verbatim": 0, "regenerations": {}}
+    recall_path.write_text(json.dumps({"materials": materials, "report": old_report}, ensure_ascii=False), "utf-8")
+    run_id = "a" * 32
+    for number, (stage, path) in enumerate((("cluster", cluster_path), ("recall", recall_path)), start=1):
+        argv = [sys.executable, "-m", "quiz_sift.cli", "--root", str(root), stage, PRECHECK_DECK]
+        _append_journal(
+            root,
+            PRECHECK_DECK,
+            {
+                "entry": "execution",
+                "kind": "full",
+                "argv": [*argv, "--fresh-run"] if stage == "cluster" else [*argv, "--resume", run_id],
+                "started_at": f"2026-10-19T10:0{number}:00+09:00",
+                "commit": "0" * 40,
+                "exit_code": 0,
+                "run_id": run_id,
+                "stdout": str(path),
+                "stderr": f"{number:03d}.stderr",
+            },
+        )
+    return root
+
+
+def test_precheck_reports_ids_and_counts_only(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """T-087 A-6: precheck は LLM を呼ばずに option_key で落ちる問題の ID と、ラベル列挙が出るトラックを出す。"""
+    root = _precheck_root(tmp_path / "work")
+    assert main(["precheck", "--out-root", str(root), "--deck", PRECHECK_DECK]) == 0
+    output = capsys.readouterr().out
+    assert output == (
+        f"run_id: {'a' * 32}\n"
+        "option_key: 1 問\n"
+        "  db-01\n"
+        "label_enumerations: 1 トラック\n"
+        "  c-db-0 letter option_key=あり\n"
+    )
+    # 本文(素材・要約・問題文・選択肢)の断片は出ない。
+    rows = [json.loads(line) for line in (root / "data" / PRECHECK_DECK / "questions.jsonl").read_text().splitlines()]
+    for text in (PRECHECK_TEXT, "肢A", "o2", *(r["stem"][:8] for r in rows), *(o["text"][:8] for o in rows[0]["options"])):
+        assert text not in output, text
 
 
 def test_render_uses_the_last_successful_cluster(tmp_path: Path) -> None:
@@ -1356,11 +1498,11 @@ def test_person_record_nodes_skip_until_the_record_exists(tmp_path: Path, monkey
     # 記録があれば skip せずに判定する: 壊れた記録は赤、一部だけの記録も赤。
     paths["SILENCE_LOG"].write_text(records[2].replace("| 真 |", "| 偽 |"), encoding="utf-8")
     paths["FULL_LOG"].write_text(records[0].replace('"status": "completed"', '"status": "resumable"'), encoding="utf-8")
-    sixth, _, _ = _synthetic_records(tmp_path / "six", earlier_attempts=5)
+    seventh, _, _ = _synthetic_records(tmp_path / "seven", earlier_attempts=6)
     for node in nodes[:2]:
         with pytest.raises(AssertionError):
             node()
-    paths["FULL_LOG"].write_text(sixth, encoding="utf-8")
+    paths["FULL_LOG"].write_text(seventh, encoding="utf-8")
     with pytest.raises(AssertionError):
         nodes[2]()
     paths["REPRO_LOG"].unlink()
@@ -1371,7 +1513,7 @@ def test_person_record_nodes_skip_until_the_record_exists(tmp_path: Path, monkey
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="test_full_run_logs.py")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("exec", "silence", "render"):
+    for name in ("exec", "silence", "render", "precheck"):
         command = commands.add_parser(name)
         command.add_argument("--out-root", type=Path, required=True, help="data/ と out/ を持つ作業ルート")
         command.add_argument("--deck", required=True)
@@ -1381,7 +1523,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     # ホストでは worktree の src/ を import する(pytest は pyproject の pythonpath で同じ場所を見る)。
     sys.path.insert(0, str(ROOT / "src"))
-    return {"exec": _exec, "silence": _silence, "render": _render}[args.command](args)
+    return {"exec": _exec, "silence": _silence, "render": _render, "precheck": _precheck}[args.command](args)
 
 
 if __name__ == "__main__":

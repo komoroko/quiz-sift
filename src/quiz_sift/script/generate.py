@@ -243,7 +243,13 @@ def generate_scripts[T](
         logger.info("script split clusters over limit: %s", [c.local_id for c in plan.split])
     if plan.unsplittable:
         raise ScriptTooLong(plan.unsplittable)
-    enumerating = [t for t in plan.tracks if find_enumerations(t.segments, deck.language, _option_count(t, questions))]
+    enumerating = [
+        t
+        for t in plan.tracks
+        if find_enumerations(
+            t.segments, deck.language, _option_count(t, questions), [questions[q.question_id].stem for q in t.questions]
+        )
+    ]
     if enumerating:
         raise LabelEnumerationFound(enumerating)
     verdict = _judge_tracks(checker, plan.tracks, questions, progress)

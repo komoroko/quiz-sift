@@ -241,6 +241,16 @@ def test_recall_keys_map_back_to_option_ids() -> None:
         assert caught.value.kind is FailureKind.SCHEMA
 
 
+def test_recall_prompt_explains_option_key() -> None:
+    """T-087 A-2: 想起素材のプロンプトが option_key の意味を書く。段の prompt_template に入るので recall 段の鍵が動く。"""
+    system = llm_prompts.RECALL_SYSTEM
+    assert "option_key は" in system
+    explained = system[system.index("option_key は") :].split("。")[0]
+    assert "キー" in explained and "o1" in explained
+    assert "本文では選択肢のラベル(A/B/C/D など)やキーで言及しない。" in system
+    assert system in cli.RECALL.prompt_template
+
+
 def test_prompts_explain_retry_and_check_names() -> None:
     """T-086 A-4: 要約と想起素材のプロンプトが retry の扱いと各検査の名前の意味を書く(D-245)。
 
@@ -256,6 +266,7 @@ def test_prompts_explain_retry_and_check_names() -> None:
         "missing_options",
         "generic",
         "verbatim",
+        "option_key",
         "duplicate_key",
         "entailment",
     )
