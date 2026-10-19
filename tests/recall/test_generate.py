@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from quiz_sift import cli
 from quiz_sift.adapters import llm_prompts
 from quiz_sift.domain.cluster import Cluster
 from quiz_sift.domain.deck import Deck
@@ -556,3 +557,45 @@ def test_regeneration_receives_the_previous_material_and_why_it_failed(
     for text in ("Lambda", CONTRADICTING, "S3 標準", good.discrimination.text):
         assert not any(text in m for m in messages), text
         assert text not in repr(retry) and text not in repr(retry.problems)
+
+
+def test_option_key_failure_regenerates_only_that_question(
+    deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path
+) -> None:
+    """T-087 A-2: option_key で落ちた問題だけを同じ上限の中で作り直し、retry には検査の名前だけを渡す(D-247)。"""
+    good = GOOD["q02"]
+    leaked = replace(
+        good,
+        discrimination=DiscriminationPoint("解o1は" + good.discrimination.text, good.discrimination.distractor_ids),
+    )
+    llm = StubLlm(GOOD, sequences={"q02": (leaked, good)})
+    writer = Writer(tmp_path / "recall.tsv")
+    generate(llm, deck, clusters, writer)
+    assert llm.recalled == ["q01", "q02", "q02", "q03", "q04", "q05"]
+    assert all(retry is None for qid, retry in llm.retries if qid != "q02")
+    retry = [retry for qid, retry in llm.retries if qid == "q02"][1]
+    assert retry is not None and retry.previous == leaked
+    assert [(p.check, p.terms, p.options, p.elements, p.statements) for p in retry.problems] == [
+        ("option_key", (), (), (), ())
+    ]
+    # アダプタへ渡す形も名前だけで、本文もキーも載らない。
+    _, keyed = llm_prompts.recall_payload(question(deck, "q02"))
+    keys = {option_id: key for key, option_id in keyed.items()}
+    assert [llm_prompts.problem_json(p, keys) for p in retry.problems] == [{"check": "option_key"}]
+    # 漏れた素材は判定にかけない(機械検査で先に落ちる)。
+    assert all(s != leaked.discrimination.text for _, s in llm.checked)
+
+    assert writer.result is not None
+    report = writer.result.report
+    assert report.option_keys == 0 and report.passed
+    assert dict((q.local_id, n) for q, n in report.regenerations)["q02"] == 1
+    # 成果物の report に option_keys の件数を書き、読み戻す。
+    data = cli._recall_json(writer.result)
+    assert data["report"]["option_keys"] == 0
+    assert cli._recall_from(data, DECK).report == report
+    assert not replace(report, option_keys=1).passed
+
+    # 上限まで漏れ続ければ、option_key の名前で上限超過になる。
+    with pytest.raises(RegenerationExhausted) as exc:
+        generate(StubLlm({**GOOD, "q02": leaked}), deck, clusters, Writer(tmp_path / "exhausted.tsv"))
+    assert [(e.question_id.local_id, e.failures) for e in exc.value.exhausted] == [("q02", ("option_key",))]

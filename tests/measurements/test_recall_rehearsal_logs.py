@@ -36,6 +36,8 @@
   contradicted・uncertain・consistent の和が件数と一致する。合格ラインは置かない(D-044)。
 - T-083 A-4: 再生成のあった問題の数と、作り直しを上限まで使った問題の数が問題ごとの表と一致し、generate_recall の
   子の環境の鍵に MAX_THINKING_TOKENS が無い(D-246)。合格ラインは置かない。
+- T-087 A-4: 検査の件数に `option_keys` があり、option_key で作り直した問題の数(recall の標準エラーの作り直しの
+  行から数えたもの)が、再生成のあった問題の数以下の整数で書かれている(D-247)。合格ラインは置かない。
 """
 
 import argparse
@@ -74,6 +76,7 @@ CHECKS = (
     "duplicate_keys",
     "generic_keys",
     "verbatim",
+    "option_keys",
     "empty",
     "answer_mismatch",
 )
@@ -134,6 +137,14 @@ def code_conditions() -> dict[str, Any]:
         "entailment_digest": prompt_digest(llm_prompts.ENTAILMENT_SYSTEM, llm_prompts.ENTAILMENT_SCHEMA),
         "recall_env_keys": sorted(CHILD_ENV_KEYS),
     }
+
+
+_REGENERATION_LINE = re.compile(r"recall: 問題 (\S+) を作り直す\(([^;]*); \d+ 回目\)")
+
+
+def option_key_regenerations(stderr: str) -> set[str]:
+    """recall の標準エラーの作り直しの行のうち、落ちた検査に option_key を含む問題の ID(D-247)。"""
+    return {qid for qid, checks in _REGENERATION_LINE.findall(stderr) if "option_key" in checks.split(",")}
 
 
 def regeneration_counts(counts: Iterable[int]) -> tuple[int, int]:
@@ -404,6 +415,7 @@ def render_log(
     mutations: Mapping[str, Any],
     mutation_end: str,
     full_log: str,
+    option_key_questions: int,
 ) -> str:
     report = recall["report"]
     ends = [json.loads(end) for _, _, end in executions]
@@ -418,7 +430,7 @@ def render_log(
     regenerated, exhausted = regeneration_counts(report["regenerations"].values())
     stage_rows = "\n".join(
         f"| {end['stage']} | {end['llm_calls']} | {end['provider_invocations']} | {total_tokens(end['tokens'])} "
-        f"| {end['llm_calls'] * scale:.2f} | {total_tokens(end['tokens']) * scale:.2f} |"
+        f"| {end['llm_calls'] * scale:.3f} | {total_tokens(end['tokens']) * scale:.3f} |"
         for end in (json.loads(start) | json.loads(e) for _, start, e in executions)
     )
     raw_rows = "\n".join(
@@ -498,9 +510,12 @@ recall の成果物の `report` の件数。成果物は、検査と含意判定
 |---|---|
 | 再生成のあった問題の数 | {regenerated} |
 | 作り直しを上限({MAX_REGENERATIONS} 回)まで使った問題の数 | {exhausted} |
+| option_key で作り直した問題の数 | {option_key_questions} |
 
-合格ラインは置かない(16 問では作り直し率の差を判定できない。D-246)。比較の値は、同じ合成デッキで思考を止めた
-2026-10-15 の記録が 6/16、思考ありの 2026-10-07 の記録が 0/16 である。
+option_key で作り直した問題の数は、recall の標準エラーの作り直しの行(`recall: 問題 … を作り直す(…)`)のうち、
+落ちた検査に `option_key` を含む問題を数えた値である(D-247)。合格ラインは置かない(16 問では作り直し率の差を
+判定できない。D-246)。比較の値は、同じ合成デッキで思考を止めた 2026-10-15 の記録が 6/16、思考ありの
+2026-10-15 の記録(run f8165be8)が 0/16 である。
 
 ## 呼び出し数とトークン数
 
@@ -518,9 +533,9 @@ cluster から script までの合計:
 
 | 項目 | リハーサル | {TARGET_QUESTIONS} 問への外挿 |
 |---|---|---|
-| 呼び出し数 | {usage["calls"]} | {usage["calls_190"]:.2f} |
-| プロバイダ呼び出し数 | {usage["invocations"]} | {usage["invocations_190"]:.2f} |
-| トークン数 | {usage["tokens"]} | {usage["tokens_190"]:.2f} |
+| 呼び出し数 | {usage["calls"]} | {usage["calls_190"]:.3f} |
+| プロバイダ呼び出し数 | {usage["invocations"]} | {usage["invocations_190"]:.3f} |
+| トークン数 | {usage["tokens"]} | {usage["tokens_190"]:.3f} |
 
 ## レート枠
 
@@ -578,9 +593,13 @@ def _render(args: argparse.Namespace) -> int:
     entries = [e for e in _read_journal(out_root) if e["run_id"] is not None]
     executions = _paired(entries, _meter_lines(out_root))
 
+    def entry_of(stage: str) -> Mapping[str, Any]:
+        return next(e for e in entries if _stage_of(e) == stage and e["exit_code"] == 0)
+
     def artifact(stage: str) -> Any:
-        entry = next(e for e in entries if _stage_of(e) == stage and e["exit_code"] == 0)
-        return json.loads(Path(entry["stdout"]).read_bytes())
+        return json.loads(Path(entry_of(stage)["stdout"]).read_bytes())
+
+    recall_stderr = (directory / entry_of("recall")["stderr"]).read_text(encoding="utf-8", errors="backslashreplace")
 
     mutation_ends = [
         raw
@@ -598,6 +617,7 @@ def _render(args: argparse.Namespace) -> int:
             json.loads((directory / MUTATIONS).read_text(encoding="utf-8")),
             mutation_ends[0],
             FULL_LOG.read_text(encoding="utf-8"),
+            len(option_key_regenerations(recall_stderr)),
         ),
         encoding="utf-8",
     )
@@ -771,6 +791,10 @@ def check_regenerations_summarized(text: str) -> None:
     label = f"作り直しを上限({MAX_REGENERATIONS} 回)まで使った問題の数"
     assert label in summary, "作り直しを上限まで使った問題の数が無い"
     assert int(summary[label][0]) == exhausted, "作り直しを上限まで使った問題の数が表と違う"
+    assert "option_key で作り直した問題の数" in summary, "option_key で作り直した問題の数が無い"
+    option_key = summary["option_key で作り直した問題の数"][0]
+    assert re.fullmatch(r"\d+", option_key), "option_key で作り直した問題の数が整数でない"
+    assert int(option_key) <= regenerated, "option_key で作り直した問題の数が再生成のあった問題の数を超える"
 
 
 def check_mutations_recorded(text: str) -> None:
@@ -858,6 +882,34 @@ def test_d246_record_shows_regenerations_without_the_thinking_env() -> None:
             flags=re.M,
         ),
         "再生成のあった問題の数が表と違う",
+    )
+
+
+def test_option_key_regenerations_are_counted_from_the_recall_log() -> None:
+    """T-087 A-4: option_key で作り直した問題は、作り直しの行の落ちた検査から数える(同じ問題は1回)。"""
+    stderr = "\n".join(
+        (
+            "run_id: " + "f" * 32,
+            "INFO quiz_sift.recall.generate: recall: 問題 db-01 を作り直す(option_key; 1 回目)",
+            "INFO quiz_sift.recall.generate: recall: 問題 db-01 を作り直す(verbatim,option_key; 2 回目)",
+            "INFO quiz_sift.recall.generate: recall: 問題 ml-02 を作り直す(ungrounded_key,option_key; 1 回目)",
+            "INFO quiz_sift.recall.generate: recall: 問題 k8s-03 を作り直す(ungrounded_key; 1 回目)",
+            "INFO quiz_sift.recall.generate: recall summary: questions=16 issued=16 failure_count=0 regenerated=3",
+        )
+    )
+    assert option_key_regenerations(stderr) == {"db-01", "ml-02"}
+    assert option_key_regenerations("") == set()
+
+    text = _read()
+    line = re.compile(r"^(\| option_key で作り直した問題の数 \| )(\d+) \|$", re.M)
+    _broken(check_regenerations_summarized, line.sub("", text, count=1), "option_key で作り直した問題の数が無い")
+    regenerated = int(
+        _table(_table_with(_section(text, "問題ごとの再生成回数"), "| 項目 | 値 |"))["再生成のあった問題の数"][0]
+    )
+    _broken(
+        check_regenerations_summarized,
+        line.sub(lambda m: f"{m.group(1)}{regenerated + 1} |", text, count=1),
+        "option_key で作り直した問題の数が再生成のあった問題の数を超える",
     )
 
 

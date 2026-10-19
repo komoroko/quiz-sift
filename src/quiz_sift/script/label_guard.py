@@ -10,12 +10,16 @@ Prompt「アの場合とイの場合」/ Answer「ウが正解」/ Discriminatio
 
 - **日本語**: 語の一部でない単独ラベル(「アクセス」のア、「S3」の数字は数えない)を系列ごとに集め、
   先頭から M 件すべてがトラック内に出現すれば列挙。番号は「1番」「①」「(1)」「1.」の形だけをラベルとみなす。
+  記号 A〜F は、直前のカタカナ・漢字の連なりと合わせた字面(「サプライヤーA」「部品B」)がトラック内の問題の
+  問題文に現れるときだけ、問題文が導入した名前としてラベルに数えない(D-247)。問題文に無い形(「肢A」
+  「オプションA」)と単独の記号は数える。番号とかなの系列は問題文を見ない。
 - **英語**: 冠詞の "a" や "Availability Zone A" が正当に現れるので、単独トークンの有無では判定せず
   **列挙構造**を見る。(1) 区切り(`,` `;` `/` and or、"option" 等)だけを挟んで M 件が連なる形、
   (2) `A)` `(A)` `A:` `A.` のようなリスト記号として M 件すべてが現れる形。
 """
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -42,6 +46,9 @@ _JA_LABELS = {
     ),
     "kana": re.compile(r"(?<![ァ-ヺー])([アイウエオカ])(?![ァ-ヺー])"),
 }
+
+_JA_NAME_PREFIX = re.compile(r"[ァ-ヺーヽヾ一-鿿々]+$")
+"""記号の直前のカタカナ・漢字の連なり(D-247)。"""
 
 # 英語: 語の一部でない大文字1字と数字1字。小文字の冠詞 a は最初から候補にならない。
 _EN_LABELS = {
@@ -77,12 +84,24 @@ def _labels(pattern: re.Pattern[str], text: str) -> list[tuple[int, int, str]]:
     return found
 
 
-def _ja(text: str, m: int) -> list[Enumeration]:
-    return [
-        Enumeration(series, "present")
-        for series, pattern in _JA_LABELS.items()
-        if set(_SERIES[series][:m]) <= {label for _, _, label in _labels(pattern, text)}
-    ]
+def _is_stem_name(start: int, end: int, text: str, stems: Sequence[str]) -> bool:
+    """`text[start:end]` の記号が、直前のカタカナ・漢字の連なりと合わせて問題文に現れる名前か(D-247)。"""
+    prefix = _JA_NAME_PREFIX.search(text, 0, start)
+    if prefix is None:
+        return False
+    name = unicodedata.normalize("NFKC", text[prefix.start() : end])
+    return any(name in unicodedata.normalize("NFKC", stem) for stem in stems)
+
+
+def _ja(text: str, m: int, stems: Sequence[str]) -> list[Enumeration]:
+    found = []
+    for series, pattern in _JA_LABELS.items():
+        labels = _labels(pattern, text)
+        if series == "letter":
+            labels = [(start, end, label) for start, end, label in labels if not _is_stem_name(start, end, text, stems)]
+        if set(_SERIES[series][:m]) <= {label for _, _, label in labels}:
+            found.append(Enumeration(series, "present"))
+    return found
 
 
 def _has_chain(labels: Sequence[tuple[int, int, str]], text: str, full: set[str]) -> bool:
@@ -116,13 +135,14 @@ def _en(text: str, m: int) -> list[Enumeration]:
 
 
 def find_enumerations(
-    segments: Sequence[ScriptSegment], language: Language, option_count: int
+    segments: Sequence[ScriptSegment], language: Language, option_count: int, stems: Sequence[str]
 ) -> tuple[Enumeration, ...]:
     """1トラック分のセグメント列に含まれるラベル列挙。空なら列挙は無い。
 
     `option_count` は M(トラック内の問題の選択肢数の最小値)。系列の先頭から M 件が揃う形を列挙とする。
+    `stems` はトラック内の問題の問題文で、日本語の記号の系列で名前を見分けるのにだけ使う(D-247)。
     """
     if option_count not in OPTION_COUNTS:
         raise ValueError(f"選択肢の数 M は {sorted(OPTION_COUNTS)} のいずれか: {option_count}")
     text = track_text(segments)
-    return tuple(_en(text, option_count) if language is Language.EN else _ja(text, option_count))
+    return tuple(_en(text, option_count) if language is Language.EN else _ja(text, option_count, stems))

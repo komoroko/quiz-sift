@@ -236,6 +236,7 @@ def _recall_json(recall: RecallSet) -> dict[str, Any]:
             "duplicate_keys": report.duplicate_keys,
             "generic_keys": report.generic_keys,
             "verbatim": report.verbatim,
+            "option_keys": report.option_keys,
             "empty": report.empty,
             "answer_mismatch": report.answer_mismatch,
             "term_rates": [[r.question_id.local_id, r.term, r.rate] for r in report.term_rates],

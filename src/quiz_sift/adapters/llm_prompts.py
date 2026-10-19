@@ -77,6 +77,7 @@ def render_recall_system(fields: tuple[QuestionField, ...]) -> str:
         "誤答選択肢でないキー(options)を参照した。"
         "generic は terms のすべてが他の論点の問題にも現れ、答えの手がかりにならなかった。"
         "verbatim は discrimination.text が誤答選択肢の丸写しだった。"
+        "option_key は terms・answers[].text・discrimination.text のどれかに選択肢のキー(o1 など)が書かれていた。"
         "duplicate_key は terms の組が別の論点の問題の想起素材と同じだった。"
         "entailment は statements の文が正解・解説と矛盾した(contradicted)か判断できなかった(uncertain)。"
     )

@@ -118,7 +118,7 @@ def recall_set(drafts: dict[str, RecallDraft]) -> RecallSet:
         for cid, qids in CLUSTERS.items()
         for qid in qids
     )
-    return RecallSet(materials, RecallReport(0, 0, 0, 0, 0, 0, 0))
+    return RecallSet(materials, RecallReport(0, 0, 0, 0, 0, 0, 0, 0))
 
 
 def qscript(local_id: str, prompt: str, answer: str, discrimination: str | None = None) -> QuestionScript:
