@@ -164,6 +164,12 @@ def regeneration_counts(counts: Iterable[int]) -> tuple[int, int]:
     return sum(n > 0 for n in values), sum(n == MAX_REGENERATIONS for n in values)
 
 
+def observed_quota(end: Mapping[str, Any]) -> bool:
+    """その実行がレート枠を観測したか。呼び出しの無い実行(script 段。D-248)は開始時も終了時も無い。"""
+    assert (end["quota_at_start"] is None) == (end["quota_at_end"] is None), "開始時と終了時の枠の片方だけがある"
+    return end["quota_at_start"] is not None
+
+
 def mutation_count(questions: Sequence[Mapping[str, Any]]) -> int:
     """ミューテーションの件数。各問題の誤答1件につき1件。"""
     return sum(len(q["options"]) - len(q["answers"]) for q in questions)
@@ -448,6 +454,7 @@ def render_log(
         f"| {i} | `{end['execution_id']}` | {window} | {end['quota_at_start'][window]['utilization']} "
         f"| {end['quota_at_end'][window]['utilization']} | {end['quota_at_end'][window]['resetsAt']} |"
         for i, end in enumerate(ends, start=1)
+        if observed_quota(end)
         for window in WINDOWS
     )
     prior_tokens = sum(total_tokens(end["tokens"]) for end in prior)
@@ -552,7 +559,7 @@ cluster から script までの合計:
 ## レート枠
 
 utilization の生の値(終了行の `quota_at_start`・`quota_at_end`)。小数2桁に量子化されているので、差分を外挿には
-使わない(D-218)。
+使わない(D-218)。レート枠を1回も観測しなかった実行(LLM を呼ばない script 段。D-248)は載せない。
 
 | 実行 | execution_id | 枠 | 開始時 | 終了時 | resetsAt |
 |---|---|---|---|---|---|
@@ -781,6 +788,7 @@ def check_usage_recorded(text: str) -> None:
     expected_raw = [
         [str(end["quota_at_start"][w]["utilization"]), str(end["quota_at_end"][w]["utilization"])]
         for end in ends
+        if observed_quota(end)
         for w in WINDOWS
     ]
     assert [row[3:5] for row in raw] == expected_raw, "utilization の生の値が終了行と違う"
