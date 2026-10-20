@@ -29,7 +29,7 @@ from quiz_sift.domain.ids import OptionId, QuestionId, SessionId
 from quiz_sift.domain.language import Language
 from quiz_sift.domain.question import Question
 from quiz_sift.ingest.reader import IngestFormatError
-from quiz_sift.pipeline.stage import Stage, inputs_digest
+from quiz_sift.pipeline.stage import PROGRESS_SUFFIX, Progress, Stage, StageCache, inputs_digest
 from quiz_sift.ports.llm import (
     ClassificationResult,
     Entailment,
@@ -517,7 +517,6 @@ def test_stage_digest_carries_the_models_it_uses(root: Path, capsys: pytest.Capt
         (cli.CLUSTER, {"classify_clusters": opus, "summarize_cluster": opus, "check_entailments": sonnet}),
         (cli.RECALL, {"generate_recall": haiku, "check_entailments": sonnet}),
         (cli.GLOSSARY, {"describe_term": opus, "check_entailments": sonnet}),
-        (cli.SCRIPT, {"check_entailments": sonnet}),
     )
     for stage, models in expected:
         assert dict(pair.split("=") for pair in stage.model.split(",")) == models, stage.name
@@ -538,6 +537,48 @@ def test_stage_digest_carries_the_models_it_uses(root: Path, capsys: pytest.Capt
     assert llm.calls.count("recall") == 2 * recalled
     assert len(list((out / "recall").iterdir())) == 2
     assert len(list((out / "cluster").iterdir())) == 1
+
+
+def test_script_stage_keeps_no_progress_and_no_judge_in_its_key(
+    root: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-088 A-2: script 段は判定しないので、段の鍵に判定のプロンプトもモデルも無く、途中結果を読みも書きもしない。
+
+    実行の列で `--resume` し直すと、最初から台本を組み立て直して同じ成果物を書く(D-248、ADR-030)。
+    """
+    assert (cli.SCRIPT.prompt_template, cli.SCRIPT.model) == ("", "")
+    opened: list[str] = []
+    original = StageCache.progress
+
+    def spy(self: StageCache, stage: Stage, upstream: bytes) -> Progress | None:
+        opened.append(stage.name)
+        return original(self, stage, upstream)
+
+    monkeypatch.setattr(StageCache, "progress", spy)
+    stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", stderr)
+    llms = CliLlms(tmp_path, FakeRunner(respond))
+
+    def main(*argv: str) -> Path:
+        capsys.readouterr()
+        assert cli.main(["--root", str(root), *argv], llm_factory=llms, preflight=no_preflight) == 0
+        return Path(capsys.readouterr().out.strip().splitlines()[-1])
+
+    main("recall", DECK, "--fresh-run")
+    (run_id,) = {line.split("run_id: ")[1] for line in stderr.getvalue().splitlines() if "run_id: " in line}
+    # 対照: 実行の列の recall 段は途中結果を開く。
+    assert "recall" in opened
+    opened.clear()
+    methods = len(llms.methods)
+    script = main("script", DECK, "--resume", run_id)
+    assert "script" not in opened, "script 段が途中結果を開いた"
+    assert llms.methods[methods:] == [], "script 段が LLM を呼んだ"
+    assert not list(script.parent.glob(f"*{PROGRESS_SUFFIX}"))
+    first = script.read_bytes()
+    script.unlink()
+    assert main("script", DECK, "--resume", run_id) == script
+    assert script.read_bytes() == first
+    assert "script" not in opened
 
 
 def test_ingest_cache_from_the_single_answer_format_is_not_reused(
@@ -583,10 +624,9 @@ def test_resume_makes_no_llm_calls_or_invocations_upstream(
 
     methods, spawned = len(llms.methods), len(llms.runner.specs)
     run("script", DECK)
-    # 台本の段は自分の含意判定だけを呼ぶ(呼んでいること自体が、この実行で数えられていることの control)。
-    assert set(llms.methods[methods:]) == {"check_entailments"}
-    assert not upstream & set(llms.methods[methods:])
-    assert not upstream_systems & set(llms.systems()[spawned:])
+    # 台本の段は LLM を呼ばない(D-248)ので、前段も含めてこの実行の呼び出しは 0。
+    assert llms.methods[methods:] == []
+    assert len(llms.runner.specs) == spawned
 
     # 全段がキャッシュにある段を再実行すると、LLM を1度も呼ばない。
     methods, spawned = len(llms.methods), len(llms.runner.specs)

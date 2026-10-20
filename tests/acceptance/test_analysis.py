@@ -26,7 +26,6 @@ from support.cli_harness import DRAFTS as DECK_DRAFTS
 from support.cli_harness import ROWS as DECK_ROWS
 
 from quiz_sift import cli
-from quiz_sift.adapters import llm_prompts
 from quiz_sift.cluster.metrics import ClusterMetrics, degeneracy_violations
 from quiz_sift.cluster.run import ClassificationFailed
 from quiz_sift.cluster.summary import UngroundedSummary
@@ -48,9 +47,17 @@ from quiz_sift.ports.llm import (
     Retry,
 )
 from quiz_sift.ports.process import CommandResult, CommandSpec
-from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RegenerationExhausted
+from quiz_sift.recall.generate import MAX_REGENERATIONS, RecallCallsFailed, RecallSet, RegenerationExhausted
+from quiz_sift.recall.verify import report as recall_report
 from quiz_sift.safety.entailment import EntailmentRejected
-from quiz_sift.script.generate import LabelEnumerationFound, MissingAnswerElement, ScriptTooLong
+from quiz_sift.script.generate import (
+    LabelEnumerationFound,
+    MissingAnswerElement,
+    NoTracks,
+    ScriptSet,
+    ScriptTooLong,
+    generate_scripts,
+)
 
 from .conftest import CliRunner, StubLlm, StubTts, write_deck
 
@@ -749,71 +756,6 @@ def test_recall_resume_logs_counts_only(
     assert not [text for text in texts for message in messages if text in message]
 
 
-def test_script_resume_logs_counts_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """C-028 A-3: script 段の再開のログは、途中結果から使ったトラックの件数と残りの件数だけを含む(NFR-2)。"""
-    caplog.set_level(logging.INFO)
-    stderr = io.StringIO()
-    monkeypatch.setattr(sys, "stderr", stderr)
-
-    def is_entailment(spec: CommandSpec) -> bool:
-        return flag(spec.argv, "--system-prompt") == llm_prompts.ENTAILMENT_SYSTEM
-
-    # 前段(cluster・recall)の含意判定の回数を、別の作業ルートで数える。
-    counting = tmp_path / "counting"
-    counting.mkdir()
-    write_root(counting)
-    before_script: list[CommandSpec] = []
-
-    def count(spec: CommandSpec) -> CommandResult:
-        if is_entailment(spec):
-            before_script.append(spec)
-        return respond(spec)
-
-    llms = CliLlms(counting, FakeRunner(count))
-    assert cli.main(["--root", str(counting), "recall", DECK], llm_factory=llms, preflight=no_preflight) == 0
-
-    # script 段の2回目の判定(2本目のトラックの問。1問ぶんを1回で聞く)を枠切れにする。
-    root = tmp_path / "root"
-    root.mkdir()
-    write_root(root)
-    entailments: list[CommandSpec] = []
-
-    def stop_at_the_second_script_check(spec: CommandSpec) -> CommandResult:
-        if not is_entailment(spec):
-            return respond(spec)
-        entailments.append(spec)
-        if len(entailments) == len(before_script) + 2:
-            stdout = fake_stdout(
-                subtype="error_during_execution", is_error=True, structured_output=None, rate_limit_status="rejected"
-            )
-            return exited(stdout, 1)
-        return respond(spec)
-
-    llms = CliLlms(root, FakeRunner(stop_at_the_second_script_check))
-
-    def main(*argv: str) -> int:
-        return cli.main(["--root", str(root), "script", DECK, *argv], llm_factory=llms, preflight=no_preflight)
-
-    counted = len(stderr.getvalue())
-    with pytest.raises(LlmCallError):
-        main("--fresh-run")
-    lines = stderr.getvalue()[counted:].splitlines()
-    (run_id,) = {line.split("run_id: ")[1] for line in lines if "run_id: " in line}
-    caplog.clear()
-    assert main("--resume", run_id) == 0
-
-    messages = [r.getMessage() for r in caplog.records]
-    resumes = [m for m in messages if m.startswith("script resume:")]
-    assert resumes == [f"script resume: reused=1 remaining={len(DECK_ROWS) - 1}"]
-    # 台本の本文(想起素材)と教材の本文は、再開の実行のどのログにも出ない。
-    texts = [text for _, stem, options, _, explanation in DECK_ROWS for text in (stem, *options, explanation)]
-    for draft in DECK_DRAFTS.values():
-        texts += [*draft.key.terms, *(e.text for e in draft.answers), draft.discrimination.text]
-    assert not [text for text in texts for message in messages if text in message]
-
-
 # ---- C-005 ----
 
 
@@ -1091,21 +1033,6 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
     assert isinstance(error, EntailmentRejected)
     assert _artifacts(workspace, deck_id, "glossary-terms") == []
 
-    # 台本: 想起素材の段を通った後でも、台本の段が自分で判定し、矛盾すれば台本も音声も書かない。
-    deck_id = _deck(workspace, "c013-script")
-    llm = _subset_llm()
-    run = CliRunner(workspace, capsys, llm, StubTts())
-    run("recall", deck_id)
-    llm.contradicted = frozenset({DRAFTS["q12"].discrimination.text})
-    llm.checked.clear()
-    for stage in ("script", "audio"):
-        error = _fails(run, stage, deck_id)
-        assert isinstance(error, EntailmentRejected)
-    assert DRAFTS["q12"].discrimination.text in llm.checked
-    assert _artifacts(workspace, deck_id, "recall") != []
-    assert _artifacts(workspace, deck_id, "script") == []
-    assert not (workspace / "out" / deck_id / "audio").exists()
-
     # 言い換え: 正解の選択肢と字面の違う答え・要約でも、判定が consistent なら誤検出せずに全段が書かれる。
     paraphrased_summary = "IAM ポリシーの評価では拒否が許可より優先される"
     paraphrases = {
@@ -1126,7 +1053,6 @@ def test_c013_contradiction_blocks_output(workspace: Path, capsys: pytest.Captur
     assert {paraphrased_summary, "マルチ AZ で待機系を持つ", "明示的な拒否が勝つ"} <= set(llm.checked)
 
     # 想起素材の主張: 答えの要素は対象の正解を focus に持ち、識別ポイントは参照先の誤答だけを distractors に持つ。
-    # 同じ主張は後の台本の段でも判定されるので、先に判定された想起素材の段の主張を見る。
     items: dict[str, EntailmentStatement] = {}
     for _, item in llm.judged:
         items.setdefault(item.statement, item)
@@ -1158,7 +1084,7 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
 
     second = MULTI_DRAFT.answers[1].text
     contradictions: dict[str, Callable[[str, EntailmentStatement], bool]] = {
-        # 2つ目の要素(職務分掌)だけを矛盾と返す。台本は N 要素を連結した答えを判定するので、含むかで見る。
+        # 2つ目の要素(職務分掌)だけを矛盾と返す。
         "element": lambda reference, item: second in item.statement,
         # 参照先の誤答を distractors に持つ主張とだけ矛盾と返す。
         "distractor": lambda reference, item: texts["B"] in item.distractors,
@@ -1173,52 +1099,39 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
         assert llm.recalled.count("q10") == 3, name
         assert _artifacts(workspace, deck_id, "recall") == []
 
-        # 台本: 想起素材を通した後に同じ判定器へ替えると、台本の段は最初の矛盾で止まって何も書かない。
-        deck_id = _deck(workspace, f"c013-multi-script-{name}", MULTI_ROWS)
-        llm = _subset_llm(drafts=drafts)
-        run = CliRunner(workspace, capsys, llm, StubTts())
-        run("recall", deck_id)
-        llm.contradicts = contradicts
-        error = _fails(run, "script", deck_id)
-        assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED, name
-        assert _artifacts(workspace, deck_id, "script") == []
 
+def test_c013_script_stage_calls_no_judge(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """T-088 A-1: script 段は含意判定を呼ばず、想起素材の段の判定で通す(D-248、ADR-030)。
 
-def test_c013_script_discrimination_is_judged_against_its_distractors(
-    workspace: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A-3: 台本の識別ポイントは distractor_ids を引き継ぎ、台本段の主張の distractors に参照先の誤答の本文が入る。"""
-    q11 = {row["id"]: row for row in SUBSET_ROWS}["q11"]
-    statement = DRAFTS["q11"].discrimination.text
-    deck_id = _deck(workspace, "c013-script-distractors")
+    識別ポイントの主張(参照先の誤答を distractors に持つもの)にだけ contradicted を返す判定器に替えても、script 段は
+    判定器を1回も呼ばずに exit 0 で成果物を書く。トラックが0本なら成果物を書かずに止まる。
+    """
+    q11 = DRAFTS["q11"].discrimination.text
+    deck_id = _deck(workspace, "c013-script-no-judge")
     llm = _subset_llm()
     run = CliRunner(workspace, capsys, llm, StubTts())
     run("recall", deck_id)
-    llm.judged.clear()
+    llm.contradicts = lambda reference, item: bool(item.distractors)
+    llm.checked.clear()
+    llm.calls.clear()
     script = _load(run("script", deck_id))
-
-    # 成果物の識別ポイントは、想起素材の参照先(q11 は A = リードレプリカ)を引き継ぐ。
+    assert llm.checked == [] and "entailment" not in llm.calls, "script 段が判定器を呼んだ"
+    assert _artifacts(workspace, deck_id, "script") != []
+    # 成果物の識別ポイントは、想起素材の本文と参照先(q11 は A = リードレプリカ)をそのまま引き継ぐ。
     (question,) = [q for track in script["tracks"] for q in track["questions"] if q["id"] == "q11"]
-    assert question["discrimination"] == {"text": statement, "distractors": ["A"]}
-    # 台本段の識別ポイントの主張は、参照先の誤答の本文だけを distractors に持つ。
-    (item,) = [i for _, i in llm.judged if i.statement == statement]
-    assert item.distractors == ("リードレプリカ",)
-    assert not any(text in item.distractors for text in _distractors(q11) if text != "リードレプリカ")
-    # 答えの主張は誤答の本文を持たない。
-    (answer,) = [i for _, i in llm.judged if i.statement == DRAFTS["q11"].answers[0].text]
-    assert answer.distractors == ()
+    assert question["discrimination"] == {"text": q11, "distractors": ["A"]}
+    # 判定器を呼ぶ別の段(recall)では、同じ判定器が識別ポイントで止める(判定器が効いていることの対照)。
+    control = _deck(workspace, "c013-script-no-judge-control")
+    llm = _subset_llm(contradicts=lambda reference, item: bool(item.distractors))
+    error = _fails(CliRunner(workspace, capsys, llm, StubTts()), "recall", control)
+    assert isinstance(error, RegenerationExhausted)
 
-    # 参照先の誤答を distractors に持つ主張とだけ矛盾と返す判定器では、台本の段で止まって台本は書かれない。
-    deck_id = _deck(workspace, "c013-script-distractors-contradicted")
-    llm = _subset_llm()
-    run = CliRunner(workspace, capsys, llm, StubTts())
-    run("recall", deck_id)
-    llm.contradicts = lambda reference, item: "リードレプリカ" in item.distractors
-    llm.judged.clear()
-    error = _fails(run, "script", deck_id)
-    assert isinstance(error, EntailmentRejected) and error.verdict is Entailment.CONTRADICTED
-    assert any(i.statement == statement for _, i in llm.judged)
-    assert _artifacts(workspace, deck_id, "script") == []
+    # トラックが0本(クラスタが無い)なら、成果物を書かずに止まる。
+    written: list[ScriptSet] = []
+    empty = Deck(DeckId("c013-empty"), Language.JA, None, ())
+    with pytest.raises(NoTracks):
+        generate_scripts(empty, (), RecallSet((), recall_report((), {})), written.append)
+    assert written == []
 
 
 @dataclass

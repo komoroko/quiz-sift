@@ -11,7 +11,7 @@ from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt, Scrip
 from quiz_sift.script.generate import LabelEnumerationFound, generate_scripts
 from quiz_sift.script.label_guard import find_enumerations
 
-from .conftest import GOOD, WRONG, StubChecker, Writer, draft, recall_set
+from .conftest import GOOD, WRONG, Writer, draft, recall_set
 
 
 def _track(prompt: str, answer: str, discrimination: str) -> list[ScriptSegment]:
@@ -70,18 +70,16 @@ def test_cross_segment_enumeration_goes_red(deck: Deck, clusters: tuple[Cluster,
         for segments in tracks:
             assert not find_enumerations(segments, language, 4, ()), segments
 
-    # 生成器も同じ単位で判定し、列挙を含むトラックがあれば含意判定より前に、何も書かずに非0で止める。
+    # 生成器も同じ単位で判定し、列挙を含むトラックがあれば、何も書かずに非0で止める。
     enumerating = {
         **GOOD,
         "q03": draft("q03", ("アの場合", "イの場合"), "ウが正解", "エは別の結果になる"),
     }
-    checker = StubChecker()
     out = tmp_path / "script.tsv"
     with pytest.raises(LabelEnumerationFound) as exc:
-        generate_scripts(checker, deck, clusters, recall_set(enumerating), Writer(out), progress=None)
+        generate_scripts(deck, clusters, recall_set(enumerating), Writer(out))
     assert exc.value.code
     assert [(t.cluster_id.local_id, t.part) for t in exc.value.tracks] == [("c002", 0)]
-    assert checker.checked == []
     assert not out.exists()
 
 

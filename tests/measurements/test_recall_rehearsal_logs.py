@@ -36,6 +36,8 @@
   contradicted・uncertain・consistent の和が件数と一致する。合格ラインは置かない(D-044)。
 - T-083 A-4: 再生成のあった問題の数と、作り直しを上限まで使った問題の数が問題ごとの表と一致し、generate_recall の
   子の環境の鍵に MAX_THINKING_TOKENS が無い(D-246)。合格ラインは置かない。
+- T-088 A-3: script 段の実行の llm_calls と provider_invocations が 0 で、記録の script 段の鍵のプロンプトとモデルの
+  ダイジェストが判定しないコード(どちらも空)の値と一致する(D-248、ADR-030)。
 - T-087 A-4: 検査の件数に `option_keys` があり、option_key で作り直した問題の数(recall の標準エラーの作り直しの
   行から数えたもの)が、再生成のあった問題の数以下の整数で書かれている(D-247)。合格ラインは置かない。
 """
@@ -126,7 +128,11 @@ def code_conditions() -> dict[str, Any]:
 
     子の環境は `ClaudeCliLlm._spawn` が渡す `workspace.child_env()` そのもので、`SubprocessRunner` は鍵が
     `CHILD_ENV_KEYS` に一致しなければ起動しない(D-246)。exit 0 の recall はこの鍵で走っている。
+
+    script 段の鍵のプロンプトとモデルは、台本段が判定しなくなった(D-248)コードでは空で、その空のダイジェストが
+    記録に残ることが、記録が T-088 の変更を含むコードで取られたことを示す(git の履歴に頼らない)。
     """
+    from quiz_sift import cli
     from quiz_sift.adapters import llm_prompts
     from quiz_sift.adapters.claude_process import CHILD_ENV_KEYS
 
@@ -136,7 +142,12 @@ def code_conditions() -> dict[str, Any]:
         "recall_digest": prompt_digest(llm_prompts.RECALL_SYSTEM, llm_prompts.RECALL_SCHEMA),
         "entailment_digest": prompt_digest(llm_prompts.ENTAILMENT_SYSTEM, llm_prompts.ENTAILMENT_SCHEMA),
         "recall_env_keys": sorted(CHILD_ENV_KEYS),
+        "script_stage_digest": prompt_digest(cli.SCRIPT.prompt_template, {"model": cli.SCRIPT.model}),
     }
+
+
+NO_JUDGE_SCRIPT_STAGE = prompt_digest("", {"model": ""})
+"""判定しない script 段(プロンプトもモデルも空。D-248、ADR-030)の鍵のダイジェスト。"""
 
 
 _REGENERATION_LINE = re.compile(r"recall: 問題 (\S+) を作り直す\(([^;]*); \d+ 回目\)")
@@ -476,6 +487,7 @@ NFR-7 の合成リハーサル(C-026)。合成デッキ `tests/fixtures/decks/sy
 | 想起素材のプロンプトとスキーマのダイジェスト | `{conditions["recall_digest"]}` |
 | 判定のプロンプトとスキーマのダイジェスト | `{conditions["entailment_digest"]}` |
 | generate_recall の子の環境の鍵 | `{",".join(conditions["recall_env_keys"])}` |
+| script 段の鍵のプロンプトとモデルのダイジェスト | `{conditions["script_stage_digest"]}` |
 
 ## 想起素材の検査
 
@@ -709,6 +721,8 @@ def check_recall_passed(text: str) -> None:
         ("判定のプロンプトとスキーマのダイジェスト", "entailment_digest"),
     ):
         assert conditions[label][0] == code[key], f"{label} が今のコードの値と違う"
+    script_stage = conditions["script 段の鍵のプロンプトとモデルのダイジェスト"][0]
+    assert script_stage == code["script_stage_digest"] == NO_JUDGE_SCRIPT_STAGE, "script 段が判定するコードで取った記録"
     recorded_keys = conditions["generate_recall の子の環境の鍵"][0].split(",")
     assert recorded_keys == code["recall_env_keys"], "generate_recall の子の環境の鍵が今のコードの値と違う"
     questions = fixture_questions()
@@ -723,6 +737,8 @@ def check_recall_passed(text: str) -> None:
         assert execution["exit_code"] == 0, f"{execution['heading']} が exit 0 で終わっていない"
         assert execution["end"]["stop"]["exit_reason"] is None, f"{execution['heading']} が例外で終わった"
         assert execution["start"]["metered_env_names"] == [], f"{execution['heading']} に metered 認証変数がある"
+    script = executions[-1]["end"]
+    assert (script["llm_calls"], script["provider_invocations"]) == (0, 0), "script 段が LLM を呼んだ"
     checks = _table(_section(text, "想起素材の検査"))
     assert set(checks) == set(CHECKS), f"検査の一覧が設計と違う: {sorted(set(checks) ^ set(CHECKS))}"
     for name, (count,) in checks.items():
@@ -1024,6 +1040,26 @@ def test_record_taken_with_another_recall_prompt_is_red() -> None:
         _read().replace(current, "sha256:" + "1" * 64, 1),
         "想起素材のプロンプトとスキーマのダイジェスト が今のコードの値と違う",
     )
+
+
+def test_record_taken_while_the_script_stage_judged_is_red() -> None:
+    """T-088 A-3: 台本段が含意判定を呼んでいたコード(script 段の鍵に判定のプロンプトとモデル)で取った記録。"""
+    _broken(
+        check_recall_passed,
+        _read().replace(NO_JUDGE_SCRIPT_STAGE, "sha256:" + "1" * 64, 1),
+        "script 段が判定するコードで取った記録",
+    )
+
+
+def test_record_with_script_stage_calls_is_red() -> None:
+    """T-088 A-3: script 段の実行の終了行で、llm_calls か provider_invocations が 0 でない記録。"""
+    text = _read()
+    heading, body = next(section for section in _sections(text, "実行 ") if "(script)" in section[0])
+    end = _blocks(body, "json")[1]
+    for key in ("llm_calls", "provider_invocations"):
+        assert f'"{key}": 0,' in end, f"記録の script 段の {key} が 0 でない"
+        broken = body.replace(end, end.replace(f'"{key}": 0,', f'"{key}": 3,', 1), 1)
+        _broken(check_recall_passed, text.replace(body, broken, 1), "script 段が LLM を呼んだ")
 
 
 def test_record_taken_with_the_thinking_env_is_red() -> None:
