@@ -1100,6 +1100,20 @@ def test_c013_one_contradicting_element_blocks_output(workspace: Path, capsys: p
         assert _artifacts(workspace, deck_id, "recall") == []
 
 
+def test_c013_reference_is_shared_only_by_the_judged_stages() -> None:
+    """D-248: reference_for を使うのは判定する段(想起素材・クラスタ要約)だけで、台本段は使わず、説明もそう書く。"""
+    import inspect
+
+    import quiz_sift.script.generate as script_generate
+    from quiz_sift.safety import entailment
+
+    assert "reference_for" not in inspect.getsource(script_generate), "台本段が reference を作っている"
+    (line,) = [item for item in (entailment.__doc__ or "").split("\n- ") if "`reference_for` だけ" in item]
+    line = "".join(part.strip() for part in line.splitlines())
+    assert "台本" not in line.replace("台本段は判定しない", ""), "reference_for を台本が共有すると書いている"
+    assert "台本段は判定しない" in line
+
+
 def test_c013_script_stage_calls_no_judge(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """T-088 A-1: script 段は含意判定を呼ばず、想起素材の段の判定で通す(D-248、ADR-030)。
 
