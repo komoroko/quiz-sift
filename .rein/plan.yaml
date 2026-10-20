@@ -70,8 +70,8 @@ claims:
 - id: C-013
   requirement_ids:
   - NFR-1
-  statement: 想起素材・台本・クラスタ要約の含意判定の reference が正解 N 件すべてを含み(識別ポイントは参照先の誤答選択肢の本文も含み)、N 要素の答えは要素が持つ選択肢 ID
-    の正解と判定され、N 件のうち1件とだけ矛盾する生成物や参照先の誤答と矛盾する識別ポイントは成果物に書かれず、想起素材・クラスタ要約・グロッサリの説明では矛盾した項目だけが上限 2 回まで作り直され、上限を超えれば(台本では最初の矛盾で)成果物を出さずにエラー終了し、正解を言い換えただけの生成物では誤検出しない。
+  statement: 想起素材・クラスタ要約の含意判定の reference が正解 N 件すべてを含み(識別ポイントは参照先の誤答選択肢の本文も含み)、N 要素の答えは要素が持つ選択肢 ID
+    の正解と判定され、N 件のうち1件とだけ矛盾する生成物や参照先の誤答と矛盾する識別ポイントは成果物に書かれず、想起素材・クラスタ要約・グロッサリの説明では矛盾した項目だけが上限 2 回まで作り直され、上限を超えれば成果物を出さずにエラー終了し、台本段は含意判定を呼ばずに想起素材の段の判定で通し(台本は想起素材の本文を並べ直すだけ。D-248)、正解を言い換えただけの生成物では誤検出しない。
   risk: critical
 - id: C-014
   requirement_ids:
@@ -97,7 +97,7 @@ claims:
   - R-3
   - NFR-8
   statement: R-2 で得た実デッキ(期待 190 問)で、ホストで走らせた cluster から audio までの1列が completed になり、予算の外の再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で
-    metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大 6 本)。
+    metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大 7 本)。
   risk: high
 - id: C-023
   requirement_ids:
@@ -120,7 +120,7 @@ claims:
 - id: C-028
   requirement_ids:
   - NFR-7
-  statement: 実行の列で、recall・script 段は、枠切れで止まった後に同じ列を --resume すると、前の実行で判定まで済んだ項目(recall は問題、script はトラック)を呼び直さずに残りから続け、作り直しの上限は再開をまたいで数え、1回で走れば止まる項目(上限超過の問題、contradicted か uncertain のトラック)は、判定の途中で止まった場合も含めて再開しても止まり、途中結果は段のキャッシュ鍵(run_id・モデル・プロンプト・前段成果物)が違えば使われず、段の成果物は全項目が検査を通ったときだけ書かれ、成果物の確定で途中結果が消え、再開のログは件数だけである。
+  statement: 実行の列で、recall 段は、枠切れで止まった後に同じ列を --resume すると、前の実行で判定まで済んだ問題を呼び直さずに残りから続け、作り直しの上限は再開をまたいで数え、1回で走れば止まる問題(上限超過)は、判定の途中で止まった場合も含めて再開しても止まり、途中結果は段のキャッシュ鍵(run_id・モデル・プロンプト・前段成果物)が違えば使われず、段の成果物は全項目が検査を通ったときだけ書かれ、成果物の確定で途中結果が消え、再開のログは件数だけである。
   risk: high
 - id: C-029
   requirement_ids:
@@ -979,15 +979,6 @@ tasks:
       - -q
       - tests/acceptance/test_analysis.py::test_c006_answer_mentions_every_correct_option
       executor_profile: quality
-  - id: A-3
-    statement: 台本の識別ポイントは想起素材の distractor_ids を引き継ぎ、台本段の含意判定の reference に参照先の誤答の本文が「正しくない記述」の節として入る。誤答とだけ矛盾する識別ポイントで止まる。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/acceptance/test_analysis.py::test_c013_script_discrimination_is_judged_against_its_distractors
-      executor_profile: quality
   operator_surface: []
 - id: T-065
   title: 採点・学習記録ストア v2・API を選択の集合と完全一致にする
@@ -1745,34 +1736,7 @@ tasks:
     - src/quiz_sift/safety/entailment.py
     - tests/safety/test_entailment.py
     - tests/adapters/test_llm_claude_cli.py
-  acceptance:
-  - id: A-1
-    statement: script 段は含意判定をトラックごとに行い、判定値を途中結果に残す。判定の途中で枠切れの LlmCallError が出て止まり、同じ鍵で走らせ直すと、check_entailment は consistent だったトラックの主張については呼ばれず、成果物が書かれる。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/script/test_generate.py::test_resume_skips_tracks_that_were_judged_consistent
-      executor_profile: quality
-  - id: A-2
-    statement: script 段で contradicted か uncertain のトラックがあれば、1回の実行では従来どおり EntailmentRejected で非0終了して成果物を書かない。そのトラックの後に枠切れで止まった場合も、トラックの判定の途中で uncertain が返った後に枠切れで止まった場合も、再開では判定値のある主張を判定し直さずに EntailmentRejected で止まり、成果物を書かない。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/script/test_generate.py::test_rejected_track_stops_the_stage_across_resumes
-      executor_profile: quality
-  - id: A-3
-    statement: script 段の再開のログは、途中結果から使ったトラックの件数と残りの件数だけを含み、台本の本文を含まない(NFR-2)。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/acceptance/test_analysis.py::test_script_resume_logs_counts_only
-      executor_profile: quality
+  acceptance: []
   operator_surface: []
 - id: T-082
   title: クラスタの分類の入力から解説を外す
@@ -1945,15 +1909,6 @@ tasks:
       - pytest
       - -q
       - tests/recall/test_generate.py::test_entailment_is_one_call_per_question
-      executor_profile: quality
-  - id: A-3
-    statement: script 段は、トラックの中の1問ぶんの主張(答えと識別ポイント)を1回で聞き、判定値を途中結果に残す。1件でも contradicted か uncertain なら EntailmentRejected で止まり、再開しても止まる。
-    evidence:
-      kind: command
-      command:
-      - pytest
-      - -q
-      - tests/script/test_generate.py::test_entailment_is_one_call_per_question
       executor_profile: quality
   - id: A-4
     statement: NFR-1 の既存の判定のテスト(要素ごとの判定、言い換えで誤検出しない、誤答の扱い、集約、クラスタ要約とグロッサリの作り直し、途中結果からの再開)が緑である。reference の節を見ていた検査(C-013 の focus の節・答えの reference に誤答の節が無いこと、偽の判定器 distractor)は、同じ性質を主張の側の focus・distractors で見る形に書き換え、性質そのものは落とさない。
@@ -2189,6 +2144,87 @@ tasks:
   environment:
     allow:
     - uv run python tests/measurements/test_recall_rehearsal_logs.py
+- id: T-088
+  title: 【ホスト】台本段は含意判定を呼ばずに想起素材の段の判定で通し、台本段の途中結果をなくし(D-248、ADR-030)、合成リハーサルを取り直し、試行の上限を 7 にする
+  kind: parallel
+  blocked_by:
+  - T-087
+  claim_ids:
+  - C-013
+  - C-028
+  - C-026
+  - C-025
+  domains:
+  - script
+  - measurement
+  risk: medium
+  scope:
+    include:
+    - src/quiz_sift/script/generate.py
+    - src/quiz_sift/domain/script.py
+    - src/quiz_sift/cli.py
+    - tests/script/
+    - tests/acceptance/
+    - tests/support/
+    - tests/test_cli.py
+    - tests/measurements/test_recall_rehearsal_logs.py
+    - docs/test/measurements/recall-rehearsal.md
+    - tests/measurements/test_full_run_logs.py
+  acceptance:
+  - id: A-1
+    statement: script 段は含意判定を呼ばず(判定器を受け取らない)、ラベル列挙・分割・答えの要素の欠けの検査を通れば成果物を書く。識別ポイントだけに contradicted を返す判定器を持つ CLI の実行でも、script 段は判定器を1回も呼ばずに exit 0 で成果物を書く。トラックが0本なら成果物を書かずに止まる。修正前のコードでは赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_c013_script_stage_calls_no_judge
+      executor_profile: quality
+  - id: A-2
+    statement: script 段は途中結果を読みも書きもせず、段のキャッシュ鍵に含意判定のプロンプトとモデルを含まない。script 段を --resume で走らせ直すと、最初から台本を組み立て直して同じ成果物を書く。recall 段の途中結果と再開(C-028)の既存のテストは緑のまま。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/test_cli.py::test_script_stage_keeps_no_progress_and_no_judge_in_its_key
+      - tests/recall
+      executor_profile: quality
+  - id: A-3
+    statement: 合成デッキのリハーサル(cluster → recall → script、実 CLI)を今のコードで取り直した記録があり、script 段が exit 0 で、script 段の実行の llm_calls と provider_invocations が 0 で、記録のコミット ID が T-088 の変更を含む。T-087 A-4 の数(再生成のあった問題、上限まで使った問題、option_key で作り直した問題)も書かれている。合格ラインは置かない。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_recall_rehearsal_logs.py
+      executor_profile: quality
+  - id: A-4
+    statement: test_full_run_logs.py の試行の上限 MAX_ATTEMPTS が 7 で、--fresh-run の列(exec を通さずに起動した列を含む)が 8 本なら赤、7 本なら緑(D-248。T-087 A-5 の 6 をこれで改める)。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_attempts_count_fresh_runs_only
+      - tests/measurements/test_full_run_logs.py::test_person_record_nodes_skip_until_the_record_exists
+      executor_profile: quality
+  operator_surface: []
+  requires:
+  - probe:
+    - which
+    - claude
+    says: ホストの PATH に claude(Claude Code CLI)がある
+  - probe:
+    - python3
+    - -c
+    - import os,sys; sys.exit(0 if os.path.lexists(os.path.expanduser('~/.quiz-sift-claude-home/.claude/.credentials.json'))
+      else 1)
+    says: 最小ホーム ~/.quiz-sift-claude-home が用意され、資格情報ファイルがある(HOME=~/.quiz-sift-claude-home claude /login
+      を1回。ファイルは開かずに存在だけを見る)
+  environment:
+    allow:
+    - uv run python tests/measurements/test_recall_rehearsal_logs.py
 - id: T-071
   title: 【不可逆】実デッキでフル処理を完走させる(人の指示でエージェントがホストで exec と render)
   kind: integration
@@ -2212,6 +2248,7 @@ tasks:
   - T-086
   - T-083
   - T-087
+  - T-088
   claim_ids:
   - C-025
   - C-007
@@ -2245,7 +2282,7 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_c007_every_cluster_has_inner_silence
       executor_profile: quality
   - id: A-3
-    statement: 使った --fresh-run の本列は 6 本以内である。
+    statement: 使った --fresh-run の本列は 7 本以内である。
     evidence:
       kind: command
       command:
@@ -2266,10 +2303,11 @@ tasks:
     - T-069
     - T-083
     - T-087
-    says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・まとめた判定と、D-246 で思考を戻した生成、D-247 の選択肢キーの検査とラベル判定を含む。再生成のあった問題の数をこの承認で読む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
+    - T-088
+    says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・まとめた判定と、D-246 で思考を戻した生成、D-247 の選択肢キーの検査とラベル判定、D-248 の判定を呼ばない台本段を含む。再生成のあった問題の数をこの承認で読む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
-    max: 6
-    cost: 1本あたり子プロセス 600〜900・5時間枠 2〜3 個・週次枠の約 20%・枠待ちを含め壁時計 8〜15 時間(試行5の実測は cluster〜recall で子プロセス 461・週次枠 0.14。script の判定約 190 を足した見積もり)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
+    max: 7
+    cost: 1本あたり子プロセス 450〜600・5時間枠 2〜3 個・週次枠の約 15%・枠待ちを含め壁時計 8〜15 時間(試行6の実測は cluster〜recall で子プロセス 486・週次枠 0.14。script 段は LLM を呼ばない)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
   says: 'T-054 の実測で、ホストの claude CLI にユーザ設定を読まない指定があった(記録の結論が「ユーザ設定の遮断: あり」)。'
@@ -3059,6 +3097,17 @@ decisions:
   requirement_ids:
   - R-4
   - R-6
+  - NFR-7
+
+- id: D-248
+  subject: 試行6の script 段の停止(判定済みの主張の判定し直しによる偽の contradicted)の扱いと、試行の上限
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 台本段は含意判定を呼ばず、想起素材の段の判定で通す。台本段の途中結果(ADR-028 の script の側)をなくす。代償として、想起素材の段の判定が矛盾を見逃した主張を台本段で拾い直す機会が無くなる(NFR-1 に明記する)。合成リハーサルを取り直す。T-071 の試行の上限を 7 にし、試行7は cluster --fresh-run から始める(試行6の列は枠切れ以外の停止で not_completable)。T-088 で行う。done のタスクは開き直さず、台本段の判定と途中結果を証拠にしていた基準(T-064 A-3、T-076 A-1〜A-3、T-084 A-3)は計画から外す(T-088 の A-1・A-2 が代わる)。
+  rationale: 試行6(列 ed3dabc5…、2026-10-20)は cluster と recall(190/190、作り直し 48 回、上限を使い切った問題 0、option_key 0、ラベル列挙 0)を通ったが、script 段が EntailmentRejected で止まった(トラック c008-5、p001-q096 の識別ポイントが contradicted)。同じ主張を script 段と同じ形と recall 段と同じ形で3回ずつ判定し直すと6回とも consistent で、判定器のゆれによる偽の停止。台本は想起素材の本文を並べ直すだけで文を生成しない(答えは要素を半角空白でつなぐだけ)。識別ポイントと答えの要素は想起素材の段で同じ reference と誤答の本文で判定済みで、recall の成果物は全問が consistent のときだけ書かれる。台本段の判定は作り直しが無いので、ゆれがそのまま試行を1回使う(ADR-026 が残したリスク)。最初は要素が2つ以上の答えの連結だけを判定する案だったが、連結も判定済みの要素を並べただけで同じ偽の停止の機会が残る(レビュー AR-I2)ので、人の判断で台本段の判定をやめた(2026-10-20)。
+  requirement_ids:
+  - NFR-1
   - NFR-7
 
 lenses:
