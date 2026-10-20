@@ -165,9 +165,14 @@ def regeneration_counts(counts: Iterable[int]) -> tuple[int, int]:
 
 
 def observed_quota(end: Mapping[str, Any]) -> bool:
-    """その実行がレート枠を観測したか。呼び出しの無い実行(script 段。D-248)は開始時も終了時も無い。"""
+    """その実行がレート枠を観測したか。観測しなくてよいのは呼び出しの無い実行(script 段。D-248)だけ。"""
     assert (end["quota_at_start"] is None) == (end["quota_at_end"] is None), "開始時と終了時の枠の片方だけがある"
-    return end["quota_at_start"] is not None
+    if end["quota_at_start"] is not None:
+        return True
+    assert end["llm_calls"] == 0 and end["provider_invocations"] == 0, (
+        f"呼び出しのある実行の枠が無い: {end['execution_id']}"
+    )
+    return False
 
 
 def mutation_count(questions: Sequence[Mapping[str, Any]]) -> int:
@@ -1131,6 +1136,23 @@ def test_record_with_a_wrong_raw_utilization_is_red() -> None:
     assert marker, "utilization の生の値の表が無い"
     tail = re.sub(r"^(\| 1 \| `[0-9a-f]+` \| five_hour \| )[^|]+\|", r"\g<1>9.99 |", tail, count=1, flags=re.M)
     _broken(check_usage_recorded, head + marker + tail, "utilization の生の値が終了行と違う")
+
+
+def test_record_without_quota_on_a_calling_stage_is_red() -> None:
+    """呼び出しのある段(recall)の終了行に枠が無い記録は赤。枠を外してよいのは呼び出し0本の実行だけ。"""
+    text = _read()
+    heading, body = next(section for section in _sections(text, "実行 ") if "(recall)" in section[0])
+    end_line = _blocks(body, "json")[1]
+    end = json.loads(end_line)
+    assert end["llm_calls"] > 0 and end["quota_at_start"] is not None, "recall の実行が呼び出しと枠を持たない"
+    blank = json.dumps({**end, "quota_at_start": None, "quota_at_end": None}, ensure_ascii=False)
+    _broken(
+        check_usage_recorded, text.replace(end_line, blank, 1), f"呼び出しのある実行の枠が無い: {end['execution_id']}"
+    )
+    # 対照: 呼び出しの無い script 段の枠が無いのは記録どおりで、検査は通る。
+    script = _blocks(next(b for h, b in _sections(text, "実行 ") if "(script)" in h), "json")[1]
+    assert json.loads(script)["quota_at_start"] is None
+    check_usage_recorded(text)
 
 
 def test_record_with_a_wrong_extrapolation_is_red() -> None:
