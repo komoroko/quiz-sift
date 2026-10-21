@@ -98,7 +98,8 @@ REVIEW_DIRNAME = "review"
 METER_LOG = "meter.jsonl"
 
 # `inputs_digest` に入れるプロンプトとモデル(AR-21)。プロンプトは `llm_prompts` の定数そのもので、
-# 直せば digest が変わって作り直される。含意判定はどの段でも走るので全段に入れる。モデルは段が使う
+# 直せば digest が変わって作り直される。含意判定は LLM を呼ぶ段すべてで走るので、それらの段に入れる(台本段は
+# 判定しないので入れない。D-248)。モデルは段が使う
 # メソッドごとの割り当て(ADR-015)を並べ、どれか1つを変えればその段の digest が動く。生成パラメータは
 # CLI 経路に `max_tokens` が無いので `--max-turns` を入れる(AR-62)。
 _LLM_PARAMS = {"max_turns": MAX_TURNS}
@@ -131,12 +132,8 @@ GLOSSARY = Stage(
     model=_models("describe_term"),
     params=_LLM_PARAMS,
 )
-SCRIPT = Stage(
-    "script",
-    prompt_template=_ENTAILMENT,
-    model=_models(),
-    params={**_LLM_PARAMS, "pause_seconds": PAUSE_SECONDS},
-)
+# 台本段は LLM を呼ばない(D-248、ADR-030)ので、プロンプトもモデルも持たない。
+SCRIPT = Stage("script", params={"pause_seconds": PAUSE_SECONDS})
 
 
 class ExecutionLimitExceeded(SystemExit):
@@ -445,14 +442,7 @@ class Pipeline:
         upstream = self._recall_upstream() + b"\0" + recall_path.read_bytes()
 
         def produce(out: BinaryIO) -> None:
-            generate_scripts(
-                self.llm,
-                deck,
-                clusters,
-                recall,
-                lambda result: _dump(_script_json(result), out),
-                progress=self._cache.progress(SCRIPT, upstream),
-            )
+            generate_scripts(deck, clusters, recall, lambda result: _dump(_script_json(result), out))
 
         return self._cache.run(SCRIPT, upstream, produce)
 

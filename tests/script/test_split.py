@@ -17,7 +17,7 @@ from quiz_sift.script.generate import ScriptTooLong, generate_scripts
 from quiz_sift.script.segments import QuestionScript, Track, parse_questions
 from quiz_sift.script.split import TRACK_LIMIT_SECONDS, TrackPlan, plan_tracks
 
-from .conftest import DECK, GOOD, StubChecker, Writer, answered, discriminated, qscript, recall_set
+from .conftest import DECK, GOOD, Writer, answered, discriminated, qscript, recall_set
 
 
 def _text(seconds: int) -> str:
@@ -84,20 +84,18 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
     assert plan.unsplittable == (c1, c3)
     assert plan.split == (c1, c3)
 
-    # 生成器は割れないクラスタを全件挙げて、含意判定より前に、何も書かずに非0で止める。
+    # 生成器は割れないクラスタを全件挙げて、何も書かずに非0で止める。
     huge = "拒否される" * 300
     drafts = {
         **GOOD,
         "q01": discriminated(GOOD["q01"], GOOD["q01"].discrimination.text * 40),
         "q03": answered(GOOD["q03"], huge),
     }
-    checker = StubChecker()
     out = tmp_path / "script.tsv"
     with pytest.raises(ScriptTooLong) as exc:
-        generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out), progress=None)
+        generate_scripts(deck, clusters, recall_set(drafts), Writer(out))
     assert exc.value.code
     assert [c.local_id for c in exc.value.cluster_ids] == ["c001", "c002"]
-    assert checker.checked == []
     assert not out.exists()
 
     # 割れば収まるクラスタは、割ったうえで成果物に列挙される。
@@ -107,7 +105,7 @@ def test_overlong_clusters_are_listed_not_truncated(deck: Deck, clusters: tuple[
         "q02": discriminated(GOOD["q02"], GOOD["q02"].discrimination.text * 15),
     }
     writer = Writer(tmp_path / "split.tsv")
-    generate_scripts(StubChecker(), deck, clusters, recall_set(drafts), writer, progress=None)
+    generate_scripts(deck, clusters, recall_set(drafts), writer)
     assert writer.result is not None
     assert [c.local_id for c in writer.result.split] == ["c001"]
     assert [(t.cluster_id.local_id, t.part) for t in writer.result.tracks] == [("c001", 0), ("c001", 1), ("c002", 0)]

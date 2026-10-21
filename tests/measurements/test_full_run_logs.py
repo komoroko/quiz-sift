@@ -79,8 +79,8 @@ MIN_QUESTIONS, MAX_QUESTIONS = 100, 200
 CLASSIFY_BATCH_SIZE = 25
 """分類の分割呼び出し1回あたりの問題数(設計 R-3 節、AR-62)。⌈N/25⌉ の 25。"""
 REPRO_SEQUENCES = 2
-MAX_ATTEMPTS = 6
-"""フル処理の試行の上限(D-181、D-241、D-246、D-247、NFR-7。1回 = `--fresh-run` の列1本)。"""
+MAX_ATTEMPTS = 7
+"""フル処理の試行の上限(D-181、D-241、D-246、D-247、D-248、NFR-7。1回 = `--fresh-run` の列1本)。"""
 ATTEMPTS = "試行"
 
 END_KEYS = frozenset(
@@ -1304,7 +1304,7 @@ def test_full_run_judges_go_red_on_each_missing_item(tmp_path: Path) -> None:
 
 
 def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
-    """T-070・T-087 A-5: 試行は --fresh-run の列ごと。--resume と再現性の列は数えず、7本目の本列は赤。"""
+    """T-070・T-088 A-4: 試行は --fresh-run の列ごと。--resume と再現性の列は数えず、8本目の本列は赤。"""
     # 止まった列2本(どちらも --resume を1回ずつ)+ 本列(--resume 5回、うち枠で止まった1回)+ 再現性の2列。
     full, _, _ = _synthetic_records(tmp_path / "three", earlier_attempts=2, stopped=1)
     check_attempt_budget(full)
@@ -1312,14 +1312,15 @@ def test_attempts_count_fresh_runs_only(tmp_path: Path) -> None:
     assert [(int(fresh), int(resume)) for _, fresh, resume in rows] == [(1, 1), (1, 1), (1, 5)]
     assert not {"c" * 32, "d" * 32} & {run_id for run_id, _, _ in rows}, "再現性の列を試行に数えた"
 
-    assert MAX_ATTEMPTS == 6
-    check_attempt_budget(_synthetic_records(tmp_path / "six", earlier_attempts=5)[0])
-    seventh, _, _ = _synthetic_records(tmp_path / "seven", earlier_attempts=6)
-    _red(check_attempt_budget, seventh)
+    assert MAX_ATTEMPTS == 7
+    check_attempt_budget(_synthetic_records(tmp_path / "seven", earlier_attempts=6)[0])
+    eighth, _, _ = _synthetic_records(tmp_path / "eight", earlier_attempts=7)
+    _red(check_attempt_budget, eighth)
     # exec を通さずに起動した --fresh-run も試行に数える。前サイクルの開始行(journal の最初の実行より前)は数えない。
-    _red(check_attempt_budget, _synthetic_records(tmp_path / "unjournaled", unjournaled=6)[0])
-    _red(check_attempt_budget, _synthetic_records(tmp_path / "mixed", earlier_attempts=2, unjournaled=4)[0])
-    check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=5, previous_cycle=3)[0])
+    check_attempt_budget(_synthetic_records(tmp_path / "unjournaled-seven", unjournaled=6)[0])
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "unjournaled", unjournaled=7)[0])
+    _red(check_attempt_budget, _synthetic_records(tmp_path / "mixed", earlier_attempts=2, unjournaled=5)[0])
+    check_attempt_budget(_synthetic_records(tmp_path / "previous", earlier_attempts=6, previous_cycle=3)[0])
     _red(check_attempt_budget, full.replace("| 1 | 5 |", "| 1 | 4 |"))
     _red(check_attempt_budget, full.replace(f"| `{'1' * 32}` | 1 |", f"| `{'1' * 32}` | 2 |"))
 
@@ -1505,11 +1506,11 @@ def test_person_record_nodes_skip_until_the_record_exists(tmp_path: Path, monkey
     # 記録があれば skip せずに判定する: 壊れた記録は赤、一部だけの記録も赤。
     paths["SILENCE_LOG"].write_text(records[2].replace("| 真 |", "| 偽 |"), encoding="utf-8")
     paths["FULL_LOG"].write_text(records[0].replace('"status": "completed"', '"status": "resumable"'), encoding="utf-8")
-    seventh, _, _ = _synthetic_records(tmp_path / "seven", earlier_attempts=6)
+    eighth, _, _ = _synthetic_records(tmp_path / "eight", earlier_attempts=7)
     for node in nodes[:2]:
         with pytest.raises(AssertionError):
             node()
-    paths["FULL_LOG"].write_text(seventh, encoding="utf-8")
+    paths["FULL_LOG"].write_text(eighth, encoding="utf-8")
     with pytest.raises(AssertionError):
         nodes[2]()
     paths["REPRO_LOG"].unlink()

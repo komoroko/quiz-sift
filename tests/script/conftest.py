@@ -1,7 +1,6 @@
-"""2クラスタ・3問の合成フィクスチャと、含意判定だけを返すスタブ(R-6 / NFR-1)。合成なので NFR-2 の対象外。"""
+"""2クラスタ・3問の合成フィクスチャと、成果物を受け取る Writer(R-6)。合成なので NFR-2 の対象外。"""
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,7 +13,7 @@ from quiz_sift.domain.question import Option, Question
 from quiz_sift.domain.recall import AnswerElement, DiscriminationPoint, RecallKey
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt
 from quiz_sift.domain.studied import StudiedFlag
-from quiz_sift.ports.llm import Entailment, EntailmentStatement, RecallDraft
+from quiz_sift.ports.llm import RecallDraft
 from quiz_sift.recall.generate import RecallSet
 from quiz_sift.recall.verify import RecallMaterial, RecallReport
 from quiz_sift.script.generate import ScriptSet
@@ -130,31 +129,6 @@ def qscript(local_id: str, prompt: str, answer: str, discrimination: str | None 
         Answer((answer,)),
         None if discrimination is None else Discrimination(discrimination, (WRONG,)),
     )
-
-
-@dataclass
-class StubChecker:
-    """`contradicted` / `uncertain` に含まれる主張にその判定を返し、呼ばれた照合を記録する。
-
-    主張は reference と組で `checked` に、判定の呼び出しは reference と主張の列の組で `calls` に残る。
-    """
-
-    contradicted: frozenset[str] = frozenset()
-    uncertain: frozenset[str] = frozenset()
-    checked: list[tuple[str, str]] = field(default_factory=list)
-    calls: list[tuple[str, tuple[EntailmentStatement, ...]]] = field(default_factory=list)
-
-    def check_entailments(self, reference: str, statements: Sequence[EntailmentStatement]) -> tuple[Entailment, ...]:
-        self.calls.append((reference, tuple(statements)))
-        self.checked.extend((reference, s.statement) for s in statements)
-        return tuple(self._verdict(s.statement) for s in statements)
-
-    def _verdict(self, statement: str) -> Entailment:
-        if statement in self.contradicted:
-            return Entailment.CONTRADICTED
-        if statement in self.uncertain:
-            return Entailment.UNCERTAIN
-        return Entailment.CONSISTENT
 
 
 class Writer:

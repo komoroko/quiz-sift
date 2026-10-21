@@ -1,4 +1,4 @@
-"""台本のセグメント順序と含意判定の結線(C-006 / C-013 / R-6 / NFR-1 / A-1 / A-6)。"""
+"""台本のセグメント順序と答えの要素(C-006 / R-6 / A-1 / A-6)。"""
 
 from dataclasses import replace
 from pathlib import Path
@@ -13,19 +13,15 @@ from quiz_sift.domain.question import Question
 from quiz_sift.domain.recall import AnswerElement
 from quiz_sift.domain.script import Answer, Discrimination, Pause, Prompt, ScriptSegment
 from quiz_sift.recall.verify import RecallMaterial
-from quiz_sift.safety.entailment import EntailmentRejected
 from quiz_sift.script.generate import MissingAnswerElement, generate_scripts, question_script
 from quiz_sift.script.segments import QuestionScript, ScriptOrderError, parse_questions
 
-from .conftest import DECK, GOOD, WRONG, StubChecker, Writer, answered, recall_set
-
-# 語句はすべて実在するが、正解・解説(標準-IA はミリ秒単位で取り出せる)と矛盾する答え。
-CONTRADICTING = "S3 標準-IA の取り出しには数時間かかる"
+from .conftest import DECK, GOOD, WRONG, Writer, answered, recall_set
 
 
 def test_segment_order_is_enforced_by_type(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
     writer = Writer(tmp_path / "script.tsv")
-    generate_scripts(StubChecker(), deck, clusters, recall_set(GOOD), writer, progress=None)
+    generate_scripts(deck, clusters, recall_set(GOOD), writer)
     assert writer.result is not None
     tracks = writer.result.tracks
     assert [(t.cluster_id.local_id, [q.question_id.local_id for q in t.questions]) for t in tracks] == [
@@ -85,33 +81,6 @@ def test_segment_order_is_enforced_by_type(deck: Deck, clusters: tuple[Cluster, 
         Discrimination("識別2", (WRONG,)),
     ]
     assert [len(u) for u in parse_questions(good)] == [3, 4]
-
-
-def test_script_goes_through_entailment(deck: Deck, clusters: tuple[Cluster, ...], tmp_path: Path) -> None:
-    # 矛盾の無い台本は、全問の答えと識別ポイントがその問題の正解・解説と照合されたうえで書かれる。
-    ok = StubChecker()
-    generate_scripts(ok, deck, clusters, recall_set(GOOD), Writer(tmp_path / "ok.tsv"), progress=None)
-    assert (tmp_path / "ok.tsv").exists()
-    statements = [s for _, s in ok.checked]
-    for draft in GOOD.values():
-        assert draft.answers[0].text in statements
-        assert draft.discrimination.text in statements
-    reference = next(r for r, s in ok.checked if s == GOOD["q01"].answers[0].text)
-    assert "S3 標準-IA" in reference and "ミリ秒単位で取り出せる" in reference
-
-    # 仕込んだ矛盾(contradicted)も、判定できないもの(uncertain)も、成果物を書かずに非0で止める。
-    drafts = {**GOOD, "q01": answered(GOOD["q01"], CONTRADICTING)}
-    for name, checker in {
-        "contradicted": StubChecker(contradicted=frozenset({CONTRADICTING})),
-        "uncertain": StubChecker(uncertain=frozenset({CONTRADICTING})),
-    }.items():
-        out = tmp_path / f"{name}.tsv"
-        with pytest.raises(EntailmentRejected) as exc:
-            generate_scripts(checker, deck, clusters, recall_set(drafts), Writer(out), progress=None)
-        assert isinstance(exc.value, SystemExit) and exc.value.code
-        assert exc.value.verdict.value == name
-        assert CONTRADICTING in [s for _, s in checker.checked]
-        assert not out.exists()
 
 
 def test_answer_is_built_from_every_answer_element(deck: Deck) -> None:
