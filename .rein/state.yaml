@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-22T11:03:47+09:00'
+updated_at: '2026-10-22T19:50:52+09:00'
 gates:
   mandate:
     status: approved
@@ -1887,6 +1887,53 @@ tasks:
         step: test
       tree: sha256:4220e0c332b7607abe1e5bee886f580951db451cc5b96ac5fafa1addaffaf102
       updated_at: '2026-10-21T10:49:54+09:00'
+  T-089:
+    status: done
+    attempts: 3
+    completed_commit: 08562b7ab1246c8f413127295287833176624d2b
+    handoff:
+      review:
+        findings:
+        - severity: question
+          statement: D-248 の消し漏れがもう1か所残っている。src/quiz_sift/script/__init__.py:4 の docstring は、台本が「含意判定(`safety/entailment`)をすべて通ったときだけ」書かれると今も述べており、T-089
+            が直した entailment.py の docstring(台本段は判定しない)と食い違う。このファイルは T-089 の scope(tests/measurements/test_full_run_logs.py・src/quiz_sift/safety/entailment.py・tests/acceptance/)の外にあり、タスクの中では直せない。全体レビューの修理で
+            scope を広げて直すか(scope_expansions に載せる)、別に扱うかを人が決める必要がある。
+          anchor: src/quiz_sift/script/__init__.py:4
+      updated_at: '2026-10-22T19:50:52+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: true
+      - id: A-2
+        kind: command
+        reused: true
+      negative_control:
+        result: discriminating
+        base: f47f9617014381404271c635219a1457923240a2
+        step: test
+      tree: sha256:af22c2315a1be74972ce94e5718eb000d4e5ee570f1573d76b0e829a50356fba
+      updated_at: '2026-10-22T19:50:52+09:00'
 dependency_audit:
   ran_at: '2026-10-22T01:22:40+00:00'
   commit: 827e67151f6c26a0224431fdda73c28f6c137998
