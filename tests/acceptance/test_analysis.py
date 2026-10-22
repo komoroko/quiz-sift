@@ -1190,19 +1190,32 @@ def test_regeneration_logs_name_ids_and_counts_only(
     assert not [text for text in (summary, ungrounded, description, "IAM", "EC2") for line in lines if text in line]
 
 
-def test_c013_reference_is_shared_only_by_the_judged_stages() -> None:
-    """T-089 A-2: `reference_for` を使う段に台本段を挙げず、台本段は判定しないと書く(D-248)。"""
+def _referenced_names(source: str) -> set[str]:
+    """ソースが名前として使う識別子: 名前、`from … import` の名前、属性アクセス(`entailment.reference_for`)の属性名。"""
     import ast
 
+    tree = ast.parse(source)
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    names |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    names |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
+    return names
+
+
+def test_c013_reference_is_shared_only_by_the_judged_stages() -> None:
+    """T-089 A-2: `reference_for` を使う段に台本段を挙げず、台本段は判定しないと書く(D-248)。"""
     import quiz_sift.safety.entailment as entailment
-    import quiz_sift.script.generate as script_generate
+    import quiz_sift.script as script
 
     doc = entailment.__doc__
     assert doc is not None
     (item,) = [line for line in doc.splitlines() if "reference_for" in line]
     assert "台本" not in item.replace("台本段は判定しない", ""), item
     assert "台本段は判定しない" in doc
-    tree = ast.parse(Path(script_generate.__file__).read_text(encoding="utf-8"))
-    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
-    names |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
-    assert "reference_for" not in names
+    # 判定の対照: import でも名前でもなく、モジュールの属性として呼ぶ形も拾う。
+    assert "reference_for" in _referenced_names(
+        "from quiz_sift.safety import entailment\n\ndef f(q):\n    return entailment.reference_for(q)\n"
+    )
+    sources = sorted(Path(script.__file__).parent.rglob("*.py"))
+    assert len(sources) > 1, "台本段のソースが見つからない"
+    for path in sources:
+        assert "reference_for" not in _referenced_names(path.read_text(encoding="utf-8")), path.name
