@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-22T19:50:52+09:00'
+updated_at: '2026-10-23T05:37:58+09:00'
 gates:
   mandate:
     status: approved
@@ -961,7 +961,33 @@ tasks:
       tree: sha256:1781c12c187c246db733f6b8129d90c2331dff270e00ca52e3b6f7d54187b3e8
       updated_at: '2026-10-07T14:49:08+09:00'
   T-071:
-    status: todo
+    status: done
+    attempts: 0
+    completed_commit: b77ee44ad132bf4d8a9647a2d0888abfa123a9a5
+    evidence:
+      authored:
+      - path: docs/test/measurements/full-run.md
+        commit: b77ee44ad132bf4d8a9647a2d0888abfa123a9a5
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      - path: docs/test/measurements/reproducibility.md
+        commit: b77ee44ad132bf4d8a9647a2d0888abfa123a9a5
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      - path: docs/test/measurements/audio-silence.md
+        commit: b77ee44ad132bf4d8a9647a2d0888abfa123a9a5
+        author: Koichi Maeda <107713495+komoroko@users.noreply.github.com>
+      reported: none
+      acceptance:
+      - id: A-1
+        kind: artifact
+        reused: false
+      - id: A-2
+        kind: command
+        reused: false
+      - id: A-3
+        kind: command
+        reused: false
+      tree: sha256:cff84286e6956cc2edfc91b9e7283abcf34a80cf951992cf6e7ef087c0bbfda5
+      updated_at: '2026-10-23T05:37:58+09:00'
   T-058:
     status: done
     attempts: 0
