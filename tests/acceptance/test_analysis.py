@@ -1188,3 +1188,21 @@ def test_regeneration_logs_name_ids_and_counts_only(
     assert re.fullmatch(r"glossary: 用語 #\d+ の説明を作り直す\(entailment; 1 回目\)", glossary_lines[0])
     # 要約・説明・用語の本文はどのログにも出ない。
     assert not [text for text in (summary, ungrounded, description, "IAM", "EC2") for line in lines if text in line]
+
+
+def test_c013_reference_is_shared_only_by_the_judged_stages() -> None:
+    """T-089 A-2: `reference_for` を使う段に台本段を挙げず、台本段は判定しないと書く(D-248)。"""
+    import ast
+
+    import quiz_sift.safety.entailment as entailment
+    import quiz_sift.script.generate as script_generate
+
+    doc = entailment.__doc__
+    assert doc is not None
+    (item,) = [line for line in doc.splitlines() if "reference_for" in line]
+    assert "台本" not in item.replace("台本段は判定しない", ""), item
+    assert "台本段は判定しない" in doc
+    tree = ast.parse(Path(script_generate.__file__).read_text(encoding="utf-8"))
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    names |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
+    assert "reference_for" not in names
