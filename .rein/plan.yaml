@@ -97,7 +97,7 @@ claims:
   - R-3
   - NFR-8
   statement: R-2 で得た実デッキ(期待 190 問)で、ホストで走らせた cluster から audio までの1列が completed になり、予算の外の再現性の2列で割当一致率が記録され、M/N・最大クラスタ比率・「その他」比率が数値で記録され、すべての実行で
-    metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大 7 本)。
+    metered 認証変数が無く overage の呼び出しが 0 件で、overage_check が passed または unknown である(不可逆、試行は --fresh-run の列で最大 8 本)。
   risk: high
 - id: C-023
   requirement_ids:
@@ -2225,6 +2225,43 @@ tasks:
   environment:
     allow:
     - uv run python tests/measurements/test_recall_rehearsal_logs.py
+- id: T-089
+  title: 試行の上限を 8 にし(D-249。数え落とした列 9bb4b32b を入れた本数)、safety/entailment.py の docstring の消し漏れを直す
+  kind: parallel
+  blocked_by:
+  - T-088
+  claim_ids:
+  - C-025
+  - C-013
+  domains:
+  - measurement
+  risk: low
+  scope:
+    include:
+    - tests/measurements/test_full_run_logs.py
+    - src/quiz_sift/safety/entailment.py
+    - tests/acceptance/
+  acceptance:
+  - id: A-1
+    statement: test_full_run_logs.py の試行の上限 MAX_ATTEMPTS が 8 で、--fresh-run の列(exec を通さずに起動した列を含む)が 9 本なら赤、8 本なら緑(D-249。T-088 A-4 の 7 をこれで改める)。記録の試行の節に書かれた上限の本数が MAX_ATTEMPTS と違えば赤。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/measurements/test_full_run_logs.py::test_attempts_count_fresh_runs_only
+      - tests/measurements/test_full_run_logs.py::test_person_record_nodes_skip_until_the_record_exists
+      executor_profile: quality
+  - id: A-2
+    statement: safety/entailment.py のモジュール docstring が、reference_for を使う段に台本段を挙げず、台本段は判定しないと書く(D-248)。台本段のコードは reference_for を使わない。修正前のコードでは赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_c013_reference_is_shared_only_by_the_judged_stages
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
   title: 【不可逆】実デッキでフル処理を完走させる(人の指示でエージェントがホストで exec と render)
   kind: integration
@@ -2249,6 +2286,7 @@ tasks:
   - T-083
   - T-087
   - T-088
+  - T-089
   claim_ids:
   - C-025
   - C-007
@@ -2271,7 +2309,7 @@ tasks:
       - docs/test/measurements/reproducibility.md
       - docs/test/measurements/audio-silence.md
   - id: A-2
-    statement: '記録が元の T-047 の A-1〜A-6 の判定をすべて通る: 本列が completed、再現性の2列の割当一致率、全クラスタの無音判定が真、圧縮3値、metered
+    statement: '記録が元の T-047 の A-1〜A-6 の判定をすべて通る: 本列が completed、再現性の2列(それぞれ1回の実行で exit 0 になった cluster の --fresh-run の列。再開した列は使わない。D-142)の割当一致率、全クラスタの無音判定が真、圧縮3値、metered
       認証変数なしと overage 0 件、overage_check が passed または unknown。'
     evidence:
       kind: command
@@ -2282,7 +2320,7 @@ tasks:
       - tests/measurements/test_full_run_logs.py::test_c007_every_cluster_has_inner_silence
       executor_profile: quality
   - id: A-3
-    statement: 使った --fresh-run の本列は 7 本以内である。
+    statement: 使った --fresh-run の本列は 8 本以内である(exec を通さずに起動した列を含む)。
     evidence:
       kind: command
       command:
@@ -2306,7 +2344,7 @@ tasks:
     - T-088
     says: 合成デッキで script 段まで(実 CLI、ADR-029 の分類・まとめた判定と、D-246 で思考を戻した生成、D-247 の選択肢キーの検査とラベル判定、D-248 の判定を呼ばない台本段を含む。再生成のあった問題の数をこの承認で読む)と、合成の台本で audio 段の経路(実 CosyVoice)を先に通し、フル処理で初めて触れる部分を減らす
   attempts:
-    max: 7
+    max: 8
     cost: 1本あたり子プロセス 450〜600・5時間枠 2〜3 個・週次枠の約 15%・枠待ちを含め壁時計 8〜15 時間(試行6の実測は cluster〜recall で子プロセス 486・週次枠 0.14。script 段は LLM を呼ばない)。枠切れは同じ列を --resume(試行を消費しない)。枠切れ以外の失敗が1本でもあれば試行を1回使う。内訳は T-071.md
 premises:
 - id: P-1
@@ -3108,6 +3146,16 @@ decisions:
   rationale: 試行6(列 ed3dabc5…、2026-10-20)は cluster と recall(190/190、作り直し 48 回、上限を使い切った問題 0、option_key 0、ラベル列挙 0)を通ったが、script 段が EntailmentRejected で止まった(トラック c008-5、p001-q096 の識別ポイントが contradicted)。同じ主張を script 段と同じ形と recall 段と同じ形で3回ずつ判定し直すと6回とも consistent で、判定器のゆれによる偽の停止。台本は想起素材の本文を並べ直すだけで文を生成しない(答えは要素を半角空白でつなぐだけ)。識別ポイントと答えの要素は想起素材の段で同じ reference と誤答の本文で判定済みで、recall の成果物は全問が consistent のときだけ書かれる。台本段の判定は作り直しが無いので、ゆれがそのまま試行を1回使う(ADR-026 が残したリスク)。最初は要素が2つ以上の答えの連結だけを判定する案だったが、連結も判定済みの要素を並べただけで同じ偽の停止の機会が残る(レビュー AR-I2)ので、人の判断で台本段の判定をやめた(2026-10-20)。
   requirement_ids:
   - NFR-1
+  - NFR-7
+
+- id: D-249
+  subject: 試行7の後に分かった試行の数え落とし(列 9bb4b32b)と、試行の上限
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: 数え方(--fresh-run で始めた列を、exec を通さずに起動した列も含めて数える。D-181、T-088 A-4)は変えず、T-071 の試行の上限を 8 にする。上限 8 は使用済みの 8 本を後から認めるもので、承認後に新しく起動できるフル処理の列は 0 本である。T-089 で MAX_ATTEMPTS を 8 にする。試行7の列(384e3e42…)をそのまま本列とする。再現性の2列は、どちらも枠切れで再開して1回の実行の列でない(D-142)ので、T-089 の取り込み後に、1回の実行で通る列を2本取り直す(予算の外。手順と取り直しの本数の上限は T-071 の To do)。
+  rationale: 試行7(列 384e3e42…、2026-10-21〜22)は cluster・recall(190/190、作り直し 41、上限を使い切った問題 0)・script(呼び出し 0)・audio で完走し、無音判定は 116 ファイルすべて真だった。render した試行の表は --fresh-run の列を 8 本と数えた。数え落としていたのは 9bb4b32b で、2026-10-12T04:27:30Z に cluster の fresh の開始行だけがあり、終了行も journal の行も無い(47a4 の 17 秒前で、直後に止まった起動と見られる)。この列は試行3(876150…、2026-10-12)より前にあるので、数え落としは D-241 からある。D-241 は使用済みを3本、D-246 は4本、D-247 は5本、D-248 は6本と数えたが、実際はそれぞれ1本多かった。試行3〜7は、それぞれの起動の時点で承認されていた上限(3・4・5・6・7)を1本ずつ超えて起動されていた。数え方は正しく、誤りは予算の数えの側にある(人の判断、2026-10-22)。
+  requirement_ids:
   - NFR-7
 
 lenses:
