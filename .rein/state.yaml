@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-23T13:20:11+09:00'
+updated_at: '2026-10-23T20:18:03+09:00'
 gates:
   mandate:
     status: approved
@@ -18,8 +18,19 @@ gates:
       validation_digest: sha256:c3d2e537225fecee1322eacf048a9f918d6b9b00c5eede7dcef89dc19f9c0dfd
       attested_chain_root: sha256:e0c303d7504ba3f1f9990f1d95976b2a81f65e859a65014b11841d603c42924d
   acceptance:
-    status: pending
-    receipt: null
+    status: approved
+    receipt:
+      approval_id: GA-ACCEPTANCE-788C1629
+      confirmed_at: '2026-10-23T20:18:02+09:00'
+      confirmed_via: ui-session
+      result_chain_root: sha256:4f70afe60de6fbfdd2abcbaaec18c2f8feaaab72549c88d48ca797add35573ac
+      plan_digest: sha256:3e4b62cc3eb6bb791aec1e010c776803599f5e916c747a7bac63079ea294b0f7
+      config_digest: sha256:10686ac924f824920eec91e40886900debc1bb2c290664fadc695db8bc6224d2
+      environment_digest: sha256:4bd9f3d9844e20fa3f5a941979af5ed1ad72a8742c0759eb444e3956cc7cd876
+      machine_digest: sha256:d0ad3442b827a37cb8b9c9fcec5adf55d59b97c6629a7b8e50928ae802d46d33
+      human_digest: sha256:b505bf6dfb824b05b171d2018b0cf13c05cc7291056ca762a1cfcb7257cb7eaa
+      validation_digest: sha256:c3ed5bf5c354777b705289a3aa6d7a31ed97bb83c8b0b86562db81da1c95d4f2
+      attested_chain_root: sha256:c23796d5e06a19cf58940adc69f2915fc4014fba682e4d07a34885b5270e1f18
   T-059:
     status: approved
     receipt:
