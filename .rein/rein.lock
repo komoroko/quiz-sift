@@ -1,0 +1,51 @@
+# .rein/rein.lock — machine-written by `rein init|sync|install|uninstall|upgrade`.
+# Records the document format, the tool version/source, and a hash per installed file so
+# upgrades never overwrite local edits. Do not edit by hand.
+format: rein-grounded-v12
+tool_version: 0.14.1
+source: git+https://github.com/komoroko/loose-rein-kit@v0.10.0
+prompts:
+  version: 0.14.1
+  files:
+    AGENTS.rein.md: sha256:fe5e99c042f2dc7e46608587b0830938859b76f8a28c0cf6979da774e85e1d6f
+    prompts/agents/adversarial-reviewer.md: sha256:ce74b38d44df0dd709608c4769cb2ba5b2b1237eb72a2dd77d9863325b5a568a
+    prompts/agents/architect.md: sha256:2f5d25fbbb939eab00a26db15241c1418283f7c627fb3c639ede199f4a4bdf8f
+    prompts/agents/implementer.md: sha256:310bc58074601ba7a855cf93242e1da395926479b5a274ff0fc5a818a2cd58ef
+    prompts/agents/requirements-analyst.md: sha256:0c928038ded17cc8224febce1ba72c555b8fb182d0c35254e03df3fa63241f8d
+    prompts/commands/build.md: sha256:53eed7ba920fad4eabc77773d00620322c279baf8ac9aafb3ce0a0e3e1379871
+    prompts/commands/design.md: sha256:c4ec72f030a1e4f206dfe4737407f80d3d59a93ad24b46ee1079ad8d8851d176
+    prompts/commands/onboard.md: sha256:a424f9ea371691d31db64f892ec64b4060dcfe6dd8ddbbb98503926b727a5bd4
+    prompts/commands/req.md: sha256:ef334b9d1b00d7d6f89cfd10e81aeae47f56c486b843ea37d0909b661bcb49c4
+    prompts/commands/revise.md: sha256:0ef88338c574efb7e629ffb288ed3b519f261ffcb0a4be961783601d2c62472c
+    prompts/commands/status.md: sha256:6f31d2c1b46f62b0e511300838251dc6a35fb33c3d1b03dfbed1543e76f4de2d
+    prompts/commands/tasks.md: sha256:0f3ef4d0efccdf6da2e36bed5dd4b2c0fc338ce4ba26ecd81ed9362e03c459f9
+    prompts/commands/verify.md: sha256:6115f6fc34bbcec48afbca16a611f5596f72ea912734a35ec9c4d5c6c3dc2b9e
+    prompts/rules/gate-workflow.md: sha256:37e8048a4d2ae31bbf3f13a5030558756e27ef5cad602d54d84cc3bb58d533a0
+integrations:
+  claude:
+    version: 0.14.1
+    installed_at: '2026-09-25'
+    files:
+      .claude/agents/adversarial-reviewer.md: sha256:a4fd4c68f39502bad42327168e79fbb43402d7ddff17788237ffb0d32eab4d8f
+      .claude/agents/architect.md: sha256:1e2741a798214f280a12c08acd3d8459611a0fbc1da60223ed5a6021a0d364c1
+      .claude/agents/implementer.md: sha256:149053480e7daee81f1de0ea6ea8eece70f77bfb8b2a8d6706c9b714b8ee425a
+      .claude/agents/requirements-analyst.md: sha256:485e3ab2a53565ab57aeb79d0377cca2bf5841006c68ae153267c62445dcaca3
+      .claude/commands/build.md: sha256:26343a3335a991530fb418122d43613911315f7ca1e9d55d5f04d640cc4148e3
+      .claude/commands/design.md: sha256:56bd3c30279fe14431cd278bce406b605d776f670c9d07aaf78fb60f34b77155
+      .claude/commands/onboard.md: sha256:a0729659686db58949fcaabf4ba363731d094f5ae804892535120b43a47576c7
+      .claude/commands/req.md: sha256:0fe3efc61e2fc744b84d0c6745559a56d608efea854fe30040192c4aa1ab163c
+      .claude/commands/revise.md: sha256:3aa6c07e8bc44187696a77dc0190bd351578e3747ce735698081ecc4c1de3ed5
+      .claude/commands/status.md: sha256:c0ffd6b956e0466a0197f6bb65fc1efaddbdd0a51af8c6d58b826c5cd33bb3de
+      .claude/commands/tasks.md: sha256:25b212881aa0aba2c2481a626693128e035e074c135ce29983ecb519aee7cb77
+      .claude/commands/verify.md: sha256:7ae87a8b00b4459ad4e6593a1076c9de83edbf048621026e6ab4b0ac9d7d4c14
+    settings:
+      created: false
+      permissions_allow: []
+      hooks: {}
+seeded:
+  .rein/state.yaml: sha256:1a829dfd0e5ca03a9e0a2acfa8ccb041c6a2e02c39c05a56f7bb38ad38baab27
+  .rein/plan.yaml: sha256:8a2eb2539aae0a094c122306e309a3b5c17f55af8dc4123acac1ccb02a9103f9
+  .rein/review.yaml: sha256:e909db2b8d15c4638043d1202cf2e02a536b1b2964e13b95f1b52e537432456d
+  .rein/config.yaml: sha256:e238a24168e6c5d170523684c0936e464ca484cf16962c8f27da44b0489d118d
+created_at: '2026-09-25'
+updated_at: '2026-10-13'

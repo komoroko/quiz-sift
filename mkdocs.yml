@@ -1,0 +1,14 @@
+site_name: quiz-sift
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]

@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Markdown の行末2スペースは「改行」という意味を持つ記法で、空白のゴミではない。
+      # 既定の trailing-whitespace はこれを剥がし、docs/tasks/*.md 23 本の受入基準
+      # (「…緑にならない。<改行>判定: pytest …」)を1段落に潰してしまう。それらは
+      # mandate 承認のレシートがダイジェストで束ねている凍結文書なので、剥がした時点で
+      # レシートも壊れる。.md だけ改行として保護する。
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: debug-statements
+      - id: name-tests-test
+        args: [--pytest-test-first]
+      - id: requirements-txt-fixer
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+        stages: [pre-push]

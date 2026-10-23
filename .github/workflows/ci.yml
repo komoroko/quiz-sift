@@ -1,0 +1,31 @@
+# NFR-5: この run ステップのコマンド列と同一のものが、品質ゲート上でローカルに green になる。
+# 実 CI 上での green はサイクル1のスコープ外(要件の Out of scope を参照)。
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.13
+      - run: uv sync
+      # NFR-5 (d): 品質ゲートの argv と同一のスクリプトを呼ぶ(AR-6)。
+      # 上の setup 系ステップ(checkout / setup-uv / python install / sync)は
+      # 同一性の対象外 — ゲートでは依存がイメージに焼き込まれているため。
+      - run: uv run bash gate.sh lint
+      - run: uv run bash gate.sh format
+      - run: uv run bash gate.sh types
+      - run: uv run bash gate.sh test
+      - run: uv run bash gate.sh docs
+      - run: uv run bash gate.sh smoke

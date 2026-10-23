@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""PATH に置く fake の claude(T-043 A-6)。stdin のプロンプトを読み、tests/support/claude_fake.py の応答を返す。"""
+
+import sys
+from pathlib import Path
+
+TESTS = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(TESTS), str(TESTS.parent / "src")]
+
+from support.claude_fake import main  # noqa: E402
+
+main()

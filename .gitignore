@@ -1,0 +1,21 @@
+# ---- Loose Rein runtime artifacts ----
+# Managed by `rein init` / `rein sync` — derived from the code that writes these paths.
+# The SSOT (.rein/*.yaml, .rein/events.ndjson, .rein/rein.lock) and docs/** are committed,
+# reviewed at each gate, and never listed here.
+.rein/pr-draft.md
+.rein/pr-stack/
+.rein/work/
+.worktrees/
+# ---- end Loose Rein ----
+
+# ---- quiz-sift ----
+# 教材データと生成物。NFR-2 により、取り込んだ実教材の本文は追跡対象に入れない。
+data/
+out/
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+site/

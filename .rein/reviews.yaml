@@ -1,0 +1,16 @@
+requirements:
+  adversarial: true
+  reviews: []
+design:
+  adversarial: true
+  reviews: []
+tasks:
+  adversarial: true
+  reviews: []
+build:
+  reviews:
+  - adversarial
+acceptance:
+  actual_extraction: true
+  comparison: true
+  reviews: []

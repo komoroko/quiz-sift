@@ -1,0 +1,42 @@
+collected_at: '2026-10-06T19:25:15+09:00'
+claude_version: 2.1.290 (Claude Code)
+model: claude-opus-5-5
+argv:
+- claude
+- -p
+- --output-format
+- stream-json
+- --verbose
+- --max-turns
+- '3'
+- --json-schema
+- '{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}'
+- --model
+- claude-opus-5-5
+- --system-prompt
+- You are a calculator. Return only the requested structured answer.
+- --exclude-dynamic-system-prompt-sections
+- --strict-mcp-config
+- --mcp-config
+- '{"mcpServers":{}}'
+- --setting-sources
+- ''
+- --tools
+- ''
+- --permission-mode
+- default
+- --safe-mode
+env_keys:
+- HOME
+- LANG
+- PATH
+- TZ
+home: /home/koich/.quiz-sift-claude-home
+prompt: 'SYNTHETIC CONTRACT PROBE (quiz-sift T-041). No study material is included.
+  What is 2 + 3?
+
+  '
+exit_code: 0
+stderr: ''
+stdout_sha256: c870f5d140017b8816bc9702fee3078e206344371520440c004b7bda46d1621b
+attempts: 1

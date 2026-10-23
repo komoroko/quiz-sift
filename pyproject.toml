@@ -1,0 +1,147 @@
+[project]
+name = "quiz-sift"
+version = "0.1.1"
+description = "4択問題集を、耳だけでも効率的に学習できる形へ AI で変換する"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    # SDK アダプタ(ADR-002)。adapters 層からのみ import する。既定の Llm は CLI 経路で、製品の入口からは
+    # 到達しない(ADR-013)。このサイクルでは通常依存のまま残す(D-103)。
+    "anthropic>=0.75.0",
+    # デッキ manifest(ADR-011)。mkdocs 経由の暗黙依存にしない。
+    "pyyaml>=6.0.2",
+    # 語句の実在性判定(ADR-010)。辞書は unidic ではなく unidic-lite(D-061)。
+    "fugashi>=1.5.1",
+    "unidic-lite>=1.0.8",
+]
+
+# 製品の入口はこの1本だけ(NFR-8 (d)、ADR-013)。`python -m quiz_sift.cli` / `python -m quiz_sift.server` も
+# 入口として同じ判定の対象になる。
+[project.scripts]
+quiz-sift = "quiz_sift.cli:main"
+
+[project.optional-dependencies]
+# 音声合成(ADR-004 / D-076)。既定の依存ではない — `uv sync --extra tts` を明示したときだけ入る。
+#
+# CosyVoice 本体は pip で配布されていないので、git clone + サブモジュールを PYTHONPATH で通す。
+# ここに置くのは、その推論パスが import する第三者パッケージだけ。上流の requirements.txt は
+# Python 3.10 期のハードピン(torch==2.3.1, numpy==1.26.4 など)で 3.13 のホイールが無く、
+# そのまま使えない。src/ が PEP 695 構文を使うため 3.13 は下げられず、Blackwell 世代の GPU が
+# cu128(torch>=2.7)を要求するので、ピンを外して現行版で解決した。実測で合成まで通してある。
+#
+# extra は `uv export --all-groups` に現れないので、.rein/oci/quiz-sift/requirements.txt は
+# 動かない。サンドボックスイメージのダイジェストと、それを固めた config.yaml は無傷のまま。
+tts = [
+    "torch>=2.7",
+    "torchaudio>=2.7",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "einops>=0.8",
+    "omegaconf>=2.3",
+    "transformers>=4.51",
+    "hyperpyyaml>=1.2.3",
+    "modelscope>=1.20",
+    "onnxruntime>=1.18",
+    "openai-whisper>=20231117",
+    "inflect>=7.3",
+    "tqdm>=4.66",
+    "conformer>=0.3.2",
+    "diffusers>=0.29",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "lightning>=2.2",
+    "rich>=13.7",
+    "unidecode>=1.3",
+    # テキスト正規化。ttsfrd(py3.10 限定のホイール)が無いときの CosyVoice のフォールバック先で、
+    # pynini ではなく kaldifst を使うので 3.13 に入る。
+    "wetext>=0.1.8",
+    "hydra-core>=1.3",
+    "gdown>=5.1",
+    "wget>=3.2",
+    "x-transformers>=2.11",
+    "matplotlib>=3.7",
+    "rootutils>=1.0",
+    "pyarrow>=18",
+    "pyworld>=0.3.4",
+]
+
+# torch の CUDA ビルドは PyPI に無い。cu128 は Blackwell(sm_120)に必要。
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+# PyPI の pyworld 0.3.5 は `import pkg_resources` するので、setuptools>=83(D-165)の環境では import できず、
+# CosyVoice(cosyvoice/dataset/processor.py)ごと落ちる。上流は v0.3.6 で importlib.metadata に直したが、
+# PyPI の 0.3.6 には Linux の配布物が無い。そこで上流の git タグに固定し、sdist としてビルドする。
+pyworld = { git = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder", tag = "v0.3.6" }
+
+[tool.uv]
+# アップロードから1週間以内の新しいバージョンはインストール対象から除外する。
+# 公開直後のリリース(供給網リスク・初期不具合)を避けるためのクールダウン。
+exclude-newer = "1 week"
+# 既知の脆弱性の修正版が出たばかりでクールダウンに掛かる3つだけ、人の判断(2026-10-23)で先に入れる(D-250)。
+# どれも 2026-10-27 11:25 JST にクールダウンを抜けるので、それ以降にこの行を消す。
+exclude-newer-package = { pillow = "2026-10-23T10:00:00Z", virtualenv = "2026-10-23T10:00:00Z", certifi = "2026-10-23T10:00:00Z" }
+# setuptools 81.0.0 に PYSEC-2026-3447 があり、修正は 83.0.0(D-165)。torch 2.11 が setuptools<82 を
+# 要求するので、この制約で torch は 2.10 系に下がる。torchaudio の wheel は torch への依存を宣言せず
+# 連動して下がらないので、torch と同じ 2.10 系に揃える上限を別に置く(版がずれると拡張の ABI が合わない)。
+constraint-dependencies = ["setuptools>=83", "torchaudio<2.11"]
+
+[tool.ruff]
+exclude = [".git", ".mypy_cache", ".venv", "third_party", ".worktrees", "site", ".rein"]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+unfixable = []
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"
+
+[tool.mypy]
+strict = true
+warn_unused_ignores = false
+# src/ はまだ存在しない(guard.paths のため mandate 承認後に作る)。パスを列挙すると
+# 不在で落ちるので、除外側で絞る。
+exclude = ["^site/", "^\\.rein/", "^\\.venv/", "^\\.worktrees/"]
+# tests/ から import した製品コードの型が Any に落ちないようにする(AR-23)。
+mypy_path = ["src"]
+# ignore_missing_imports を全体既定にすると strict が広い範囲で空振りする(AR-23)。
+# 型スタブを持たないサードパーティにだけ、override で限定して許す。
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# PyYAML は py.typed を同梱せず、型情報は別配布の types-PyYAML にある。それを dev 依存に
+# 足すと uv.lock → .rein/oci/quiz-sift/requirements.txt → サンドボックスイメージまで
+# 焼き直しが波及する(凍結された config.yaml のダイジェスト再ピンを伴う)。設計が
+# 「型スタブを持たないサードパーティにだけ override で限定して許す」と定めた口(AR-23)は
+# まさにこれのためのもの。
+module = ["fugashi.*", "unidic_lite.*", "yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# テストは tests/ に置く。src/ は .rein/config.yaml の guard.paths に含まれ、mandate が
+# 承認されるまで書き込めない。PyProjectTemplate は src/ にテストを同居させるが、
+# Loose Rein のガード規則が優先する。
+testpaths = ["tests"]
+# src レイアウトのまま、インストールせずに import できるようにする。
+# 品質ゲートは worktree をそのまま /work にマウントして走るため、ここに頼る。
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+    "mypy>=2.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]
