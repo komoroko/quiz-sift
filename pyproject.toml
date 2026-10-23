@@ -83,6 +83,9 @@ pyworld = { git = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocod
 # アップロードから1週間以内の新しいバージョンはインストール対象から除外する。
 # 公開直後のリリース(供給網リスク・初期不具合)を避けるためのクールダウン。
 exclude-newer = "1 week"
+# 既知の脆弱性の修正版が出たばかりでクールダウンに掛かる3つだけ、人の判断(2026-10-23)で先に入れる(D-250)。
+# どれも 2026-10-27 11:25 JST にクールダウンを抜けるので、それ以降にこの行を消す。
+exclude-newer-package = { pillow = "2026-10-23T10:00:00Z", virtualenv = "2026-10-23T10:00:00Z", certifi = "2026-10-23T10:00:00Z" }
 # setuptools 81.0.0 に PYSEC-2026-3447 があり、修正は 83.0.0(D-165)。torch 2.11 が setuptools<82 を
 # 要求するので、この制約で torch は 2.10 系に下がる。torchaudio の wheel は torch への依存を宣言せず
 # 連動して下がらないので、torch と同じ 2.10 系に揃える上限を別に置く(版がずれると拡張の ABI が合わない)。
