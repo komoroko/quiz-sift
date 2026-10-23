@@ -2009,92 +2009,11 @@ tasks:
       tree: sha256:c592c071c5669e6b3a2be3be22f546a90ecd09c06fef249fb09c6e4566b271cd
       updated_at: '2026-10-23T13:20:11+09:00'
 dependency_audit:
-  ran_at: '2026-10-22T01:22:40+00:00'
-  commit: 827e67151f6c26a0224431fdda73c28f6c137998
-  dependencies: sha256:0ef7ecdf82707ea9767fd7e42f99391a7f24e2ed8e77b39ebc3a38b78817cf17
-  passed: false
-  summary: 'Found 38 known vulnerabilities in 4 packages
-
-    Name       Version   ID                  Fix Versions
-
-    ---------- --------- ------------------- ------------
-
-    aiohttp    3.14.3    CVE-2026-111064     3.14.4
-
-    aiohttp    3.14.3    GHSA-2g87-pp6c-29x5 3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111063     3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111750     3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111066     3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111749     3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111065     3.14.4
-
-    aiohttp    3.14.3    CVE-2026-111748     3.14.4
-
-    certifi    2026.7.22 PYSEC-2026-4320     2026.10.19
-
-    pillow     12.3.0    CVE-2026-112895     13.0.0
-
-    pillow     12.3.0    CVE-2026-112400     13.0.0
-
-    pillow     12.3.0    CVE-2026-112397     13.0.0
-
-    pillow     12.3.0    CVE-2026-112896     13.0.0
-
-    pillow     12.3.0    CVE-2026-112897     13.0.0
-
-    pillow     12.3.0    CVE-2026-112395     13.0.0
-
-    pillow     12.3.0    CVE-2026-112404     13.0.0
-
-    pillow     12.3.0    CVE-2026-112899     13.0.0
-
-    pillow     12.3.0    CVE-2026-112402     13.0.0
-
-    pillow     12.3.0    CVE-2026-112900     13.0.0
-
-    pillow     12.3.0    CVE-2026-112893     13.0.0
-
-    pillow     12.3.0    CVE-2026-112392     13.0.0
-
-    pillow     12.3.0    CVE-2026-112891     13.0.0
-
-    pillow     12.3.0    CVE-2026-112405     13.0.0
-
-    pillow     12.3.0    CVE-2026-112390     13.0.0
-
-    pillow     12.3.0    CVE-2026-112401     13.0.0
-
-    pillow     12.3.0    CVE-2026-112901     13.0.0
-
-    pillow     12.3.0    CVE-2026-112391     13.0.0
-
-    pillow     12.3.0    CVE-2026-112894     13.0.0
-
-    pillow     12.3.0    CVE-2026-112406     13.0.0
-
-    pillow     12.3.0    CVE-2026-112399     13.0.0
-
-    pillow     12.3.0    CVE-2026-112892     13.0.0
-
-    pillow     12.3.0    CVE-2026-112393     13.0.0
-
-    pillow     12.3.0    CVE-2026-112396     13.0.0
-
-    virtualenv 21.13.0   CVE-2026-113726     21.14.4
-
-    virtualenv 21.13.0   CVE-2026-113776     21.14.2
-
-    virtualenv 21.13.0   CVE-2026-113732     21.14.2
-
-    virtualenv 21.13.0   CVE-2026-113725     21.14.7
-
-    virtualenv 21.13.0   CVE-2026-113722     21.14.9
-
+  ran_at: '2026-10-23T10:07:11+00:00'
+  commit: cc221d796db476431a16066e79620566e7049946
+  dependencies: sha256:4176144003db35a414b5f19e5982d7329b06dc6e47dcbe08da95aebf144f3e53
+  passed: true
+  summary: 'No known vulnerabilities found
 
     Name       Skip Reason
 
