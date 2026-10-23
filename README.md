@@ -13,7 +13,7 @@
 
 ```bash
 uv sync                                   # 依存を同期
-cd web && npm install && cd ..            # Web UI を使うとき
+pnpm -C web install                       # Web UI を使うとき
 ```
 
 - LLM は `claude -p`(Claude Code の CLI)を子プロセスで呼ぶ。`claude` が PATH にあり、ログイン済みであること。
@@ -99,7 +99,7 @@ API と UI を別々の端末で起動し、http://localhost:3000 を開く。�
 
 ```bash
 uv run python -m quiz_sift.cli --root $R serve   # 端末1
-cd web && npm run dev                             # 端末2(API の宛先は QUIZ_SIFT_API で変えられる)
+pnpm -C web dev                                   # 端末2(API の宛先は QUIZ_SIFT_API で変えられる)
 ```
 
 ## 開発
