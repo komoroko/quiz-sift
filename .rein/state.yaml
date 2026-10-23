@@ -1,6 +1,6 @@
 project: quiz-sift
 cycle_id: fisrt
-updated_at: '2026-10-23T13:07:17+09:00'
+updated_at: '2026-10-23T13:20:11+09:00'
 gates:
   mandate:
     status: approved
@@ -1970,35 +1970,44 @@ tasks:
       tree: sha256:af22c2315a1be74972ce94e5718eb000d4e5ee570f1573d76b0e829a50356fba
       updated_at: '2026-10-22T19:50:52+09:00'
   T-090:
-    status: todo
-    attempts: 1
+    status: done
+    attempts: 2
+    completed_commit: 9e24a272a4770189db1f7d4a5ff51d41939fb842
     handoff:
-      report:
-        outcome: implemented
-        summary: 'src/quiz_sift/script/__init__.py の docstring を『label_guard のラベル列挙判定を通ったときだけ成果物を書く。含意判定は呼ばない(D-248)。』に直した(script/generate.py
-          と同じ文言、『台本段は判定しない』とは書かない)。test_c013_script_package_doc_does_not_claim_entailment を足した: docstring
-          を『。』で文に分け、『含意』か大文字小文字を問わない『entailment』を含む文がどれも『含意判定は呼ばない』を含み、docstring にその文言があることを見る。対照として、修正前の
-          docstring と、『含意判定(safety/entailment)』『safety.entailment の判定』『含意の判定』『Entailment チェック』を成果物を書く条件に挙げる文が同じ検査で赤になることを確かめる。修正前の
-          docstring でテストが赤になることを確認した。T-089 のテストは変えていない。6つの gate は緑。'
-        at: '2026-10-23T12:58:03+09:00'
-        touched:
-        - src/quiz_sift/script/__init__.py
-        - tests/acceptance/test_analysis.py
-      updated_at: '2026-10-23T13:03:37+09:00'
-      last_agent:
-        role: implementer
-        adapter: claude
-        rc: 0
-        session: e9911411-b322-4d88-9bde-e85597109b21
-        output_tail: "T-090 を実装し、`7148f96` でコミットして `rein report --outcome implemented` を送りました。6つの gate\
-          \ は緑です(`uv run bash gate.sh …` で実行)。\n\n- **docstring:** `src/quiz_sift/script/__init__.py`\
-          \ の記述を、「`label_guard` のラベル列挙判定を通ったときだけ成果物を書く。含意判定は呼ばない(D-248)。」に直しました。文言は `script/generate.py`\
-          \ に合わせています。台本段はラベル列挙判定はするので、「台本段は判定しない」とは書いていません。\n- **テスト:** `test_c013_script_package_doc_does_not_claim_entailment`\
-          \ を足しました。\n  - docstring を「。」で文に分け、含意判定に触れる文(「含意」または「entailment」を含む文。大文字小文字は問わない)がどれも「含意判定は呼ばない」を含むことを見ます。docstring\
-          \ にその文言があることも見ます。\n  - 判定の対照として、修正前の docstring と、表記を変えて含意判定を成果物の条件に挙げる文(「`safety.entailment`\
-          \ の判定」「含意の判定」「Entailment チェック」)が、同じ検査で赤になることを確かめます。\n  - 実際のファイルが修正前のままのときにこのテストが赤になることも確かめてから、docstring\
-          \ を直しました。\n\nT-089 のテストは変えていません。"
-        at: '2026-10-23T12:58:09+09:00'
+      review:
+        findings: []
+      updated_at: '2026-10-23T13:20:11+09:00'
+    evidence:
+      steps:
+      - name: lint
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: format
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: types
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: test
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: docs
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      - name: smoke
+        image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+        reused: true
+      reported: implemented
+      acceptance:
+      - id: A-1
+        kind: command
+        reused: true
+      negative_control:
+        result: discriminating
+        base: 01303920fbf4674aa1f91f085c8871b40c77e6a8
+        step: test
+      tree: sha256:c592c071c5669e6b3a2be3be22f546a90ecd09c06fef249fb09c6e4566b271cd
+      updated_at: '2026-10-23T13:20:11+09:00'
 dependency_audit:
   ran_at: '2026-10-22T01:22:40+00:00'
   commit: 827e67151f6c26a0224431fdda73c28f6c137998
