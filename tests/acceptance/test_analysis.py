@@ -1219,3 +1219,43 @@ def test_c013_reference_is_shared_only_by_the_judged_stages() -> None:
     assert len(sources) > 1, "台本段のソースが見つからない"
     for path in sources:
         assert "reference_for" not in _referenced_names(path.read_text(encoding="utf-8")), path.name
+
+
+_NO_ENTAILMENT = "含意判定は呼ばない"
+
+
+def _claims_entailment(doc: str) -> list[str]:
+    """含意判定に触れる文(「含意」か「entailment」を含む文)のうち、「含意判定は呼ばない」を含まないもの。"""
+    sentences = [s for s in doc.replace("\n", "").split("。") if s.strip()]
+    return [s for s in sentences if ("含意" in s or "entailment" in s.lower()) and _NO_ENTAILMENT not in s]
+
+
+def check_script_package_doc(doc: str) -> None:
+    assert _NO_ENTAILMENT in doc, f"「{_NO_ENTAILMENT}」が無い"
+    assert not _claims_entailment(doc), f"台本が含意判定を通ると読める文がある: {_claims_entailment(doc)}"
+
+
+def test_c013_script_package_doc_does_not_claim_entailment() -> None:
+    """T-090 A-1: quiz_sift.script の docstring は台本が含意判定を通るとは書かず、呼ばないと書く(D-248)。"""
+    import quiz_sift.script as script
+
+    assert script.__doc__ is not None
+    check_script_package_doc(script.__doc__)
+    # 検査の対照: 修正前の docstring と、表記を変えて含意判定を成果物を書く条件に挙げる文は赤。
+    tail = "再生時間の推定は `duration` が持つ。含意判定は呼ばない。"
+    for condition in (
+        "`label_guard` のラベル列挙判定と含意判定(`safety/entailment`)をすべて通ったときだけ",
+        "`label_guard` のラベル列挙判定と `safety.entailment` の判定を通ったときだけ",
+        "`label_guard` のラベル列挙判定と含意の判定を通ったときだけ",
+        "`label_guard` のラベル列挙判定と Entailment チェックを通ったときだけ",
+    ):
+        with pytest.raises(AssertionError, match="台本が含意判定を通ると読める文がある"):
+            check_script_package_doc(f"台本。\n\n`split` でトラックに割り、{condition}\n成果物を書く。{tail}")
+    before = (
+        "台本(R-6 / NFR-1)。\n\n"
+        "`generate` が想起素材からクラスタごとの台本をセグメント列として組み立て、`split` で3分以内の\n"
+        "トラックに割り、`label_guard` のラベル列挙判定と含意判定(`safety/entailment`)をすべて通ったときだけ\n"
+        "成果物を書く。再生時間の推定は `duration`、1問分の順序の保証は `segments` が持つ。\n"
+    )
+    with pytest.raises(AssertionError, match="含意判定は呼ばない」が無い"):
+        check_script_package_doc(before)
