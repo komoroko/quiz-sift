@@ -902,7 +902,7 @@ tasks:
       executor_profile: quality
   - id: A-6
     statement: 含意判定の reference は正解 N 件すべてを含み、答えの要素は対象の正解を明示して判定され、識別ポイントは「誤答選択肢(この問題では正しくない記述)」の節に参照先の本文を含む。スタブ判定器が要素1件だけ、または参照先の誤答とだけ矛盾と返し続けると、
-      想起素材は上限まで作り直したうえで成果物が書かれずに非 0 終了し、台本は EntailmentRejected で成果物が書かれない。言い換えのフィクスチャでは誤検出 0。グロッサリの reference は変わらない。
+      想起素材は上限まで作り直したうえで成果物が書かれずに非 0 終了する(台本段は判定しない。D-248、D-250)。言い換えのフィクスチャでは誤検出 0。グロッサリの reference は変わらない。
     evidence:
       kind: command
       command:
@@ -2262,6 +2262,31 @@ tasks:
       - tests/acceptance/test_analysis.py::test_c013_reference_is_shared_only_by_the_judged_stages
       executor_profile: quality
   operator_surface: []
+- id: T-090
+  title: script パッケージの docstring から、台本が含意判定を通るという記述を外す(D-248 の消し漏れ、D-250)
+  kind: parallel
+  blocked_by:
+  - T-089
+  claim_ids:
+  - C-013
+  domains:
+  - script
+  risk: low
+  scope:
+    include:
+    - src/quiz_sift/script/__init__.py
+    - tests/acceptance/
+  acceptance:
+  - id: A-1
+    statement: quiz_sift.script のモジュール docstring で、含意判定に触れる文(「含意」または「entailment」を大文字小文字を問わず含む文)はどれも「含意判定は呼ばない」を含み、docstring に「含意判定は呼ばない」がある(D-248。script/generate.py と同じ文言)。検査は、修正前の docstring と、表記を変えた形(「safety.entailment の判定」「含意の判定」「entailment チェック」を成果物を書く条件に挙げる文)をどれも赤にする。修正前のコードでは赤になる。
+    evidence:
+      kind: command
+      command:
+      - pytest
+      - -q
+      - tests/acceptance/test_analysis.py::test_c013_script_package_doc_does_not_claim_entailment
+      executor_profile: quality
+  operator_surface: []
 - id: T-071
   title: 【不可逆】実デッキでフル処理を完走させる(人の指示でエージェントがホストで exec と render)
   kind: integration
@@ -3157,6 +3182,15 @@ decisions:
   rationale: 試行7(列 384e3e42…、2026-10-21〜22)は cluster・recall(190/190、作り直し 41、上限を使い切った問題 0)・script(呼び出し 0)・audio で完走し、無音判定は 116 ファイルすべて真だった。render した試行の表は --fresh-run の列を 8 本と数えた。数え落としていたのは 9bb4b32b で、2026-10-12T04:27:30Z に cluster の fresh の開始行だけがあり、終了行も journal の行も無い(47a4 の 17 秒前で、直後に止まった起動と見られる)。この列は試行3(876150…、2026-10-12)より前にあるので、数え落としは D-241 からある。D-241 は使用済みを3本、D-246 は4本、D-247 は5本、D-248 は6本と数えたが、実際はそれぞれ1本多かった。試行3〜7は、それぞれの起動の時点で承認されていた上限(3・4・5・6・7)を1本ずつ超えて起動されていた。数え方は正しく、誤りは予算の数えの側にある(人の判断、2026-10-22)。
   requirement_ids:
   - NFR-7
+- id: D-250
+  subject: 受け入れ前に見つかった D-248 の消し漏れ(script パッケージの docstring)と、依存の監査の指摘の直し方
+  reach: mandate
+  status: settled
+  settled_by: human
+  answer: script パッケージの docstring の消し漏れは、T-090 を新設して直す(凍結した計画にタスクを足す道が revise しか無い)。計画に残っていた同じ消し漏れ(T-063 A-6 の「台本は EntailmentRejected で成果物が書かれない」)は文から外す(証拠のテストは台本を判定対象にしておらず、変わらない。レビュー AR-1)。docs/05-current-state.md の「各段は含意判定と grounding を通る」はサイクルを閉じるときの更新で直す。依存の脆弱性は、前サイクルの 6328141 と同じく mandate の前に環境の変更として直す(uv.lock を上げ、品質ゲートのイメージの requirements.txt を出し直して作り直し、config.yaml に再ピンする。イメージの作り直しと再ピンはタスクの中ではできない)。pyproject.toml のクールダウン(exclude-newer = "1 week")は外さず、修正版が対象に入るのを待つ。uv.lock のコミットは mandate の前(計画が draft の間)に行い、rein guard --check-diff を通す(2026-10-23 に aiohttp だけを上げた差分で exit 0 を確かめた)。品質ゲートのイメージに入るのは requirements.txt の分だけで、pillow と aiohttp(tts extra 経由)は入らない。イメージで変わるのは virtualenv と certifi である。done のタスクは取り直さない。新しいイメージで走るのは T-090 の DoD と受け入れ前の rein build である。pillow 13(メジャー版)は、lock を上げた後にホストの .venv(tts extra を含む)で全テストを走らせて確かめる。config.yaml の再ピンで凍結された config が動くので、T-059・T-071 の通過の承認は持ち越されず、人が承認し直す必要がありうる(レビュー AR-4)。
+  rationale: T-071 の判定後の rein audit run で、既知の脆弱性が4パッケージに38件あった(pillow 12.3.0、aiohttp 3.14.3、virtualenv 21.13.0、certifi 2026.7.22。どれも推移的な依存)。aiohttp は 3.14.5 に上がるが、pillow 13.0.0(2026-10-16 公開)・virtualenv 21.14.9(10-17)・certifi 2026.10.19(10-20)はクールダウンで除外され、対象に入るのは 2026-10-27 11:25 JST 以降になる。acceptance の readiness は監査が通るまで通らない。クールダウンを外すかは人が決めた(外さない、2026-10-23)。T-089 のタスク単位のレビューが src/quiz_sift/script/__init__.py:4 の消し漏れを見つけたが、T-089 の scope の外だった。
+  requirement_ids:
+  - NFR-1
 
 lenses:
 - id: L-REQ-AMBIGUITY
