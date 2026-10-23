@@ -13,6 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 実測記録が引くコミットを git cat-file で確かめるテストがあるので、履歴をすべて取る。
+          fetch-depth: 0
+
+      # mp3 のエンコード・デコードと無音区間の検出(R-7)。品質ゲートのイメージと同じく ffmpeg を入れる。
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - uses: astral-sh/setup-uv@v5
         with:

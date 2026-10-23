@@ -1,6 +1,7 @@
 {
   "name": "quiz-sift-web",
   "private": true,
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",

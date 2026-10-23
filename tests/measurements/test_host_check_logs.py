@@ -19,7 +19,8 @@
 `docs/test/measurements/ui-e2e-nofm.md` を読む。E2E は5択2正解の問題を含み、その問題で選択が
 N−1 件・N+1 件のときは送信できず、ちょうど N 件で送信できたことを確かめる。
 node と Next.js はサンドボックスイメージに無いので、E2E はホストで1回走らせる(`run_ui_e2e`)。記録は
-`PYTHONPATH=src python tests/measurements/test_host_check_logs.py ui-e2e --node-modules <npm ci した node_modules>`
+`pnpm -C web install --frozen-lockfile` のあと
+`PYTHONPATH=src python tests/measurements/test_host_check_logs.py ui-e2e --node-modules <web/node_modules>`
 で作り直す。ブラウザは Playwright が置いた chromium を、既存の `adapters/browser_cdp.CdpSession`
 で CDP 越しに操作する(Playwright の Node パッケージを依存に足さないため)。スクリーンショットは
 `docs/test/measurements/ui-e2e-nofm/` に書いてコミットする(D-080)。gitignore 対象の `out/` に置くと、
@@ -1028,7 +1029,7 @@ def _main(argv: list[str]) -> int:
     commands.add_parser("gitignore", help="gitignore 等価性を測り直す(A-1)")
     e2e = commands.add_parser("ui-e2e", help="ブラウザの E2E を走らせて記録する(C-012)")
     e2e.add_argument(
-        "--node-modules", type=Path, default=ROOT / "web" / "node_modules", help="web/ で npm ci した node_modules"
+        "--node-modules", type=Path, default=ROOT / "web" / "node_modules", help="pnpm install 済みの web/node_modules"
     )
     e2e.add_argument("--chrome", type=Path, default=_find_chrome(), help="chromium の実行ファイル")
     args = parser.parse_args(argv)
@@ -1041,7 +1042,7 @@ def _main(argv: list[str]) -> int:
         return 0
     node_modules: Path = args.node_modules.resolve()
     if args.chrome is None or not (node_modules / "next").is_dir():
-        print("chromium と、npm ci 済みの --node-modules が要る", file=sys.stderr)
+        print("chromium と、pnpm install 済みの --node-modules が要る", file=sys.stderr)
         return 2
     run = run_ui_e2e(node_modules, args.chrome, ROOT / SCREENSHOT_DIR)
     command = ["PYTHONPATH=src", "python", "tests/measurements/test_host_check_logs.py", *argv]
