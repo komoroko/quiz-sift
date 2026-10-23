@@ -1,17 +1,17 @@
 machine:
   status: generated
   binding:
-    change_digest: sha256:79fcaf0908779f1eac3606e682d37a94c083e7fdb7352f145e213a0badcb7d57
+    change_digest: sha256:0a009f55c612685ec15e938c9b81452f80fbaec642a98be35f5d23f1641a79d9
     host_surface_digest: sha256:0b76049d1c21e0b68ce160a1b28a4bbae3c82d34461c19fc523c9c3d8c3c73a5
     plan_digest: sha256:3e4b62cc3eb6bb791aec1e010c776803599f5e916c747a7bac63079ea294b0f7
     config_digest: sha256:10686ac924f824920eec91e40886900debc1bb2c290664fadc695db8bc6224d2
-    environment_digest: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
-    coverage_digest: sha256:913573ca36be0d3cdf870d52a0ba5aee003c8ec92569391d2ca6aa14cd9ac3d2
+    environment_digest: sha256:4bd9f3d9844e20fa3f5a941979af5ed1ad72a8742c0759eb444e3956cc7cd876
+    coverage_digest: sha256:4f2ef1cfb667ba618d54c79033800ed924ceaa08f3fa9272bf3fee95e844e9bd
     tasks_digest: sha256:054c3a0869a3e2fb6f249a2f6c3530fb048db24f58876dcc45ce80321df10d5d
     trusted_base_sha: 63281415498b8f703641edd66b18e2013e1f5bc2
-    subject_head_sha: 9e24a272a4770189db1f7d4a5ff51d41939fb842
-    actual_digest: sha256:9fb787859c06cfa2b1172fcc74a6cbb029b26acad5f0ef562013a11a62719b38
-    generated_at: '2026-10-23T13:26:32+09:00'
+    subject_head_sha: e2ff5550b9fda2fcc4d13e2e8161f6a12ef590a9
+    actual_digest: sha256:61d8c3190a618d7fb348670470c5bad67071fef57b47955d13792c278fec1ad2
+    generated_at: '2026-10-23T19:13:45+09:00'
     independence:
       actual_extractor:
         group: claude/opus
@@ -23,16 +23,16 @@ machine:
         group: claude/opus
   summary:
     claims_total: 20
-    aligned: 11
-    diverged: 0
+    aligned: 13
+    diverged: 1
     missing: 0
-    unverified: 8
-    unknown: 1
+    unverified: 4
+    unknown: 2
   coverage:
-    diff_digest: sha256:1fb3434e161ddf0080919e8363b49bd0a91b4c5fa429577df6e7831dbaa8ab7d
+    diff_digest: sha256:a0a97050230f613b5f09e9d3447eaab89582eaef2ff3583b79f00217d86b8a40
     analyzed_files: 155
-    analyzed_hunks: 566
-    analyzed_bytes: 1533070
+    analyzed_hunks: 573
+    analyzed_bytes: 1563467
     languages:
       json: token_only
       lockfile: token_only
@@ -56,30 +56,34 @@ machine:
       mode: whole
       readings:
       - unit: whole
-        diff_digest: sha256:1fb3434e161ddf0080919e8363b49bd0a91b4c5fa429577df6e7831dbaa8ab7d
-        analyzed_bytes: 1533070
+        diff_digest: sha256:a0a97050230f613b5f09e9d3447eaab89582eaef2ff3583b79f00217d86b8a40
+        analyzed_bytes: 1563467
   actual_extraction:
   - id: AST-001
-    statement: SubprocessRunner.run は Popen の前に SIGHUP/SIGTERM/SIGALRM/SIGINT を pthread_sigmask でブロックし、子は
-      start_new_session=True で起動し、preexec_fn で子側のマスクを元に戻す。親側のマスクは OSError 時・その他の例外時・communicate 直前の try
-      内でそれぞれ元に戻す。
+    statement: SubprocessRunner.run blocks SIGHUP/SIGTERM/SIGALRM/SIGINT on the calling thread via pthread_sigmask
+      before Popen, spawns the child with start_new_session=True and a preexec_fn that restores the original
+      mask in the child, and restores the parent's mask on the OSError path, on any other BaseException
+      from Popen, and as the first statement of the try that wraps communicate.
     category: concurrency
     confidence: high
     code_anchors:
     - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 63
+      start_line: 56
       end_line: 83
       blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
     - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 38
+      start_line: 35
       end_line: 39
       blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
     observed_conditions:
-    - マスクはスレッド単位で、run を呼んだスレッドだけに効く
+    - The mask is per-thread, so signals are deferred only if they would be delivered to the thread that
+      calls run.
   - id: AST-002
-    statement: タイムアウト時は os.killpg(proc.pid, SIGKILL) でプロセスグループ全体を止め(ProcessLookupError は無視)、_stop_group
-      が KILL_GRACE_SEC=5 秒だけ communicate を待つ。それでも pipe が閉じなければ pipe を自分で閉じ、proc.wait() のあと TimeoutExpired
-      が持っていた部分出力(None は b"")を返す。結果は Outcome.TIMEOUT。
+    statement: On TimeoutExpired, run sends SIGKILL to the child's whole process group via os.killpg(proc.pid,
+      SIGKILL), ignores ProcessLookupError, then calls _stop_group, which runs communicate with a 5-second
+      timeout (KILL_GRACE_SEC). If that times out as well, _stop_group closes the pipes, waits for the
+      child, and returns whatever partial stdout/stderr the TimeoutExpired carries (or b''). The result
+      is Outcome.TIMEOUT.
     category: failure_handling
     confidence: high
     code_anchors:
@@ -88,16 +92,13 @@ machine:
       end_line: 91
       blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
     - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 115
+      start_line: 109
       end_line: 127
       blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 35
-      end_line: 35
-      blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
   - id: AST-003
-    statement: communicate 中にその他の BaseException(SystemExit の派生など)が起きると、killpg(SIGKILL) → 3本の pipe を close
-      → proc.wait() を行ってから例外を送出し直す。出力は読まない。
+    statement: On any other BaseException during communicate (for example a signal handler raising SystemExit),
+      run calls os.killpg(proc.pid, SIGKILL) first and ignores ProcessLookupError, then closes the child's
+      stdin/stdout/stderr pipes, calls proc.wait(), and re-raises the exception.
     category: failure_handling
     confidence: high
     code_anchors:
@@ -105,51 +106,65 @@ machine:
       start_line: 92
       end_line: 105
       blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
-    - path: src/quiz_sift/adapters/claude_process.py
-      start_line: 109
-      end_line: 112
-      blob: git-blob:6942f9496597abf9b788d0e068f442b25da76ab2
   - id: AST-004
-    statement: classify の失敗説明から、子の出力から作った値(subtype/stop_reason の repr、ContractError の str)が除かれた。TRUNCATED
-      と PROVIDER_ERROR は固定文になり、parse の ContractError は exc.detail(種別の接頭辞なし)を渡す。
-    category: observability
+    statement: The CLI installs handlers for SIGHUP and SIGTERM that raise TerminatedBySignal(128 + signum)
+      (a SystemExit subclass), and restores the previous handlers on exit. _run enters this context and
+      the 12-hour execution limit only when the stage is an LLM stage.
+    category: control_flow
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/claude_failure.py
-      start_line: 131
+    - path: src/quiz_sift/cli.py
+      start_line: 603
+      end_line: 622
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 676
+      end_line: 681
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 143
       end_line: 144
-      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
   - id: AST-005
-    statement: _tool_problem は init.tools が許可集合と一致しない init イベントを数えて件数だけを返し、許可集合外の *tool_use ブロックは最初の1件で返さず全件数えて「許可集合外のツール使用が
-      N 件」を返す。ツール名は返さない。
-    category: observability
+    statement: LLM_STAGES now includes 'glossary-audio'. The 'audio' stage synthesizes only the script
+      tracks and no longer builds or reads the glossary. The new glossary_audio method builds the glossary,
+      returns None after removing out/<deck>/glossary when there are no entries, and otherwise delivers
+      the glossary audio. _stage dispatches between these two methods by stage name.
+    category: public_interface
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/claude_failure.py
-      start_line: 182
-      end_line: 191
-      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
-    - path: src/quiz_sift/adapters/claude_failure.py
-      start_line: 199
-      end_line: 207
-      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
+    - path: src/quiz_sift/cli.py
+      start_line: 85
+      end_line: 85
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 449
+      end_line: 479
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 701
+      end_line: 705
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
   - id: AST-006
-    statement: build_argv は --settings の permissions.deny をやめ、代わりに `--setting-sources ""` と `--tools ""`
-      を渡す。
-    category: security_boundary
+    statement: 'The INGEST stage now carries params {''deck_format'': 2}, which changes its inputs digest.
+      The SCRIPT stage no longer has a prompt_template or model and its params hold only pause_seconds
+      (no max_turns).'
+    category: persistence
     confidence: high
     code_anchors:
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 98
-      end_line: 107
-      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 59
-      end_line: 62
-      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+    - path: src/quiz_sift/cli.py
+      start_line: 116
+      end_line: 116
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 135
+      end_line: 136
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
   - id: AST-007
-    statement: _invoke は failure が TRUNCATED の間だけ、同じ argv と stdin で子を出し直す。最大で 1+MAX_REISSUES(2)=3 本起動し、最後の子の判定を返す。2本目以降は
-      begin_invocation(..., reissue=True) で計上され、begin_call は1回だけ。
+    statement: ClaudeCliLlm._invoke spawns the child through _spawn. If the result has failure TRUNCATED,
+      it spawns again with the same argv and stdin, for at most 3 children in total (1 + MAX_REISSUES=2),
+      and returns the judgement of the last child. Every child after the first passes reissue=True to
+      meter.begin_invocation. No other failure kind triggers a re-spawn.
     category: control_flow
     confidence: high
     code_anchors:
@@ -162,17 +177,14 @@ machine:
       end_line: 265
       blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
     - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 69
-      end_line: 69
-      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
-    - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 309
-      end_line: 312
+      start_line: 68
+      end_line: 68
       blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
   - id: AST-008
-    statement: Meter.begin_invocation(reissue=True) は直前の invocation が無いか、その failure が TRUNCATED でなければ
-      RuntimeError を送出する。条件を満たせば直前の invocation に reissued=True を立てる。_ended_by_rate_limit は reissued の
-      invocation を失敗集合から外す。
+    statement: Meter.begin_invocation(reissue=True) raises RuntimeError if there is no previous invocation
+      or if the previous invocation's failure is not TRUNCATED. Otherwise it marks the previous invocation
+      reissued=True. _ended_by_rate_limit excludes reissued invocations from the set of failed invocations
+      it evaluates.
     category: state_propagation
     confidence: high
     code_anchors:
@@ -185,26 +197,90 @@ machine:
       end_line: 424
       blob: git-blob:1b253c8fb26b8cf7daeee43d5cd1847eca6298d5
   - id: AST-009
-    statement: 呼び出しの失敗は LlmCallError ではなく ContractError(judgement.failure, judgement.detail) として送出される。InvocationRecord
-      は stdout/stderr のマスク済み本文を持たなくなり、代わりにマスク済みの init_tools を持つ。
-    category: observability
+    statement: build_argv replaces the '--settings' permissions.deny list with '--setting-sources' ''
+      and '--tools' '' (both values are empty strings). The DENIED_TOOLS tuple is removed.
+    category: security_boundary
     confidence: high
     code_anchors:
     - path: src/quiz_sift/adapters/llm_claude_cli.py
-      start_line: 291
-      end_line: 297
+      start_line: 98
+      end_line: 107
       blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 58
+      end_line: 66
+      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+  - id: AST-010
+    statement: 'InvocationRecord no longer has stdout_masked or stderr_masked fields, so the child''s
+      stdout and stderr bodies are not written to the invocation log. The record instead carries init_tools:
+      the init event''s tools list, masked with the material filter and mask_secrets, or None.'
+    category: observability
+    confidence: high
+    code_anchors:
     - path: src/quiz_sift/safety/invocation_log.py
       start_line: 37
       end_line: 41
       blob: git-blob:6cd798b3049c2e932372ec4cb40951653190412e
     - path: src/quiz_sift/safety/invocation_log.py
       start_line: 78
-      end_line: 81
+      end_line: 82
       blob: git-blob:6cd798b3049c2e932372ec4cb40951653190412e
-  - id: AST-010
-    statement: check_entailments は1回の子プロセスで reference と主張列を渡す。_parse_verdicts は verdicts の id 多重集合が渡した
-      id と一致しなければ INCOMPLETE_IDS(件数のみ)、配列でなければ SCHEMA を送出し、判定値を渡した id の順に並べ直して返す。
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 291
+      end_line: 297
+      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+  - id: AST-011
+    statement: The failure details produced by classify and _tool_problem no longer interpolate subtype,
+      stop_reason, tool names, or the tools list. They report fixed messages or counts only. ContractError
+      now stores the raw detail separately, and classify passes exc.detail (not str(exc)) as the judgement
+      detail.
+    category: observability
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_failure.py
+      start_line: 133
+      end_line: 143
+      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
+    - path: src/quiz_sift/adapters/claude_failure.py
+      start_line: 185
+      end_line: 207
+      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
+    - path: src/quiz_sift/adapters/llm_contract.py
+      start_line: 24
+      end_line: 27
+      blob: git-blob:2af6a287663fcf68c8df35b4a39ae6e67081293e
+  - id: AST-012
+    statement: _tool_problem now counts every disallowed *tool_use block across all assistant events and
+      returns a count message, where before it returned at the first offending block. It also counts init
+      events whose tools are not exactly ALLOWED_TOOLS, where before it returned on the first such event.
+    category: control_flow
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/claude_failure.py
+      start_line: 185
+      end_line: 203
+      blob: git-blob:53e1650b8091a624e0a5a9d2c523aed136b2edbd
+  - id: AST-013
+    statement: ClaudeCliLlm._call raises ContractError(judgement.failure, judgement.detail) on failure,
+      where before it raised a plain LlmCallError. The classify_clusters batch failure reason is str()
+      of that ContractError.
+    category: failure_handling
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 207
+      end_line: 210
+      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+    - path: src/quiz_sift/adapters/llm_claude_cli.py
+      start_line: 309
+      end_line: 314
+      blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
+  - id: AST-014
+    statement: The check_entailments method sends one reference and a list of statements (id, statement,
+      plus focus and distractors when present) to a single child. _parse_verdicts raises ContractError(SCHEMA)
+      if verdicts is not a list of objects, and ContractError(INCOMPLETE_IDS) with missing and extra counts
+      if the multiset of returned ids differs from the ids sent. Otherwise it returns the verdicts reordered
+      to the input id order.
     category: public_interface
     confidence: high
     code_anchors:
@@ -212,19 +288,10 @@ machine:
       start_line: 398
       end_line: 431
       blob: git-blob:7b5d6a747b31fb91725dde128ba2454ca2aef6b4
-  - id: AST-011
-    statement: parse_recall は answers(option/text の配列)と discrimination(text/distractors)を読み、渡していない選択肢キーがあれば
-      SCHEMA(件数のみ)で落とす。キーは keyed で OptionId に写す。正解集合との一致はここでは検査しない。
-    category: public_interface
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/adapters/llm_contract.py
-      start_line: 84
-      end_line: 112
-      blob: git-blob:2af6a287663fcf68c8df35b4a39ae6e67081293e
-  - id: AST-012
-    statement: MODELS は describe_term を Haiku から Opus に、含意判定を check_entailments として Sonnet 5.5 に割り当てる。recall_payload
-      は選択肢を o1..oN の不透明キーで渡し、正解はキーの配列として渡す。
+  - id: AST-015
+    statement: 'Model assignments change: describe_term now uses claude-opus-5-5 (it used Haiku), and
+      the new check_entailments method uses claude-sonnet-5-5. A claude-sonnet-5-5 price entry is added
+      to PRICES: input 2.00, cache write 2.50, cache read 0.10, output 10.00 per MTok.'
     category: dependency
     confidence: high
     code_anchors:
@@ -232,55 +299,83 @@ machine:
       start_line: 17
       end_line: 26
       blob: git-blob:24f648eda044bad2aefaa4768d1e58cee170f47f
+    - path: src/quiz_sift/pipeline/meter.py
+      start_line: 99
+      end_line: 106
+      blob: git-blob:1b253c8fb26b8cf7daeee43d5cd1847eca6298d5
+  - id: AST-016
+    statement: recall_payload passes options to the model as opaque keys o1..oN, numbered in option order,
+      and passes correct as a list of those keys. parse_recall raises ContractError(SCHEMA) with only
+      a count when any answers[].option or discrimination.distractors key is not among the keys sent,
+      and maps keys back to OptionIds.
+    category: public_interface
+    confidence: high
+    code_anchors:
     - path: src/quiz_sift/adapters/llm_prompts.py
       start_line: 141
       end_line: 154
       blob: git-blob:24f648eda044bad2aefaa4768d1e58cee170f47f
-  - id: AST-013
-    statement: Question は選択肢数 4/5/6 を許し、correct_option_ids は 1 件以上・選択肢数未満で、選択肢順に重複なく並んでいなければ ValueError
-      を送出する。
+    - path: src/quiz_sift/adapters/llm_contract.py
+      start_line: 84
+      end_line: 112
+      blob: git-blob:2af6a287663fcf68c8df35b4a39ae6e67081293e
+  - id: AST-017
+    statement: Question now holds correct_option_ids (a tuple) instead of correct_option_id, and allows
+      4, 5, or 6 options. Construction requires 1 <= answer count < number of options, and correct_option_ids
+      must equal the subset of option ids in option order with no duplicates.
     category: public_interface
     confidence: high
     code_anchors:
     - path: src/quiz_sift/domain/question.py
       start_line: 13
-      end_line: 13
+      end_line: 14
       blob: git-blob:8738c4ca3c67cbdb2f69d998280473b469aaafc6
     - path: src/quiz_sift/domain/question.py
-      start_line: 42
+      start_line: 36
       end_line: 59
       blob: git-blob:8738c4ca3c67cbdb2f69d998280473b469aaafc6
-  - id: AST-014
-    statement: 取り込みは answers 配列を必須キーにし(旧 answer は未知キーとして形式エラー)、各値を strip する。answers が空・重複・選択肢外の ID を含むか、件数が選択肢数以上なら
-      ANSWER_UNRESOLVED で棄却する。正解は選択肢の順に並べ直す。
+  - id: AST-018
+    statement: The ingest reader requires the key 'answers' (a list of strings) and no longer accepts
+      'answer'. It strips each value. The validator rejects with ANSWER_UNRESOLVED when answers is empty,
+      has duplicates, contains ids not among the options, or covers all options. It rejects with OPTION_COUNT_UNSUPPORTED
+      when the option count is not 4, 5, or 6. It orders correct_option_ids by option order, not by input
+      order.
     category: public_interface
     confidence: high
     code_anchors:
+    - path: src/quiz_sift/ingest/reader.py
+      start_line: 34
+      end_line: 34
+      blob: git-blob:4730167164a0bf5d8c800acabf51f8e9b673f13c
     - path: src/quiz_sift/ingest/reader.py
       start_line: 112
       end_line: 120
       blob: git-blob:4730167164a0bf5d8c800acabf51f8e9b673f13c
     - path: src/quiz_sift/ingest/validate.py
       start_line: 49
-      end_line: 59
+      end_line: 69
       blob: git-blob:2efceae6fdf54b42f8db97e27ecf953e70ab7c82
-  - id: AST-015
-    statement: grade は frozenset[OptionId] 以外を TypeError、選択肢外の ID や件数が answer_count と違う回答を ValueError
-      で拒み、正解集合と完全一致したときだけ True を返す。AttemptRecord も空集合・frozenset 以外・他問題の ID を拒む。
+  - id: AST-019
+    statement: grade takes a frozenset of OptionId. It raises TypeError for a non-frozenset or for non-OptionId
+      members, and ValueError for ids outside the question's options or for a size different from answer_count.
+      It returns True only when the set equals the set of correct ids. AttemptRecord additionally rejects
+      an empty or non-frozenset chosen value.
     category: public_interface
     confidence: high
     code_anchors:
     - path: src/quiz_sift/scoring/grade.py
-      start_line: 11
-      end_line: 23
+      start_line: 12
+      end_line: 24
       blob: git-blob:f08dabede6c5258aba2159ae433cc5f33fa353ce
     - path: src/quiz_sift/domain/attempt.py
-      start_line: 25
+      start_line: 20
       end_line: 31
       blob: git-blob:b2946c0d71a0c414d51969561cefab083c668be9
-  - id: AST-016
-    statement: QuizApi.submit は chosen を文字列の配列としてだけ受け、重複があれば ValueError を送出する。present は select_count を返し、submit
-      の応答は correct_option_ids の配列を返す。
+  - id: AST-020
+    statement: QuizApi.submit accepts chosen only as a list of strings and raises ValueError for duplicate
+      ids. It builds a frozenset of OptionId and submits it under the deck lock. The response returns
+      correct_option_ids as a list, replacing correct_option_id. present now also returns select_count,
+      equal to answer_count.
     category: public_interface
     confidence: high
     code_anchors:
@@ -288,89 +383,59 @@ machine:
       start_line: 109
       end_line: 140
       blob: git-blob:0767d03a0b1b55d5e540bd94c083b04123a97d86
-  - id: AST-017
-    statement: attempts は chosen_option_ids 列に、local_id を整列した JSON 配列として書き込み、読み出しでは json.loads から frozenset
-      を組み立てる。
+  - id: AST-021
+    statement: The store now persists chosen_option_ids as a JSON array of sorted local_ids and reads
+      it back with json.loads into a frozenset.
     category: persistence
     confidence: high
     code_anchors:
     - path: src/quiz_sift/store/deck_scope.py
-      start_line: 36
-      end_line: 43
+      start_line: 35
+      end_line: 44
       blob: git-blob:c78db153408b36ac48fa07c157a197c39848a364
     - path: src/quiz_sift/store/deck_scope.py
       start_line: 68
-      end_line: 71
+      end_line: 72
       blob: git-blob:c78db153408b36ac48fa07c157a197c39848a364
-  - id: AST-018
-    statement: _initialize は BEGIN IMMEDIATE の中で user_version とテーブル数を読む。版が SCHEMA_VERSION=2 でなく、テーブルがあるか版が
-      0 でなければ LegacyStoreError を送出して ROLLBACK する。新規ならスキーマを文ごとに実行して user_version=2 を書き、COMMIT した後に WAL
-      へ切り替える。版が 2 のときはテーブルの有無を確かめない。
+  - id: AST-022
+    statement: _initialize opens a BEGIN IMMEDIATE transaction and reads PRAGMA user_version and the table
+      count. If the version differs from 2 and tables exist or the version is non-zero, it rolls back
+      and raises LegacyStoreError. If the version is 0 and there are no tables, it creates the schema
+      statement by statement (splitting on ';'), sets user_version=2, and commits. It switches journal_mode
+      to WAL only after the commit. The path is added to _initialized only on success.
     category: persistence
     confidence: high
     code_anchors:
     - path: src/quiz_sift/store/location.py
-      start_line: 93
+      start_line: 90
       end_line: 114
       blob: git-blob:492533260d3d5049e8056dae5afc3720bb4fbd8f
-  - id: AST-019
-    statement: HTTP ハンドラは LegacyStoreError を 503 にし、例外文(パス・版・退避コマンドの例)を error 本文として返す。
+    - path: src/quiz_sift/store/location.py
+      start_line: 20
+      end_line: 33
+      blob: git-blob:492533260d3d5049e8056dae5afc3720bb4fbd8f
+    observed_conditions:
+    - The CREATE statements no longer use IF NOT EXISTS.
+  - id: AST-023
+    statement: The HTTP handler maps LegacyStoreError to 503 with the exception message, which includes
+      the store path and a suggested mv command, as the JSON error body.
     category: failure_handling
     confidence: high
     code_anchors:
     - path: src/quiz_sift/server/handler.py
-      start_line: 95
-      end_line: 102
+      start_line: 98
+      end_line: 100
       blob: git-blob:9845c7055eb15069f7c02809a6032ac81fdf411c
-  - id: AST-020
-    statement: LLM 段の実行中は SIGHUP/SIGTERM のハンドラが TerminatedBySignal(128+signum) を送出する。これと 12 時間の alarm
-      は ExitStack で入れ子にして入り、出るときに元のハンドラを戻す。glossary-audio も LLM_STAGES に入っている。
-    category: control_flow
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 603
-      end_line: 622
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-    - path: src/quiz_sift/cli.py
-      start_line: 676
-      end_line: 681
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-  - id: AST-021
-    statement: INGEST 段の digest には params deck_format=2 が入り、SCRIPT 段はプロンプトとモデルを持たず pause_seconds だけを params
-      に持つ。recall 段は stop_seen・_failure_kind・段キャッシュの progress を generate_recall_set に渡す。
-    category: state_propagation
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 116
-      end_line: 116
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-    - path: src/quiz_sift/cli.py
-      start_line: 137
-      end_line: 137
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-    - path: src/quiz_sift/cli.py
-      start_line: 415
-      end_line: 428
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-  - id: AST-022
-    statement: _failure_kind は ContractError なら種別の値を、それ以外なら例外の型名を返す。recall の失敗ログには例外文ではなくこの値が出る。
-    category: observability
-    confidence: high
-    code_anchors:
-    - path: src/quiz_sift/cli.py
-      start_line: 560
-      end_line: 565
-      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
-    - path: src/quiz_sift/recall/generate.py
-      start_line: 391
-      end_line: 394
-      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-  - id: AST-023
-    statement: _generate_one は、生成のたびに check_question を通し、機械検査を通った素材にだけ ask で含意判定する。どちらかに落ちれば retry に落ちた検査を累積して作り直す。attempts
-      が MAX_REGENERATIONS(2) を超えたら(最大3生成)、失敗を持ったまま _Generated を返す。生成の前に stop_seen が真なら None を返す。生成と判定のたびに
-      _Pending を save する。
+    - path: src/quiz_sift/store/location.py
+      start_line: 49
+      end_line: 61
+      blob: git-blob:492533260d3d5049e8056dae5afc3720bb4fbd8f
+  - id: AST-024
+    statement: generate_recall_set processes questions one at a time in cluster order. For each question
+      it generates a draft, runs check_question, and, only if every mechanical check passes, asks entailment
+      once for all of that question's statements. It regenerates on any failure while attempts <= MAX_REGENERATIONS
+      (2), so at most 3 generations per question, and passes a Retry that accumulates the previous draft
+      and all problems seen so far.
     category: control_flow
     confidence: high
     code_anchors:
@@ -378,21 +443,48 @@ machine:
       start_line: 255
       end_line: 289
       blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-  - id: AST-024
-    statement: generate_recall_set は LlmCallError の問題を失敗として数えて次へ進み(done に入らないので後続の重複判定の対象にもならない)、stop_seen
-      による None でループを抜ける。失敗または未発行があれば RecallCallsFailed、上限超過があれば RegenerationExhausted を送出し、どちらも無いときだけ
-      emit を呼ぶ。上限超過の問題も done に入り、後続の重複判定の earlier に含まれる。
+  - id: AST-025
+    statement: generate_recall_set counts an LlmCallError, whether from generation or from the entailment
+      call, as a failure for that question, logs only failure_kind(error), and continues with the next
+      question. If stop_seen() is true before a generation, the loop breaks. Afterwards it raises RecallCallsFailed
+      when any call failed or fewer questions were issued than exist, then RegenerationExhausted when
+      any question exceeded the cap, and calls emit only when neither applies.
     category: failure_handling
     confidence: high
     code_anchors:
     - path: src/quiz_sift/recall/generate.py
-      start_line: 366
+      start_line: 369
       end_line: 420
       blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-  - id: AST-025
-    statement: '途中結果: Progress は項目を 6 桁ゼロ埋めの通し番号ファイルに、一時ファイルと os.replace で書く。load は ''.'' 始まりを飛ばし、数字でない名前があれば
-      ValueError を送出する。run_id が無い実行では StageCache.progress が None を返す。成果物を新しく確定したときだけ同じ digest の .progress
-      を rmtree し、キャッシュヒットで戻る経路では消さない。'
+    observed_conditions:
+    - stop_seen is checked only before a generation, not before the entailment call.
+  - id: AST-026
+    statement: When progress is provided, the recall loop saves per-question state (pending, passed, or
+      exhausted, as JSON) after each generation that produced output, after each verdict, and on completion.
+      On restore, passed and exhausted states are reused without calling the LLM. Pending states resume
+      from their stored attempts, material, verdicts, and retry. Unknown indices, or a stored question
+      that does not match the index, raise ValueError.
+    category: persistence
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/recall/generate.py
+      start_line: 204
+      end_line: 235
+      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
+    - path: src/quiz_sift/recall/generate.py
+      start_line: 326
+      end_line: 339
+      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
+    - path: src/quiz_sift/recall/generate.py
+      start_line: 370
+      end_line: 396
+      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
+  - id: AST-027
+    statement: StageCache.progress returns None when run_id is None. Otherwise it returns a Progress directory
+      named '<digest>.progress' under the stage directory. Progress.save writes '{index:06d}' atomically
+      through a dot-prefixed temp file and os.replace. Progress.load skips dot files and raises ValueError
+      on non-digit names. StageCache.run removes the progress directory with rmtree only after it newly
+      writes the artifact; a cache hit returns early without removing it.
     category: persistence
     confidence: high
     code_anchors:
@@ -402,34 +494,25 @@ machine:
       blob: git-blob:72c8689b1dd8d2fadb9d45460c27f247cf0ab6de
     - path: src/quiz_sift/pipeline/stage.py
       start_line: 119
-      end_line: 139
-      blob: git-blob:72c8689b1dd8d2fadb9d45460c27f247cf0ab6de
-    - path: src/quiz_sift/pipeline/stage.py
-      start_line: 150
       end_line: 153
       blob: git-blob:72c8689b1dd8d2fadb9d45460c27f247cf0ab6de
-  - id: AST-026
-    statement: _restore は途中結果の通し番号がクラスタ順の問題数の範囲外なら ValueError を送出する。_state_from は question の不一致や未知の state
-      で ValueError を送出する。passed/exhausted の状態は再呼び出しせずに再利用する。
-    category: persistence
+  - id: AST-028
+    statement: For entailment, _statements builds one statement per answer element (focus = that correct
+      option's text) plus one discrimination statement (distractors = texts of the referenced wrong options).
+      It raises ValueError if an answer element's option is not correct or a distractor is not a wrong
+      option of the question.
+    category: control_flow
     confidence: high
     code_anchors:
     - path: src/quiz_sift/recall/generate.py
-      start_line: 220
-      end_line: 235
+      start_line: 292
+      end_line: 313
       blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-    - path: src/quiz_sift/recall/generate.py
-      start_line: 326
-      end_line: 339
-      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-    - path: src/quiz_sift/recall/generate.py
-      start_line: 370
-      end_line: 372
-      blob: git-blob:acd57a66cb9158535c9dd134fb225fa4126ad46b
-  - id: AST-027
-    statement: check_question は empty / ungrounded_key / answer_mismatch / missing_options / generic /
-      verbatim / option_key / duplicate_key の8検査を1問単位で行う。duplicate_key は earlier のうち別クラスタの素材と term_set
-      が同じときだけ真になる。
+  - id: AST-029
+    statement: 'check_question runs eight checks per question: empty, ungrounded_key (terms are checked
+      against the stem only), answer_mismatch, missing_options, generic, verbatim, option_key, and duplicate_key.
+      duplicate_key fires only against earlier materials from a different cluster. It returns the names
+      of failed checks, the term rates, and Problem objects. option_key''s Problem carries no terms.'
     category: control_flow
     confidence: high
     code_anchors:
@@ -438,12 +521,28 @@ machine:
       end_line: 224
       blob: git-blob:cf8a647a4ac2695c059f3144732db33d4aa64e1c
     - path: src/quiz_sift/recall/verify.py
-      start_line: 163
-      end_line: 166
+      start_line: 55
+      end_line: 60
       blob: git-blob:cf8a647a4ac2695c059f3144732db33d4aa64e1c
-  - id: AST-028
-    statement: ask は主張 ID の重複と、返った判定値の件数の不一致を ValueError で落とす。aggregate は contradicted > uncertain > consistent
-      の順に集約し、空なら uncertain を返す。judge は主張が0件なら呼ばずに uncertain を返す。reference_for は正解 N 件を「、」で連結して入れる。
+  - id: AST-030
+    statement: leaked_option_keys flags tokens o1..o6 (regex not adjacent to [a-z0-9]) found in the normalized
+      terms, answer texts, or discrimination text, but only those that do not also appear in the question's
+      stem, options, or explanation.
+    category: security_boundary
+    confidence: medium
+    code_anchors:
+    - path: src/quiz_sift/recall/verify.py
+      start_line: 73
+      end_line: 86
+      blob: git-blob:cf8a647a4ac2695c059f3144732db33d4aa64e1c
+    unknowns:
+    - _normalize's exact behaviour is defined outside the shown hunks.
+  - id: AST-031
+    statement: 'In the safety module, judge(checker, reference, statements) returns UNCERTAIN without
+      calling the checker when there are no statements. Otherwise it calls ask, which raises ValueError
+      on duplicate statement ids or a verdict-count mismatch, then aggregates: CONTRADICTED takes precedence,
+      then UNCERTAIN, otherwise CONSISTENT. emit_if_consistent is removed, and all statements are sent
+      before aggregation.'
     category: control_flow
     confidence: high
     code_anchors:
@@ -451,26 +550,22 @@ machine:
       start_line: 69
       end_line: 100
       blob: git-blob:f014e15af4343ff1adb412b2ef69055a0eebe00d
-    - path: src/quiz_sift/safety/entailment.py
-      start_line: 36
-      end_line: 46
-      blob: git-blob:f014e15af4343ff1adb412b2ef69055a0eebe00d
-  - id: AST-029
-    statement: クラスタ要約は、実在性か含意判定に落ちたクラスタだけを最大3回まで生成する。上限を超えると最後の失敗(UngroundedSummary か EntailmentRejected)を送出する。含意判定はクラスタ単位で行い、全クラスタの後でまとめて行うことはしない。
+  - id: AST-032
+    statement: emit_summarized regenerates each cluster's summary up to 2 times. On an ungrounded-terms
+      failure it skips the entailment check and regenerates. After the cap it raises the last failure,
+      either UngroundedSummary or EntailmentRejected. emit is called only after every cluster passes.
     category: control_flow
     confidence: high
     code_anchors:
     - path: src/quiz_sift/cluster/summary.py
       start_line: 110
-      end_line: 133
-      blob: git-blob:e445642bf4eb733be4e3e885b28d0385cae64fe6
-    - path: src/quiz_sift/cluster/summary.py
-      start_line: 144
       end_line: 152
       blob: git-blob:e445642bf4eb733be4e3e885b28d0385cae64fe6
-  - id: AST-030
-    statement: グロッサリの各用語は、consistent でなければ describe_term で説明を作り直し、最大3回判定する。全用語の判定を終えてから集約し、contradicted
-      が1件でもあれば Contradicted、uncertain があれば EntailmentRejected を返す。verify は作り直した説明も返す。
+  - id: AST-033
+    statement: Glossary verify judges each entry. On a verdict other than CONSISTENT it calls describe_term
+      again and re-judges, at most 2 regenerations, without passing the previous description or the problems.
+      It returns the final entries together with the verification result. Entries with no reference yield
+      verdict None and are not regenerated.
     category: control_flow
     confidence: high
     code_anchors:
@@ -478,9 +573,16 @@ machine:
       start_line: 88
       end_line: 125
       blob: git-blob:1d3271708c3662c49221492bc2bd7d49b8e14bb4
-  - id: AST-031
-    statement: 台本段は含意判定を呼ばなくなった。question_script は答えの要素数か ID 集合が正解と一致しなければ MissingAnswerElement を送出し、要素を正解の選択肢順に並べる。トラックが0本なら
-      NoTracks を送出する。ラベル列挙の判定には、トラック内の最小の選択肢数と問題文を渡す。
+    - path: src/quiz_sift/glossary/verify.py
+      start_line: 146
+      end_line: 146
+      blob: git-blob:1d3271708c3662c49221492bc2bd7d49b8e14bb4
+  - id: AST-034
+    statement: generate_scripts no longer takes a checker or calls entailment. question_script raises
+      MissingAnswerElement when the number of answer elements differs from answer_count or their option
+      ids do not equal the correct set, and orders the answer texts by correct option order. generate_scripts
+      raises NoTracks when the plan has no tracks, and passes the minimum option count of each track and
+      that track's stems to find_enumerations.
     category: control_flow
     confidence: high
     code_anchors:
@@ -489,12 +591,14 @@ machine:
       end_line: 118
       blob: git-blob:f4a2d89c5b6d1ea8f7f26fa73fc926f8dffa855b
     - path: src/quiz_sift/script/generate.py
-      start_line: 149
+      start_line: 152
       end_line: 163
       blob: git-blob:f4a2d89c5b6d1ea8f7f26fa73fc926f8dffa855b
-  - id: AST-032
-    statement: label_guard は、各系列の先頭 M 件が揃ったときに列挙と判定する。日本語の記号系列では、直前のカタカナ・漢字の連なりと合わせた字面が NFKC 正規化後に問題文に含まれるラベルを除外する。M
-      が 4/5/6 以外なら ValueError を送出する。
+  - id: AST-035
+    statement: 'find_enumerations raises ValueError when option_count is not 4, 5, or 6. It flags a series
+      when its first M labels are all present: for Japanese, as standalone labels; for English, as a chain
+      or list markers, and the chain check is now a superset test. For Japanese, letter labels whose preceding
+      katakana/kanji run plus the letter, after NFKC normalization, appears in a stem are excluded.'
     category: control_flow
     confidence: high
     code_anchors:
@@ -503,34 +607,62 @@ machine:
       end_line: 104
       blob: git-blob:e79ed5d9df6ed936e0de412d6a98061a80581ba9
     - path: src/quiz_sift/script/label_guard.py
+      start_line: 116
+      end_line: 116
+      blob: git-blob:e79ed5d9df6ed936e0de412d6a98061a80581ba9
+    - path: src/quiz_sift/script/label_guard.py
       start_line: 137
       end_line: 148
       blob: git-blob:e79ed5d9df6ed936e0de412d6a98061a80581ba9
-  - id: AST-033
-    statement: Udemy 抽出は、正解マークが1件以上あれば全件を正解とし、全選択肢にマークがあれば None を返す。マークが無いときは、選択アイコンが radio だけ(checkbox
-      混在なし)で選択がちょうど1件の場合に限り USER_SELECTED とする。
+  - id: AST-036
+    statement: Udemy extraction accepts 4, 5, or 6 options. When at least one option has a correct-mark
+      class, all marked options become the answers, except that the extractor returns None (an ANSWER
+      failure) when every option is marked. Without marks, it uses the single user-selected option only
+      when the selection icons include a radio icon and no checkbox icon.
     category: control_flow
     confidence: high
     code_anchors:
     - path: src/quiz_sift/extract/udemy.py
+      start_line: 199
+      end_line: 203
+      blob: git-blob:8d910a602669125c93e97272ed08d6feea33ceea
+    - path: src/quiz_sift/extract/udemy.py
       start_line: 226
       end_line: 254
       blob: git-blob:8d910a602669125c93e97272ed08d6feea33ceea
-  - id: AST-034
-    statement: Web のセッション画面は、送信中を ref で判定して2度目の送信を無視する。select_count>1 の問題はチェックボックスで選ばせ、選択数が select_count
-      と一致するまで送信ボタンを無効にする。
+  - id: AST-037
+    statement: The session page guards submit with a ref (sending) and a submitting state, so a second
+      submit is ignored while one is in flight. Single-answer questions submit on one button click. For
+      select_count > 1 it renders checkboxes and enables the '回答する' button only when exactly select_count
+      options are selected. Correct marks are shown for every id in correct_option_ids.
     category: public_interface
-    confidence: medium
+    confidence: high
     code_anchors:
     - path: web/app/decks/[deck]/sessions/[session]/page.tsx
       start_line: 43
-      end_line: 55
+      end_line: 104
       blob: git-blob:6ce73c9a34eb024611e735df85415345a27c85b7
+  - id: AST-038
+    statement: The Pipeline.recall stage passes stop_seen from the run meter, _failure_kind, and a progress
+      object from the cache to generate_recall_set. _failure_kind returns error.kind.value for a ContractError
+      and the exception type name otherwise.
+    category: state_propagation
+    confidence: high
+    code_anchors:
+    - path: src/quiz_sift/cli.py
+      start_line: 412
+      end_line: 428
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
+    - path: src/quiz_sift/cli.py
+      start_line: 560
+      end_line: 565
+      blob: git-blob:d451f7994f90c37695f860558b754de3a0802295
   claims:
   - claim_id: C-001
     actual_statement_ids:
-    - AST-013
-    - AST-014
+    - AST-017
+    - AST-018
+    - AST-036
     verdict: aligned
     semantic_support:
       status: supported
@@ -538,28 +670,29 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - 12組フィクスチャ・除外件数の報告・問題ごとの列挙はActualに無い
+    - 12組フィクスチャと除外件数の報告・列挙は Actual に示されていない
     integrity:
       status: verified
-      code_anchor_digest: sha256:621a3f0552d063c6c1e738215799bb01854b43fb65e484a89120395fdfaf9854
+      code_anchor_digest: sha256:d0ec341ef2d9ba890b99905cd2ac9aaf1f6ccf7bc8641b8d4c4e716a3d41848d
   - claim_id: C-002
     actual_statement_ids:
-    - AST-033
-    verdict: unverified
+    - AST-036
+    verdict: aligned
     semantic_support:
-      status: unknown
+      status: supported
       assessment_basis: machine_assessed
     conformance:
       status: partial
     unknowns:
-    - 5/6件ブロック・ゴールデンセット・再抽出の報告はActualに無い
+    - ゴールデンセット100%一致、3件以下/7件以上の失敗列挙、再抽出の報告は未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:106fac51a10991af78eba14b19cc8382988305524f625b27dd91d6e92fbdc168
+      code_anchor_digest: sha256:3fa51335f029ecb6f8ae0ce75e8ae288bd0537304b67aca26366bdec5232476d
   - claim_id: C-021
     actual_statement_ids:
     - AST-001
     - AST-002
+    - AST-003
     verdict: aligned
     semantic_support:
       status: supported
@@ -567,17 +700,18 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - 受入テスト(修正前に赤)はActualに無い
+    - 受入テストと修正前に赤になることは未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:5f0ca39f11ef774f9c29f82125504e5e3ed5034afb8421fde4265089bdd82062
+      code_anchor_digest: sha256:2ac09c8a1e0fb2cacda6e8c9fc0ad4de7f32acd4a2aab83acaeea9ae1ebea3df
   - claim_id: C-004
     actual_statement_ids:
-    - AST-011
-    - AST-012
-    - AST-023
+    - AST-016
     - AST-024
-    - AST-027
+    - AST-025
+    - AST-028
+    - AST-029
+    - AST-030
     verdict: aligned
     semantic_support:
       status: supported
@@ -585,10 +719,10 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - G-1の単一述語と生成プロンプトの定数共有はActualに無い
+    - G-1 単一述語の共有と生成プロンプトの定数共有は Actual に無い
     integrity:
       status: verified
-      code_anchor_digest: sha256:efcdcc2e3a94da1dad572637d7de62a02f17cb8df9bec856d9649ed5da7acf1f
+      code_anchor_digest: sha256:aaad48711d626e31ecb747b8830fbc092c2dd40eddc02f382573afe839be64a6
   - claim_id: C-026
     actual_statement_ids: []
     verdict: unverified
@@ -598,22 +732,24 @@ machine:
     conformance:
       status: unknown
     unknowns:
-    - ホスト実測でありコード差分から確認できない
+    - ホストでの実CLI実測は Actual に無い
     integrity:
       status: unavailable
   - claim_id: C-006
     actual_statement_ids:
-    - AST-031
-    - AST-032
+    - AST-034
+    - AST-035
     verdict: aligned
     semantic_support:
       status: supported
       assessment_basis: machine_assessed
     conformance:
-      status: observed
+      status: partial
+    unknowns:
+    - かな・番号系列の全体は一部のみ確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:3b76224c834af1225d05955aa3c845d33ad0f27dff694841cea8cef4c729be27
+      code_anchor_digest: sha256:c921612bdf15b75f3b4261d9e03bcb960c940adfb01a92c597ae13331a0fd194
   - claim_id: C-007
     actual_statement_ids: []
     verdict: unverified
@@ -623,15 +759,16 @@ machine:
     conformance:
       status: unknown
     unknowns:
-    - ホスト実測
+    - CosyVoice実合成と無音判定は Actual に無い
     integrity:
       status: unavailable
   - claim_id: C-008
     actual_statement_ids:
-    - AST-015
-    - AST-016
-    - AST-017
-    - AST-018
+    - AST-019
+    - AST-020
+    - AST-021
+    - AST-022
+    - AST-023
     verdict: aligned
     semantic_support:
       status: supported
@@ -639,32 +776,31 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - APIの400対応と100%/0%フィクスチャはActualに無い
+    - APIの400変換とシャッフルフィクスチャの100%/0%は未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:8bc263fa64e6f9d8fed1efe6bfa40ffec043006c88fdf57be3391fddd417e033
+      code_anchor_digest: sha256:e14df5db16e461ab46415ba69bda45b097f569bc89c1d90fa8f43599845f93e2
   - claim_id: C-012
     actual_statement_ids:
-    - AST-034
-    - AST-016
+    - AST-037
+    - AST-020
     verdict: aligned
     semantic_support:
       status: supported
       assessment_basis: machine_assessed
     conformance:
-      status: partial
-    unknowns:
-    - 「N個選択」表示の文言は未確認
+      status: observed
     integrity:
       status: verified
-      code_anchor_digest: sha256:737b077168ebd618cde0f41daac8cdf2b79af5827421df0423073620cc6ce6ab
+      code_anchor_digest: sha256:a5b7d68b35a83be942ecb954129346156020a6f74abdb556b8d6ae3bd222788d
   - claim_id: C-013
     actual_statement_ids:
-    - AST-023
+    - AST-014
     - AST-028
-    - AST-029
-    - AST-030
     - AST-031
+    - AST-032
+    - AST-033
+    - AST-034
     verdict: aligned
     semantic_support:
       status: supported
@@ -672,16 +808,14 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - 識別ポイントの参照先誤答本文の組み立てと言い換えの誤検出なしはActualに無い
+    - referenceの構成とグロッサリ上限超過時のエラー終了は示されていない
     integrity:
       status: verified
-      code_anchor_digest: sha256:4c21d52b3bdf9c0734aa5e74f5f3b7f0844292b86e83cfcc3dc1d3e3b8be3cf7
+      code_anchor_digest: sha256:7d38e16f710c9e983229d5b24b004d630a31c65e6ca2b3e453f1b9358d62e7ba
   - claim_id: C-014
     actual_statement_ids:
-    - AST-004
-    - AST-005
-    - AST-009
-    - AST-022
+    - AST-010
+    - AST-011
     verdict: aligned
     semantic_support:
       status: supported
@@ -689,20 +823,20 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - stderr/全ログ0件のテストと記録項目の網羅はActualに無い
+    - stderr・全ログレベルで0件であることと記録項目の全体は未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:870d6f79d7ce3394068ba951db5971989439b4c652e073c15014314f0b7f4e56
+      code_anchor_digest: sha256:962a2773738b8da9cde44b4e26e30cff2a4a3a7faffc016a8c930167b006f3bf
   - claim_id: C-022
     actual_statement_ids: []
-    verdict: unverified
+    verdict: unknown
     semantic_support:
       status: unknown
       assessment_basis: machine_assessed
     conformance:
       status: unknown
     unknowns:
-    - バージョンに関する記述がActualに無い
+    - バージョンに関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-019
@@ -714,7 +848,7 @@ machine:
     conformance:
       status: unknown
     unknowns:
-    - ホスト実測
+    - ホスト実測は Actual に無い
     integrity:
       status: unavailable
   - claim_id: C-025
@@ -726,27 +860,12 @@ machine:
     conformance:
       status: unknown
     unknowns:
-    - 実デッキでの実測
+    - 実デッキ190問の実行記録は Actual に無い
     integrity:
       status: unavailable
   - claim_id: C-023
     actual_statement_ids:
-    - AST-006
-    verdict: unverified
-    semantic_support:
-      status: unknown
-      assessment_basis: machine_assessed
-    conformance:
-      status: partial
-    unknowns:
-    - --setting-sources "" は渡されるが、番兵envによる陰性対照の実測と設定の復元はActualに無い
-    integrity:
-      status: verified
-      code_anchor_digest: sha256:141669d85d58ba4b15489707e2b1cd85769132ca12fccd5449ad58362de080a1
-  - claim_id: C-024
-    actual_statement_ids:
-    - AST-006
-    - AST-005
+    - AST-009
     verdict: aligned
     semantic_support:
       status: supported
@@ -754,10 +873,25 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - --tools "" で init.tools が {StructuredOutput} になるかは実測が必要
+    - 番兵envでの実測と最小ホームの中身検査は未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:948ee6c4297785718a96b540f5085367dfd71996a3e63aef6c1927900b53f16a
+      code_anchor_digest: sha256:c079b1d9b3207cbaea420ab9ac6e8c1625776852b167c2e1cc731ede57376da3
+  - claim_id: C-024
+    actual_statement_ids:
+    - AST-009
+    - AST-012
+    verdict: aligned
+    semantic_support:
+      status: supported
+      assessment_basis: machine_assessed
+    conformance:
+      status: partial
+    unknowns:
+    - --tools '' が init.tools={StructuredOutput} を満たす実測は未確認
+    integrity:
+      status: verified
+      code_anchor_digest: sha256:e1b2838d5e8b883a518bd2b311db2246a85e3fff12f6f30f6d3e9fb381d23842
   - claim_id: C-027
     actual_statement_ids: []
     verdict: unknown
@@ -767,16 +901,14 @@ machine:
     conformance:
       status: unknown
     unknowns:
-    - llm_anthropic.py の削除と陰性対照テストの記述がActualに無い
+    - llm_anthropic.py 削除に関する Actual Statement が無い
     integrity:
       status: unavailable
   - claim_id: C-028
     actual_statement_ids:
-    - AST-021
-    - AST-023
-    - AST-024
     - AST-025
     - AST-026
+    - AST-027
     verdict: aligned
     semantic_support:
       status: supported
@@ -784,14 +916,14 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - 作り直し回数が再開をまたいで数えられること、キー不一致時の不使用の直接の記述が無い
+    - 作り直し上限の再開またぎ計数、キャッシュ鍵不一致時の不使用、再開ログは未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:4150f3c162b661f53472d4bc22a4c3c8ef3fe827e8f3491f76080ae22d24b46d
+      code_anchor_digest: sha256:3c7ecc0c4396c93622bee43986a4b8aba037b70401017cfda4c6830af440e188
   - claim_id: C-029
     actual_statement_ids:
-    - AST-010
-    - AST-012
+    - AST-014
+    - AST-015
     verdict: aligned
     semantic_support:
       status: supported
@@ -799,25 +931,26 @@ machine:
     conformance:
       status: partial
     unknowns:
-    - 分類入力から解説を外したこと、思考を止めない起動はActualに無い
+    - 分類入力から解説が外れたこと、思考を止めない起動は Actual に無い
     integrity:
       status: verified
-      code_anchor_digest: sha256:31225c280dfab49390d2dbb4d45970591a79340dabd07331b8c3dc5163e1ac18
+      code_anchor_digest: sha256:dc28f7909edfc5213d6938465576446be049cda6d9134c230c52f1f33c36ab74
   - claim_id: C-030
     actual_statement_ids:
-    - AST-022
-    - AST-023
-    verdict: unverified
+    - AST-024
+    - AST-033
+    verdict: diverged
     semantic_support:
-      status: unknown
+      status: conflicted
       assessment_basis: machine_assessed
     conformance:
       status: partial
     unknowns:
-    - 前回出力と対象語句を再生成呼び出しに渡す点の直接の記述が無い
+    - recall は前回出力と問題を渡すが、グロッサリは渡さない(AST-033)
+    - クラスタ要約が理由を受け取るかは未確認
     integrity:
       status: verified
-      code_anchor_digest: sha256:0bddf10655ba6a7169ac57b3084bce602fe094ecd5ea8333014db2294045fc19
+      code_anchor_digest: sha256:5b7200b5a0300d2b9bf956374c02cffcd12b83ce8ead69c273d5e210192a4ab7
   acceptance:
     actual_extraction: true
     comparison: true
@@ -1138,7 +1271,7 @@ machine:
       - gate.sh
       - lint
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: format
       profile: quality
@@ -1147,7 +1280,7 @@ machine:
       - gate.sh
       - format
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: types
       profile: quality
@@ -1156,7 +1289,7 @@ machine:
       - gate.sh
       - types
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: test
       profile: quality
@@ -1165,7 +1298,7 @@ machine:
       - gate.sh
       - test
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: docs
       profile: quality
@@ -1174,7 +1307,7 @@ machine:
       - gate.sh
       - docs
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: smoke
       profile: quality
@@ -1183,101 +1316,127 @@ machine:
       - gate.sh
       - smoke
       sandbox: oci
-      image: localhost/rein-quality@sha256:058a9475070a951603645fd3b714e3ab4fc7bebc6f2e944f99280b8eae02b685
+      image: localhost/rein-quality@sha256:d67e4d1a0738241171fb475241713e2a697ab742fa078fa80f7f7fc5a6f04f50
       network: none
     - step: <agent launches>
       kind: agent
       profile: ''
       sandbox: host
       network: unconfined
+    environment_drift:
+      approved_at_gate_three: sha256:1f56e77656c4278b6e7d784d6fbad61cb9be256efa65d9cdc1d5526d4d6bae8a
+      evidence_produced_in: sha256:4bd9f3d9844e20fa3f5a941979af5ed1ad72a8742c0759eb444e3956cc7cd876
     requirements_on_people:
       undeclared:
+      - category: persistence
+        statement_id: AST-006
+        statement: 'The INGEST stage now carries params {''deck_format'': 2}, which changes its inputs
+          digest. The SCRIPT stage no longer has a prompt_template or model and its params hold only pause_seconds
+          (no max_turns).'
+        confidence: high
+        paths:
+        - src/quiz_sift/cli.py
       - category: observability
-        statement_id: AST-004
-        statement: classify の失敗説明から、子の出力から作った値(subtype/stop_reason の repr、ContractError の str)が除かれた。TRUNCATED
-          と PROVIDER_ERROR は固定文になり、parse の ContractError は exc.detail(種別の接頭辞なし)を渡す。
+        statement_id: AST-011
+        statement: The failure details produced by classify and _tool_problem no longer interpolate subtype,
+          stop_reason, tool names, or the tools list. They report fixed messages or counts only. ContractError
+          now stores the raw detail separately, and classify passes exc.detail (not str(exc)) as the judgement
+          detail.
         confidence: high
         paths:
         - src/quiz_sift/adapters/claude_failure.py
-      - category: observability
-        statement_id: AST-005
-        statement: _tool_problem は init.tools が許可集合と一致しない init イベントを数えて件数だけを返し、許可集合外の *tool_use ブロックは最初の1件で返さず全件数えて「許可集合外のツール使用が
-          N 件」を返す。ツール名は返さない。
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/claude_failure.py
+        - src/quiz_sift/adapters/llm_contract.py
       - category: public_interface
-        statement_id: AST-010
-        statement: check_entailments は1回の子プロセスで reference と主張列を渡す。_parse_verdicts は verdicts の id 多重集合が渡した
-          id と一致しなければ INCOMPLETE_IDS(件数のみ)、配列でなければ SCHEMA を送出し、判定値を渡した id の順に並べ直して返す。
+        statement_id: AST-014
+        statement: The check_entailments method sends one reference and a list of statements (id, statement,
+          plus focus and distractors when present) to a single child. _parse_verdicts raises ContractError(SCHEMA)
+          if verdicts is not a list of objects, and ContractError(INCOMPLETE_IDS) with missing and extra
+          counts if the multiset of returned ids differs from the ids sent. Otherwise it returns the verdicts
+          reordered to the input id order.
         confidence: high
         paths:
         - src/quiz_sift/adapters/llm_claude_cli.py
-      - category: public_interface
-        statement_id: AST-011
-        statement: parse_recall は answers(option/text の配列)と discrimination(text/distractors)を読み、渡していない選択肢キーがあれば
-          SCHEMA(件数のみ)で落とす。キーは keyed で OptionId に写す。正解集合との一致はここでは検査しない。
-        confidence: high
-        paths:
-        - src/quiz_sift/adapters/llm_contract.py
       - category: dependency
-        statement_id: AST-012
-        statement: MODELS は describe_term を Haiku から Opus に、含意判定を check_entailments として Sonnet 5.5 に割り当てる。recall_payload
-          は選択肢を o1..oN の不透明キーで渡し、正解はキーの配列として渡す。
+        statement_id: AST-015
+        statement: 'Model assignments change: describe_term now uses claude-opus-5-5 (it used Haiku),
+          and the new check_entailments method uses claude-sonnet-5-5. A claude-sonnet-5-5 price entry
+          is added to PRICES: input 2.00, cache write 2.50, cache read 0.10, output 10.00 per MTok.'
         confidence: high
         paths:
         - src/quiz_sift/adapters/llm_prompts.py
+        - src/quiz_sift/pipeline/meter.py
       - category: public_interface
-        statement_id: AST-013
-        statement: Question は選択肢数 4/5/6 を許し、correct_option_ids は 1 件以上・選択肢数未満で、選択肢順に重複なく並んでいなければ ValueError
-          を送出する。
+        statement_id: AST-016
+        statement: recall_payload passes options to the model as opaque keys o1..oN, numbered in option
+          order, and passes correct as a list of those keys. parse_recall raises ContractError(SCHEMA)
+          with only a count when any answers[].option or discrimination.distractors key is not among the
+          keys sent, and maps keys back to OptionIds.
+        confidence: high
+        paths:
+        - src/quiz_sift/adapters/llm_contract.py
+        - src/quiz_sift/adapters/llm_prompts.py
+      - category: public_interface
+        statement_id: AST-017
+        statement: Question now holds correct_option_ids (a tuple) instead of correct_option_id, and allows
+          4, 5, or 6 options. Construction requires 1 <= answer count < number of options, and correct_option_ids
+          must equal the subset of option ids in option order with no duplicates.
         confidence: high
         paths:
         - src/quiz_sift/domain/question.py
       - category: public_interface
-        statement_id: AST-015
-        statement: grade は frozenset[OptionId] 以外を TypeError、選択肢外の ID や件数が answer_count と違う回答を ValueError
-          で拒み、正解集合と完全一致したときだけ True を返す。AttemptRecord も空集合・frozenset 以外・他問題の ID を拒む。
+        statement_id: AST-019
+        statement: grade takes a frozenset of OptionId. It raises TypeError for a non-frozenset or for
+          non-OptionId members, and ValueError for ids outside the question's options or for a size different
+          from answer_count. It returns True only when the set equals the set of correct ids. AttemptRecord
+          additionally rejects an empty or non-frozenset chosen value.
         confidence: high
         paths:
         - src/quiz_sift/domain/attempt.py
         - src/quiz_sift/scoring/grade.py
       - category: public_interface
-        statement_id: AST-016
-        statement: QuizApi.submit は chosen を文字列の配列としてだけ受け、重複があれば ValueError を送出する。present は select_count
-          を返し、submit の応答は correct_option_ids の配列を返す。
+        statement_id: AST-020
+        statement: QuizApi.submit accepts chosen only as a list of strings and raises ValueError for duplicate
+          ids. It builds a frozenset of OptionId and submits it under the deck lock. The response returns
+          correct_option_ids as a list, replacing correct_option_id. present now also returns select_count,
+          equal to answer_count.
         confidence: high
         paths:
         - src/quiz_sift/server/api.py
       - category: persistence
-        statement_id: AST-017
-        statement: attempts は chosen_option_ids 列に、local_id を整列した JSON 配列として書き込み、読み出しでは json.loads から
-          frozenset を組み立てる。
+        statement_id: AST-021
+        statement: The store now persists chosen_option_ids as a JSON array of sorted local_ids and reads
+          it back with json.loads into a frozenset.
         confidence: high
         paths:
         - src/quiz_sift/store/deck_scope.py
-      - category: observability
-        statement_id: AST-022
-        statement: _failure_kind は ContractError なら種別の値を、それ以外なら例外の型名を返す。recall の失敗ログには例外文ではなくこの値が出る。
+      - category: persistence
+        statement_id: AST-026
+        statement: When progress is provided, the recall loop saves per-question state (pending, passed,
+          or exhausted, as JSON) after each generation that produced output, after each verdict, and on
+          completion. On restore, passed and exhausted states are reused without calling the LLM. Pending
+          states resume from their stored attempts, material, verdicts, and retry. Unknown indices, or
+          a stored question that does not match the index, raise ValueError.
         confidence: high
         paths:
-        - src/quiz_sift/cli.py
         - src/quiz_sift/recall/generate.py
       - category: persistence
-        statement_id: AST-025
-        statement: '途中結果: Progress は項目を 6 桁ゼロ埋めの通し番号ファイルに、一時ファイルと os.replace で書く。load は ''.'' 始まりを飛ばし、数字でない名前があれば
-          ValueError を送出する。run_id が無い実行では StageCache.progress が None を返す。成果物を新しく確定したときだけ同じ digest の .progress
-          を rmtree し、キャッシュヒットで戻る経路では消さない。'
+        statement_id: AST-027
+        statement: StageCache.progress returns None when run_id is None. Otherwise it returns a Progress
+          directory named '<digest>.progress' under the stage directory. Progress.save writes '{index:06d}'
+          atomically through a dot-prefixed temp file and os.replace. Progress.load skips dot files and
+          raises ValueError on non-digit names. StageCache.run removes the progress directory with rmtree
+          only after it newly writes the artifact; a cache hit returns early without removing it.
         confidence: high
         paths:
         - src/quiz_sift/pipeline/stage.py
-      - category: persistence
-        statement_id: AST-026
-        statement: _restore は途中結果の通し番号がクラスタ順の問題数の範囲外なら ValueError を送出する。_state_from は question の不一致や未知の
-          state で ValueError を送出する。passed/exhausted の状態は再呼び出しせずに再利用する。
-        confidence: high
+      - category: security_boundary
+        statement_id: AST-030
+        statement: leaked_option_keys flags tokens o1..o6 (regex not adjacent to [a-z0-9]) found in the
+          normalized terms, answer texts, or discrimination text, but only those that do not also appear
+          in the question's stem, options, or explanation.
+        confidence: medium
         paths:
-        - src/quiz_sift/recall/generate.py
+        - src/quiz_sift/recall/verify.py
       unobserved:
       - task_id: T-059
         kind: dependency
@@ -1316,8 +1475,8 @@ machine:
         - src/quiz_sift/__init__.py
         as_built:
         - path: pyproject.toml
-          blob: 1714ee9dfd5ec5fc091c405c36c78fde8475c6a0
-          bytes: 6527
+          blob: 709bc4f5732308cd4f617b7eb79435b1018c8ff2
+          bytes: 6919
         - path: src/quiz_sift/__init__.py
           blob: 3c21b60bae730dd525f809655e37183b817dc279
           bytes: 558
@@ -1330,15 +1489,6 @@ machine:
         - path: src/quiz_sift/pipeline/overhead.py
           blob: 7dce743c4e0a366193c7ff53127803d623ff1dca
           bytes: 3328
-      - task_id: T-080
-        kind: public_interface
-        name: CLI の段 glossary-audio(audio 段はグロッサリの音声を書かなくなる)
-        paths:
-        - src/quiz_sift/cli.py
-        as_built:
-        - path: src/quiz_sift/cli.py
-          blob: d451f7994f90c37695f860558b754de3a0802295
-          bytes: 32142
       - task_id: T-083
         kind: default_value
         name: 固定オーバーヘッドの定数(Haiku 4.5 を思考ありの今の環境で取り直す)
@@ -1359,7 +1509,7 @@ machine:
           blob: ba0e2aeea03d5489e2c09442912b4515e716a7ec
           bytes: 45330
       as_declared:
-        count: 5
+        count: 6
         entries:
         - task_id: T-055
           kind: public_interface
@@ -1372,7 +1522,7 @@ machine:
             blob: 4730167164a0bf5d8c800acabf51f8e9b673f13c
             bytes: 6634
           statement_ids:
-          - AST-014
+          - AST-018
         - task_id: T-060
           kind: security_boundary
           name: 子 CLI の argv(ユーザ設定を読まない指定・有効ツールの許可リスト。拒否リストは無し)
@@ -1384,7 +1534,7 @@ machine:
             blob: 7b5d6a747b31fb91725dde128ba2454ca2aef6b4
             bytes: 19257
           statement_ids:
-          - AST-006
+          - AST-009
         - task_id: T-061
           kind: observability
           name: 子の呼び出しの記録(本文なし。構造化項目だけ)
@@ -1396,7 +1546,7 @@ machine:
             blob: 6cd798b3049c2e932372ec4cb40951653190412e
             bytes: 3706
           statement_ids:
-          - AST-009
+          - AST-010
         - task_id: T-065
           kind: persistence
           name: 学習記録ストア v2(attempts.chosen_option_ids、PRAGMA user_version = 2)。旧ストアは人が別名へ退避
@@ -1408,7 +1558,7 @@ machine:
             blob: 492533260d3d5049e8056dae5afc3720bb4fbd8f
             bytes: 5936
           statement_ids:
-          - AST-018
+          - AST-022
         - task_id: T-066
           kind: public_interface
           name: Web UI の複数選択と「N 個選択」の表示
@@ -1420,7 +1570,18 @@ machine:
             blob: 6ce73c9a34eb024611e735df85415345a27c85b7
             bytes: 4540
           statement_ids:
-          - AST-034
+          - AST-037
+        - task_id: T-080
+          kind: public_interface
+          name: CLI の段 glossary-audio(audio 段はグロッサリの音声を書かなくなる)
+          paths:
+          - src/quiz_sift/cli.py
+          as_built:
+          - path: src/quiz_sift/cli.py
+            blob: d451f7994f90c37695f860558b754de3a0802295
+            bytes: 32142
+          statement_ids:
+          - AST-005
     operations:
       command:
       - bash
@@ -1699,267 +1860,207 @@ machine:
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-002
+      subject_id: C-026
       disposition: revise_implementation
   - id: STMT-002
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-002
+      subject_id: C-026
       disposition: revise_design
   - id: STMT-003
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-002
+      subject_id: C-026
       disposition: run_experiment
   - id: STMT-004
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-002
+      subject_id: C-026
       disposition: request_expert
   - id: STMT-005
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-002
+      subject_id: C-026
       disposition: dispute_finding
   - id: STMT-006
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-026
+      subject_id: C-007
       disposition: revise_implementation
   - id: STMT-007
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-026
+      subject_id: C-007
       disposition: revise_design
   - id: STMT-008
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-026
+      subject_id: C-007
       disposition: run_experiment
   - id: STMT-009
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-026
+      subject_id: C-007
       disposition: request_expert
   - id: STMT-010
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-026
+      subject_id: C-007
       disposition: dispute_finding
   - id: STMT-011
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-007
+      subject_id: C-022
       disposition: revise_implementation
   - id: STMT-012
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-007
+      subject_id: C-022
       disposition: revise_design
   - id: STMT-013
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-007
+      subject_id: C-022
       disposition: run_experiment
   - id: STMT-014
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-007
+      subject_id: C-022
       disposition: request_expert
   - id: STMT-015
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-007
+      subject_id: C-022
       disposition: dispute_finding
   - id: STMT-016
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-022
+      subject_id: C-019
       disposition: revise_implementation
   - id: STMT-017
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-022
+      subject_id: C-019
       disposition: revise_design
   - id: STMT-018
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-022
+      subject_id: C-019
       disposition: run_experiment
   - id: STMT-019
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-022
+      subject_id: C-019
       disposition: request_expert
   - id: STMT-020
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-022
+      subject_id: C-019
       disposition: dispute_finding
   - id: STMT-021
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-019
+      subject_id: C-025
       disposition: revise_implementation
   - id: STMT-022
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-019
+      subject_id: C-025
       disposition: revise_design
   - id: STMT-023
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-019
+      subject_id: C-025
       disposition: run_experiment
   - id: STMT-024
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-019
+      subject_id: C-025
       disposition: request_expert
   - id: STMT-025
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-019
+      subject_id: C-025
       disposition: dispute_finding
   - id: STMT-026
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-025
+      subject_id: C-027
       disposition: revise_implementation
   - id: STMT-027
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-025
+      subject_id: C-027
       disposition: revise_design
   - id: STMT-028
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-025
+      subject_id: C-027
       disposition: run_experiment
   - id: STMT-029
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-025
+      subject_id: C-027
       disposition: request_expert
   - id: STMT-030
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-025
+      subject_id: C-027
       disposition: dispute_finding
   - id: STMT-031
     text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-023
+      subject_id: C-030
       disposition: revise_implementation
   - id: STMT-032
     text: 'Change the expectation: the plan, not the code, is what was wrong here.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-023
+      subject_id: C-030
       disposition: revise_design
   - id: STMT-033
     text: 'Run an experiment first: decide this once there is an observation to decide on.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-023
+      subject_id: C-030
       disposition: run_experiment
   - id: STMT-034
     text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
     epistemic_status: machine_inferred
     applicability:
-      subject_id: C-023
+      subject_id: C-030
       disposition: request_expert
   - id: STMT-035
-    text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-023
-      disposition: dispute_finding
-  - id: STMT-036
-    text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-027
-      disposition: revise_implementation
-  - id: STMT-037
-    text: 'Change the expectation: the plan, not the code, is what was wrong here.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-027
-      disposition: revise_design
-  - id: STMT-038
-    text: 'Run an experiment first: decide this once there is an observation to decide on.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-027
-      disposition: run_experiment
-  - id: STMT-039
-    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-027
-      disposition: request_expert
-  - id: STMT-040
-    text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-027
-      disposition: dispute_finding
-  - id: STMT-041
-    text: 'Return it to the implementer: change the code until the review can be regenerated clean.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-030
-      disposition: revise_implementation
-  - id: STMT-042
-    text: 'Change the expectation: the plan, not the code, is what was wrong here.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-030
-      disposition: revise_design
-  - id: STMT-043
-    text: 'Run an experiment first: decide this once there is an observation to decide on.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-030
-      disposition: run_experiment
-  - id: STMT-044
-    text: 'Route it to a domain expert: this is outside what a general reviewer should sign for.'
-    epistemic_status: machine_inferred
-    applicability:
-      subject_id: C-030
-      disposition: request_expert
-  - id: STMT-045
     text: 'Dispute the finding, with a reason: a review that cannot be contradicted makes it infallible.'
     epistemic_status: machine_inferred
     applicability:
@@ -1967,7 +2068,7 @@ machine:
       disposition: dispute_finding
   decision_cards:
   - id: DC-001
-    question: 'C-002 is ''unverified'': the implementation was not shown to satisfy what the plan says
+    question: 'C-026 is ''unverified'': the implementation was not shown to satisfy what the plan says
       it must. What happens to it?'
     risk: high
     options:
@@ -1983,16 +2084,15 @@ machine:
       statement_id: STMT-005
     evidence:
       expected: null
-      actual_statement_ids:
-      - AST-033
+      actual_statement_ids: []
       conformance:
-        status: partial
+        status: unknown
       semantic_support:
         status: unknown
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-002
-    question: 'C-026 is ''unverified'': the implementation was not shown to satisfy what the plan says
+    question: 'C-007 is ''unverified'': the implementation was not shown to satisfy what the plan says
       it must. What happens to it?'
     risk: high
     options:
@@ -2016,9 +2116,9 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-003
-    question: 'C-007 is ''unverified'': the implementation was not shown to satisfy what the plan says
-      it must. What happens to it?'
-    risk: high
+    question: 'C-022 is ''unknown'': the implementation was not shown to satisfy what the plan says it
+      must. What happens to it?'
+    risk: low
     options:
     - id: A
       statement_id: STMT-011
@@ -2040,9 +2140,9 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-004
-    question: 'C-022 is ''unverified'': the implementation was not shown to satisfy what the plan says
+    question: 'C-019 is ''unverified'': the implementation was not shown to satisfy what the plan says
       it must. What happens to it?'
-    risk: low
+    risk: medium
     options:
     - id: A
       statement_id: STMT-016
@@ -2064,9 +2164,9 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-005
-    question: 'C-019 is ''unverified'': the implementation was not shown to satisfy what the plan says
+    question: 'C-025 is ''unverified'': the implementation was not shown to satisfy what the plan says
       it must. What happens to it?'
-    risk: medium
+    risk: high
     options:
     - id: A
       statement_id: STMT-021
@@ -2088,9 +2188,9 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-006
-    question: 'C-025 is ''unverified'': the implementation was not shown to satisfy what the plan says
-      it must. What happens to it?'
-    risk: high
+    question: 'C-027 is ''unknown'': the implementation was not shown to satisfy what the plan says it
+      must. What happens to it?'
+    risk: medium
     options:
     - id: A
       statement_id: STMT-026
@@ -2112,9 +2212,9 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
   - id: DC-007
-    question: 'C-023 is ''unverified'': the implementation was not shown to satisfy what the plan says
-      it must. What happens to it?'
-    risk: high
+    question: 'C-030 is ''diverged'': the implementation was not shown to satisfy what the plan says it
+      must. What happens to it?'
+    risk: medium
     options:
     - id: A
       statement_id: STMT-031
@@ -2129,86 +2229,13 @@ machine:
     evidence:
       expected: null
       actual_statement_ids:
-      - AST-006
+      - AST-024
+      - AST-033
       conformance:
         status: partial
       semantic_support:
-        status: unknown
-        assessment_basis: machine_assessed
-      expected_choice: revise_implementation
-  - id: DC-008
-    question: 'C-027 is ''unknown'': the implementation was not shown to satisfy what the plan says it
-      must. What happens to it?'
-    risk: medium
-    options:
-    - id: A
-      statement_id: STMT-036
-    - id: B
-      statement_id: STMT-037
-    - id: C
-      statement_id: STMT-038
-    - id: D
-      statement_id: STMT-039
-    - id: E
-      statement_id: STMT-040
-    evidence:
-      expected: null
-      actual_statement_ids: []
-      conformance:
-        status: unknown
-      semantic_support:
-        status: unknown
-        assessment_basis: machine_assessed
-      expected_choice: revise_implementation
-  - id: DC-009
-    question: 'C-030 is ''unverified'': the implementation was not shown to satisfy what the plan says
-      it must. What happens to it?'
-    risk: medium
-    options:
-    - id: A
-      statement_id: STMT-041
-    - id: B
-      statement_id: STMT-042
-    - id: C
-      statement_id: STMT-043
-    - id: D
-      statement_id: STMT-044
-    - id: E
-      statement_id: STMT-045
-    evidence:
-      expected: null
-      actual_statement_ids:
-      - AST-022
-      - AST-023
-      conformance:
-        status: partial
-      semantic_support:
-        status: unknown
+        status: conflicted
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
 human:
-  status: in_progress
-  expertise: []
-  decisions:
-  - card_id: DC-001
-    choice: B
-    confidence: high
-    reason: 問題なし
-  - card_id: DC-002
-    choice: B
-    confidence: high
-    reason: 問題なし
-  - card_id: DC-003
-    choice: B
-    confidence: high
-    reason: 問題なし
-  - card_id: DC-006
-    choice: B
-    confidence: high
-    reason: 問題なし
-  - card_id: DC-007
-    choice: B
-    confidence: high
-    reason: 問題なし
-  dispositions: []
-  requested_experts: []
+  status: not_started
