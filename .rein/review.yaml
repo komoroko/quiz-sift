@@ -2187,4 +2187,28 @@ machine:
         assessment_basis: machine_assessed
       expected_choice: revise_implementation
 human:
-  status: not_started
+  status: in_progress
+  expertise: []
+  decisions:
+  - card_id: DC-001
+    choice: B
+    confidence: high
+    reason: 問題なし
+  - card_id: DC-002
+    choice: B
+    confidence: high
+    reason: 問題なし
+  - card_id: DC-003
+    choice: B
+    confidence: high
+    reason: 問題なし
+  - card_id: DC-006
+    choice: B
+    confidence: high
+    reason: 問題なし
+  - card_id: DC-007
+    choice: B
+    confidence: high
+    reason: 問題なし
+  dispositions: []
+  requested_experts: []
