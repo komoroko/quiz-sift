@@ -6,15 +6,15 @@
 ## Architecture overview
 
 - 入口は3つ。
-  - CLI `python -m quiz_sift.cli [--root] <段> <deck>`(`src/quiz_sift/cli.py`)。段は ingest / cluster / recall / glossary / script / audio / review / serve。`pyproject.toml` にコンソールスクリプトは無い。
+  - CLI `python -m quiz_sift.cli [--root] <段> <deck>`(`src/quiz_sift/cli.py`)。段は ingest / cluster / recall / glossary / script / audio / glossary-audio / review / serve。`pyproject.toml` にコンソールスクリプトは無い。
   - ローカル API サーバ(`src/quiz_sift/server/__main__.py`)。
   - Web UI(`web/`、Next.js 16 / React 19)。ローカル API を呼ぶだけで、判定は Python 側(ADR-006)。
 - データの流れ: `data/<deck>/` を取り込み・正規化・重複除去 → LLM でクラスタリング → 想起素材・グロッサリ・台本 → CosyVoice で音声 → `out/<deck>/…`。
-  - 各段は含意判定(safety)と grounding を通る。
-  - 段の結果は `pipeline/stage.StageCache` が digest ごとにキャッシュする(NFR-4)。
+  - cluster 要約・想起素材・グロッサリの説明は含意判定(safety)と grounding を通り、落ちた項目だけを上限つきで作り直す(作り直しには前回の出力と落ちた理由を渡す)。台本段は含意判定を呼ばず、想起素材の段の判定で通す(D-248、ADR-030)。台本段の検査はラベル列挙判定(R-6)。
+  - 段の結果は `pipeline/stage.StageCache` が digest ごとにキャッシュする(NFR-4)。recall は問題ごとの途中結果を run_id の範囲で残し、`--resume` で続きから進む。
   - 学習記録は SQLite(ADR-005)。
   - 書き出し前に `ensure_ignored` で出力先が git の追跡外かを確かめる(NFR-2)。
-- LLM の既定は今も Anthropic SDK(`cli._default_llm` → `adapters/llm_anthropic.AnthropicLlm`)。Claude Code CLI への切り替え(ADR-013)は未実装。
+- LLM は `claude -p`(`composition.build_default_llm` → `adapters/llm_claude_cli`、サブスクリプション認証、最小ホーム)。`llm_anthropic.py` は削除済み(T-062)。依存の `anthropic` は pyproject.toml に残っている。
 - 問題の自動抽出(R-2)に製品側の CLI は無い。実取得は `tests/measurements/test_extraction_logs.py` の採取経路から行った。
 
 ## Modules / directories
@@ -23,12 +23,12 @@
 |------|------|
 | `src/quiz_sift/domain/` | ドメイン型(Question・Deck・Cluster・ID 型) |
 | `src/quiz_sift/ports/` | Protocol(llm・tts・clock・metering。`RunMeter` と `FailureKind` 7種) |
-| `src/quiz_sift/adapters/` | `llm_anthropic`・`tts_cosyvoice`・`browser_cdp` |
+| `src/quiz_sift/adapters/` | `llm_claude_cli`(と `claude_process`・`claude_failure`・`llm_contract`・`llm_prompts`)・`tts_cosyvoice`・`browser_cdp` |
 | `src/quiz_sift/{ingest,cluster,recall,glossary,script,audio,schedule,scoring}/` | R-1、R-3〜R-8、R-10 の各段 |
 | `src/quiz_sift/extract/` | 抽出(HTML の純粋関数・evidence・failures・writer) |
 | `src/quiz_sift/grounding/` | 語句の実在性判定(fugashi、ADR-010) |
 | `src/quiz_sift/safety/` | 含意判定・`gitignore_guard`・`log_filter`・`secret_mask` |
-| `src/quiz_sift/pipeline/` | stage キャッシュ・meter・overhead(`OVERHEAD` は空) |
+| `src/quiz_sift/pipeline/` | stage キャッシュ・meter・overhead(Opus 5.5・Sonnet 5.5・Haiku 4.5 の較正値)・run_sequence(実行の列) |
 | `src/quiz_sift/{store,decks}/` | 学習記録ストア、デッキの manifest とレジストリ |
 | `src/quiz_sift/server/` | ローカル HTTP API |
 | `tests/` | src と同じ構成。`tests/measurements/` はホスト実測ログの判定と採取、`tests/fixtures/claude_cli/` は実 CLI の契約フィクスチャ |
@@ -41,7 +41,7 @@
 - 計測: `pipeline/meter.Meter`、`ports/metering.RunMeter`・`FailureKind`(単価表は claude-opus-5-5 と claude-haiku-4-5)
 - マスク: `safety/secret_mask.SecretMaskFilter`、`safety/log_filter.MaterialTextFilter`
 - 書き出しガード `ensure_ignored`、キャッシュ `StageCache`
-- LLM のプロンプト・JSON スキーマ・パーサ(`_proposals` / `_string`)は `adapters/llm_anthropic.py` にある。CLI 移行では共有モジュールへ移す想定(旧 T-025)。
+- LLM のプロンプト・JSON Schema・メソッド別のモデルは `adapters/llm_prompts.py`、応答の純粋パーサは `adapters/llm_contract.py`。
 - 実 CLI の契約フィクスチャ `tests/fixtures/claude_cli/`(success / invalid_schema)と採取スクリプト `tests/measurements/collect_claude_cli.py`
 - テストの fake: 共有ファクトリは無い。`StubLlm` / `StubTts` / `FakeClock` がテストファイルごとに重複している。パッケージごとの `conftest.py` に `make_deck` などがある。
 
@@ -61,8 +61,9 @@
 
 ## Existing documents
 
-- [00-product-brief.md](00-product-brief.md)。
-- [archive/2026-10-06-fisrt/](archive/2026-10-06-fisrt/): 2026-10-06 に閉じたサイクルの成果物。要件(R-1〜R-12、R-9 は欠番。NFR-1〜NFR-8)、設計、ADR-001〜ADR-019、T-001〜T-053、test-plan、実測ログ(`test/measurements/`)、retrospective、SSOT(`rein/`)。
+- [00-product-brief.md](00-product-brief.md)。入力を「4択」と書いたままで、R-1 の M ∈ {4, 5, 6} に合わせる更新は人が行う。
+- [archive/2026-10-23-n-of-m-full-run/](archive/2026-10-23-n-of-m-full-run/): 2026-10-23 に閉じたサイクルの成果物。要件の差分(R-1〜R-4・R-6〜R-8・R-12・NFR-1・NFR-2・NFR-5・NFR-7・NFR-8)、設計、ADR-020〜ADR-030、T-054〜T-090、test-plan、実測記録(`test/measurements/`)、retrospective、SSOT(`rein/`)。決定は D-168〜D-250。
+- [archive/2026-10-06-fisrt/](archive/2026-10-06-fisrt/): 2026-10-06 に閉じたサイクルの成果物。要件の全文(R-1〜R-12、R-9 は欠番。NFR-1〜NFR-8)、ADR-001〜ADR-019、T-001〜T-053。
 - [archive/2026-09-25-cli-migration-unclosed/](archive/2026-09-25-cli-migration-unclosed/README.md): rein 0.9.6 のサイクルの SSOT。閉じずに保存した。
 - `docs/` 直下の `10-requirements.md`・`20-design.md`・`tasks/`・`test/` などは、次のサイクル用のテンプレートに戻っている。
 
@@ -70,36 +71,34 @@
 
 ### Implemented capabilities
 
-旧 T-001〜T-019、T-021〜T-023、T-031 に加え、2026-10-06 に閉じたサイクルの T-032〜T-053 の分(T-047 は途中までの記録に作り直した。D-164)。acceptance は GA-ACCEPTANCE-C4F439E1。
+2026-10-06 までの分に加え、2026-10-23 に閉じたサイクルの T-054〜T-090。acceptance は GA-ACCEPTANCE-788C1629、PR #1 で main に統合。
 
-- R-1〜R-8、R-10、R-11、R-12、NFR-1〜NFR-6。
-- NFR-7: overhead の較正値あり(T-046)。実行の列の集約と CLI(`--fresh-run` / `--resume`、12 時間の上限、早期停止)がある(T-038、T-045)。
-- NFR-8: 既定の LLM は `ClaudeCliLlm`(`claude -p`、サブスクリプション認証、最小ホーム)。起動前検査・子プロセスの環境の固定・逐語ログ・失敗分類がある(T-039〜T-044)。
-- 要約の実在判定は専門用語の断片だけを照合する(D-161、T-049)。
-- 含意判定は `claude-opus-5-5`。プロンプトは要約の省略・一般化を矛盾としない(ADR-019、T-051)。
-- torch / torchaudio は 2.10、setuptools は PYSEC-2026-3447 の修正版(T-052)。依存の監査は passed。
-- C-017/C-018 の受入テストは `quality_gate` の全ステップを対象にする(T-053)。
+- R-1〜R-8、R-10、R-11、R-12、NFR-1〜NFR-8。
+- 問題は M ∈ {4, 5, 6} 択・正解 N 件(1 ≤ N < M)。正解は選択肢 ID の配列で、採点・学習記録ストア v2・API・Web UI は選択の集合の完全一致(T-055、T-065、T-066)。
+- 子 CLI: タイムアウトはプロセスグループ単位(SEC-004)、出力本文をログと例外文に出さない(SEC-003)、ユーザ設定を遮断し有効ツールは StructuredOutput だけ(SEC-001、T-054・T-060)。切り詰め(TRUNCATED)は同じ入力のまま上限つきで出し直す(T-072)。
+- モデル: 分類・要約・用語説明は Opus 5.5、含意判定は Sonnet 5.5(1問1回にまとめ、判定値を主張の ID で受ける。T-074、T-084)、recall の生成は Haiku 4.5(思考あり、D-246)。
+- フル処理: 実デッキ aip-c01(190 問)で cluster → recall → script → audio を完走(試行7、列 384e3e42)。無音判定 116 ファイルすべて真。再現性の列2本(80bc0d11・b5096b8b)で Rand 指数 0.9612。記録は `docs/test/measurements/full-run.md`・`reproducibility.md`・`audio-silence.md`(T-071)。
+- 実 CosyVoice は torch 2.10 で動く(pyworld を上流の git タグ v0.3.6 に固定。T-069)。グロッサリの音声は glossary-audio 段(T-080)。
+- バージョンは 0.1.1(T-067)。依存の監査は clean(2026-10-23)。
 
 ### In-flight / unfinished work
 
 | 項目 | 状態 | 次にやること |
 |---|---|---|
-| **想起素材のプロンプトと検査の不一致** | 実データで全件落ちる。列 591e7bb9 の recall 段が RecallRejected(ungrounded_keys=175/175、missing_options=47)。`RECALL_SYSTEM` は想起キーを本文の表記のまま抜き出すよう指示しておらず、`recall/verify.py` は `is_present` による実在を要求する | プロンプトを直すタスクを先に置く。直した後に `generic_keys`(全 term が他クラスタにも出る)で止まらないかも実データで確かめる。リポジトリ外の診断スクリプト `~/quiz-sift-diag/diag_recall.py` で、クラスタ段のキャッシュから全問を検査にかけられる |
-| **実 TTS(CosyVoice)を torch 2.10 で動かしていない** | T-052 で torch を 2.10 に下げてから未実行 | `--tts-model` を渡して audio 段を1クラスタ走らせる |
-| **セキュリティの指摘 SEC-001〜SEC-004(blocking なし)** | 最小ホームの settings 経由の差し込み(medium)、ツール制限が拒否リスト(medium)、子の stdout の INFO ログで言い換えた教材がマスクされない(low)、タイムアウト時に孫プロセスが pipe を持つと `communicate()` が戻らない(low)。詳細は archive の `rein/review.yaml` | 次のサイクルで扱うか決める |
-| **フル処理100〜200問の完走(元の T-047、不可逆)** | 未完。元の票と受入基準は archive の `docs/tasks/T-047.md` の「元の票」。途中までの記録は `docs/test/measurements/full-run.md`。クラスタ段は列 591e7bb9 で完走(n=175)。実行の道具は `tests/measurements/test_full_run_logs.py`(`exec` / `silence` / `render`) | 上の修正の後、票の受入基準のまま `cluster --fresh-run` から列を取り直す。C-003・C-007・C-019・C-020 の実データでの証拠はまだ無い。含意判定は 350〜500 回が Opus なので、週次枠の途中で止まって `--resume` を要する見込みが高い |
-
-T-047 のための許可 `Bash(uv run *:*)` が `.claude/settings.json` にある(c46dbc8)。残すか外すかは未決。
+| **クールダウンの一時除外** | `pyproject.toml` の `exclude-newer-package` で pillow・virtualenv・certifi だけを 1 週間のクールダウンから外した(D-250、人の判断 2026-10-23) | 2026-10-27 11:25 JST 以降にその行を消し、`uv lock` で解決が変わらないことを確かめる |
+| **再開で戻した問題がクラスタをまたぐ重複キーの検査を受け直さない** | 受け入れ時の残りの指摘(must_fix)。1回目の実行で問題 i が枠切れ以外の LlmCallError で失敗し、後ろの別クラスタの問題 j が i を含まずに通ると、`--resume` で i を作ったとき j との重複キーが成果物に入りうる。実デッキの記録では起きていない | 再現テストを書いて recall の再開経路を直す |
+| **テストの穴(受け入れ時の残りの指摘 12 件)** | 赤になることを確かめるテストが無い基準(分類のダイジェスト、A-3 の段ごとの数、作り直しの上限を定数でなく基準の値で比べる、grounding の作り直しのログ、glossary-audio の `--voice`、`pytest.raises` の送出内容 ほか)と、実装と食い違う docstring・コメント 2 件。一覧は archive の `rein/review.yaml` の `residual_findings` | 次のサイクルのタスクにする |
+| **依存 `anthropic` の削除** | `llm_anthropic.py` は消した(T-062)が、pyproject.toml の依存は残る | 削除して lock を出し直す |
+| **レビュアーの findings の置き場所** | タスク単位のレビュアーが findings を worktree 側の `.rein/work/` に書き、loop が読めず blocked になる。T-082・T-086・T-088・T-089・T-090 で起きた | rein 側の問題。retrospective §6 を参照 |
 
 ### Known TODOs / open issues (reference only — Issues are never read back as truth)
 
 - ソースに TODO / FIXME は無い。
-- T-029 の採取時、CLI 自身が最小ホームに `settings.json`(theme だけ)・`skills/`・`plugins/`・`projects/` を書いた。旧 T-024 の「settings.json があれば preflight が拒否する」と衝突する見込み。NFR-8 (b) と合わせて判断が要る。
-- 追跡中の扱いにくいファイル: 空の `tests/fixtures/claude_cli/invalid_schema.stdout`(旧 T-029)。次の計画で受入基準の `artifact` として宣言しないと、`rein doctor` が coverage 不足を出す。
+- 追跡中の扱いにくいファイル: 空の `tests/fixtures/claude_cli/invalid_schema.stdout`(旧 T-029)。
 
 ## Last updated
 
+- 2026-10-23: サイクル `n-of-m-full-run` を閉じる前に、構成・実装済み・引き継ぎを更新。
 - 2026-10-06: サイクル `2026-10-06-fisrt` を閉じた後に、文書の置き場・実装済み・引き継ぎを更新。loose-rein を 0.13.0 に上げる。
-
 - 2026-09-29: サイクル 2026-09-26 を閉じる前に、実装済みと引き継ぎを更新。
 - 2026-09-25: 初回の onboarding 調査(rein 0.10.0 への移行時)。

@@ -1,0 +1,62 @@
+# T-NNN: <task title>
+
+- **Covers requirement/design**: R-x / the relevant section of 20-design.md   <!-- the claim_ids of this task in .rein/plan.yaml. e.g. C-001 -->
+- **Kind**: parallel          <!-- foundation | parallel | integration. foundation=a base many depend on / parallel=independent leaves that run concurrently / integration=a join of several -->
+- **Phase**: build   <!-- requirements | design | build | verify. Default build. A bug fix originating from /verify is verify. Context for the human; the plan carries the DAG. -->
+- **status**: todo            <!-- todo | in-progress | blocked | needs-revision | awaiting-evidence | done. The truth is in .rein/state.yaml -->
+- **blockedBy**: none   <!-- tasks that must be done first. e.g. T-001, T-002 -->
+- **Dependents (what waits on this task)**: none  <!-- e.g. T-005, T-006. The more there are, the more parallelism is freed by finishing it early -->
+- **Owner**: implementer
+
+## To do
+<!-- The concrete content to implement. One task = a small, reviewable unit -->
+
+
+## Acceptance criteria
+> **The machine-readable copy lives in `.rein/plan.yaml` under this task's `acceptance:`, and that
+> is the one the loop reads.** A checkbox here is prose: nothing parses it. Write each criterion
+> here for a human, and give it an `id` matching the plan entry so the two can be read together.
+>
+> In the plan, each criterion says how it is judged: `command` (an argv the loop runs in a
+> sandboxed profile), `artifact` (paths that must exist), `external` (an observation this loop
+> cannot make — a staging check, a device, a person; the task waits at `awaiting-evidence` until
+> somebody records it with `rein evidence record`), or no `evidence` at all, which is honest for
+> a criterion that is genuinely a judgement call and leaves it to the acceptance review.
+
+- **A-1**: <one thing, stated so that it could be false>
+- **A-2**:
+
+## What this requires of a person
+> Copied from the design's "What this requires of a person / Reversibility" lines. **The
+> machine-readable copy lives in `.rein/plan.yaml` under this task's `operator_surface:`**, and that
+> is the one acceptance reads. Each entry names a `kind` (`persistence` / `public_interface` /
+> `dependency` / `default_value` / `observability` / `security_boundary` — the same words the blind
+> extractor uses), what a person deals with, where it can be read at the end, **whether it can be
+> undone**, and the ADR that decided it. Nothing to declare is a fine answer; what the code turns out
+> to require still reaches acceptance, just as something nobody foresaw.
+>
+> `reversible: false` is not a label — it makes this task its own contact point. The loop stops in
+> front of it and a human runs `rein approve T-NNN` before it runs, because afterwards there is
+> nothing to approve. Take the answer from the design's reversibility line; do not decide it here.
+
+- **<kind>**: <what a person deals with> — read at `<path>` (ADR-NNN)
+
+## Automated-test approach (the basis for the green decision)
+> The shared DoD (`quality_gate` in `.rein/config.yaml`) is what decides green, for every task
+> alike — this section says what *these* tests should cover, not which command runs them.
+- **Test kind**: unit / integration
+- **Test file(s)**: <the path the test goes in>
+<!-- This path, and any docs/decisions/ADR-*.md the design says this task records its decision in,
+     must be inside this task's `scope.include` in .rein/plan.yaml. A ticket that promises a test a
+     frozen scope forbids writing surfaces at /build as a scope_violation, after the work is done. -->
+- **Test target / cases**:
+  -
+
+## Notes / design decisions
+-
+
+## Self-assessment (assumptions, confidence)
+> Material for making low-confidence tasks explicit to the human at the mandate.
+- **Confidence**: high / medium / low
+- **Assumptions made**: <uncertain points, external dependencies, the risk of misreading due to coarse granularity, etc.>
+- **Open questions** (decisions to surface at the mandate):
